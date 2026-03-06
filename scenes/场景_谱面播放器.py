@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import pygame
+from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四把, 设置对局流程
 from core.工具 import 绘制底部联网与信用
 from scenes.场景基类 import 场景基类
 from ui.准备就绪动画 import (
@@ -83,6 +84,42 @@ def _安全读json(路径: str):
             return json.load(f)
     except Exception:
         return None
+
+
+def _读取加载页载荷json() -> dict:
+    try:
+        路径 = os.path.join(_取项目根目录(), "json", "加载页.json")
+        数据 = _安全读json(路径)
+        return dict(数据) if isinstance(数据, dict) else {}
+    except Exception:
+        return {}
+
+
+def _载荷值有效(值) -> bool:
+    if 值 is None:
+        return False
+    if isinstance(值, str):
+        文本 = 值.strip()
+        return 文本.lower() not in ("", "未知", "loading...")
+    if isinstance(值, (list, tuple, set, dict)):
+        return len(值) > 0
+    return True
+
+
+def _合并载荷源(*载荷源) -> Dict[str, Any]:
+    合并后: Dict[str, Any] = {}
+    for 载荷 in 载荷源:
+        if not isinstance(载荷, dict):
+            continue
+        for 键, 值 in 载荷.items():
+            if _载荷值有效(值) or (键 not in 合并后):
+                if isinstance(值, dict):
+                    合并后[键] = dict(值)
+                elif isinstance(值, list):
+                    合并后[键] = list(值)
+                else:
+                    合并后[键] = 值
+    return 合并后
 
 
 def _从设置参数文本提取(参数文本: str, 键名: str) -> str:
@@ -1870,7 +1907,22 @@ class 场景_谱面播放器(场景基类):
                 continue
 
     def 进入(self, 载荷=None):
-        self._载荷 = dict(载荷) if isinstance(载荷, dict) else {}
+        状态 = {}
+        状态载荷 = {}
+        try:
+            状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+            临时载荷 = (状态 or {}).get("加载页_载荷", {})
+            if isinstance(临时载荷, dict):
+                状态载荷 = dict(临时载荷)
+        except Exception:
+            状态载荷 = {}
+        传入载荷 = dict(载荷) if isinstance(载荷, dict) else {}
+        self._载荷 = _合并载荷源(_读取加载页载荷json(), 状态载荷, 传入载荷)
+        try:
+            if isinstance(状态, dict):
+                状态["加载页_载荷"] = dict(self._载荷)
+        except Exception:
+            pass
         self._刷新布局调试设置(强制=True)
         self._错误提示 = ""
         默认背景遮罩alpha = int(round(255.0 * 0.70))
@@ -3138,6 +3190,46 @@ class 场景_谱面播放器(场景基类):
         good数 = int(判定统计.get("good", 0) or 0)
         miss数 = int(判定统计.get("miss", 0) or 0)
 
+        状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+        try:
+            当前关卡 = int(
+                self._载荷.get(
+                    "当前关卡",
+                    self._载荷.get("局数", 取当前关卡(状态, 1)),
+                )
+                or 1
+            )
+        except Exception:
+            当前关卡 = 取当前关卡(状态, 1)
+        当前关卡 = max(1, min(9, int(当前关卡)))
+
+        try:
+            结算前S数 = int(
+                self._载荷.get("累计S数", self._载荷.get("当前S数", 取累计S数(状态)))
+                or 0
+            )
+        except Exception:
+            结算前S数 = 取累计S数(状态)
+        结算前S数 = max(0, min(3, int(结算前S数)))
+
+        已赠送第四把 = bool(
+            self._载荷.get("是否赠送第四把", 是否赠送第四把(状态))
+        )
+        本局评价S = bool((not 失败) and 评级 == "S")
+        结算后S数 = int(结算前S数)
+        if 当前关卡 <= 3 and 本局评价S:
+            结算后S数 = min(3, int(结算前S数) + 1)
+        三把S赠送 = bool(当前关卡 == 3 and 结算后S数 >= 3 and (not 已赠送第四把))
+        本局后赠送第四把 = bool(已赠送第四把 or 三把S赠送)
+
+        if isinstance(状态, dict):
+            设置对局流程(
+                状态,
+                当前把数=int(当前关卡),
+                累计S数=int(结算后S数),
+                赠送第四把=bool(本局后赠送第四把),
+            )
+
         return {
             "曲目名": str(self._歌曲名 or ""),
             "sm路径": str(self._载荷.get("sm路径", "") or ""),
@@ -3152,6 +3244,13 @@ class 场景_谱面播放器(场景基类):
             "评级": str(评级),
             "是否评价S": bool((not 失败) and 评级 == "S"),
             "失败": bool(失败),
+            "当前关卡": int(当前关卡),
+            "局数": int(当前关卡),
+            "结算前S数": int(结算前S数),
+            "结算后S数": int(结算后S数),
+            "累计S数": int(结算后S数),
+            "三把S赠送": bool(三把S赠送),
+            "是否赠送第四把": bool(本局后赠送第四把),
             "perfect数": int(perfect数),
             "cool数": int(cool数),
             "good数": int(good数),
@@ -3279,15 +3378,18 @@ class 场景_谱面播放器(场景基类):
         try:
             状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
             投币数 = int((状态 or {}).get("投币数", 0) or 0)
+            所需信用 = int((状态 or {}).get("每局所需信用", 3) or 3)
         except Exception:
             投币数 = 0
+            所需信用 = 3
         try:
             绘制底部联网与信用(
                 屏幕=屏幕,
                 联网原图=getattr(self, "_联网原图", None),
                 字体_credit=字体_credit,
-                credit数值=str(max(0, 投币数)),
-                文本=f"CREDIT：{max(0, 投币数)}/3",
+                credit数值=f"{max(0, 投币数)}/{int(max(1, 所需信用))}",
+                总信用需求=int(max(1, 所需信用)),
+                文本=f"CREDIT：{max(0, 投币数)}/{int(max(1, 所需信用))}",
             )
         except Exception:
             pass

@@ -340,6 +340,7 @@ def 绘制底部联网与信用(
     联网原图: pygame.Surface | None,
     字体_credit: pygame.font.Font,
     credit数值: str = "3/3",
+    总信用需求: int = 3,
     颜色: tuple[int, int, int] = (255, 255, 255),
     # ✅ 新增：整体缩放（None=用模块全局默认）
     整体缩放: float | None = None,
@@ -378,11 +379,21 @@ def 绘制底部联网与信用(
 
     # -------- 3) 文本（先 render，再整体缩放）--------
     credit文本值 = str(credit数值 or "").strip()
+    try:
+        总信用需求 = max(1, int(总信用需求 or 3))
+    except Exception:
+        总信用需求 = 3
     if "/" not in credit文本值:
         try:
-            credit文本值 = f"{max(0, int(float(credit文本值 or 0))):d}/3"
+            credit文本值 = (
+                f"{max(0, int(float(credit文本值 or 0))):d}/{int(总信用需求)}"
+            )
         except Exception:
-            credit文本值 = f"{credit文本值}/3" if credit文本值 else "0/3"
+            credit文本值 = (
+                f"{credit文本值}/{int(总信用需求)}"
+                if credit文本值
+                else f"0/{int(总信用需求)}"
+            )
 
     if 文本 is None:
         文本 = f"CREDIT：{credit文本值}"

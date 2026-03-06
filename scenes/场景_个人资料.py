@@ -1729,11 +1729,13 @@ class 场景_个人资料:
         except Exception:
             信用 = "0"
 
+        所需信用 = int(self.上下文.get("状态", {}).get("每局所需信用", 3) or 3)
         绘制底部联网与信用(
             屏幕=屏幕,
             联网原图=self._联网原图,
             字体_credit=字体_credit,
-            credit数值=信用,
+            credit数值=f"{信用}/{所需信用}",
+            总信用需求=所需信用,
         )
 
         self._绘制二次弹窗(屏幕)

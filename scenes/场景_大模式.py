@@ -375,11 +375,14 @@ class 场景_大模式(场景基类):
 
         屏幕 = self.上下文["屏幕"]
         字体_credit = self.上下文["字体"]["投币_credit字"]
+        当前信用 = int(self.上下文.get("状态", {}).get("投币数", 0) or 0)
+        所需信用 = int(self.上下文.get("状态", {}).get("每局所需信用", 3) or 3)
         绘制底部联网与信用(
             屏幕=屏幕,
             联网原图=self._联网原图,
             字体_credit=字体_credit,
-            credit数值=str(int(self.上下文.get("状态", {}).get("投币数", 0) or 0)),
+            credit数值=f"{当前信用}/{所需信用}",
+            总信用需求=所需信用,
         )
 
     def _获取入场偏移(self) -> int:
@@ -612,7 +615,6 @@ class 场景_大模式(场景基类):
             屏幕.blit(self._top标题图, self._rect_top标题.topleft)
 
         w, h = 屏幕.get_size()
-        绘制文本(屏幕, "ESC 返回", 小字, (230, 245, 255), (w - 18, 14), "topright")
 
         self._画banner与文案()
         self._更新推开动画()

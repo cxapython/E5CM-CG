@@ -104,6 +104,8 @@ class 场景_结算(场景基类):
         self._奖励窗出现秒 = (
             self._数值动画秒 + self._评级砸入秒 + self._顶部砸入秒 + 0.25
         )
+        self._中转等待秒 = 5.0
+        self._已请求中转提示 = False
 
     def 进入(self, 载荷=None):
         self._载荷 = dict(载荷) if isinstance(载荷, dict) else {}
@@ -112,6 +114,7 @@ class 场景_结算(场景基类):
         self._缩放缓存.clear()
         self._奖励数据 = {}
         self._歌曲记录结果 = {}
+        self._已请求中转提示 = False
         self._加载资源()
         self._更新个人资料()
         self._播放结算音效()
@@ -136,6 +139,13 @@ class 场景_结算(场景基类):
 
         if (not self._已切结算BGM) and (经过秒 >= float(self._结算音效时长秒 or 0.0)):
             self._播放结算背景音乐()
+        if (not self._已请求中转提示) and 经过秒 >= float(self._中转等待秒):
+            self._已请求中转提示 = True
+            return {
+                "切换到": "中转提示",
+                "载荷": self._构建中转提示载荷(经过秒),
+                "禁用黑屏过渡": True,
+            }
         return None
 
     def 处理事件(self, 事件):
@@ -310,6 +320,10 @@ class 场景_结算(场景基类):
         if 进度 <= 0.0:
             return
 
+        if bool(self._载荷.get("三把S赠送", False)):
+            self._绘制三S评级动画(屏幕, 面板矩形, 进度)
+            return
+
         目标宽 = int(面板矩形.w * 0.25)
         比例 = float(self._评级图.get_height()) / float(
             max(1, self._评级图.get_width())
@@ -339,6 +353,44 @@ class 场景_结算(场景基类):
         当前中心y = int(目标中心[1])
         rr = 图.get_rect(center=(当前中心x, 当前中心y))
         屏幕.blit(图, rr.topleft)
+
+    def _绘制三S评级动画(
+        self, 屏幕: pygame.Surface, 面板矩形: pygame.Rect, 进度: float
+    ):
+        if self._评级图 is None:
+            return
+
+        目标中心 = (
+            面板矩形.left + int(面板矩形.w * (100.0 / 512.0)),
+            面板矩形.top + int(面板矩形.h * (425.0 / 512.0)),
+        )
+        主宽 = int(面板矩形.w * 0.24)
+        主高 = int(主宽 * float(self._评级图.get_height()) / float(max(1, self._评级图.get_width())))
+        动画缩放 = 1.0 + (1.30 - 1.0) * (1.0 - _回弹(进度))
+        主宽 = max(2, int(主宽 * 动画缩放))
+        主高 = max(2, int(主高 * 动画缩放))
+        副宽 = max(2, int(主宽 * 0.68))
+        副高 = max(2, int(主高 * 0.68))
+        alpha = int(255 * _缓出三次方(进度))
+
+        def _画单个(图宽: int, 图高: int, 目标x: int, 目标y: int):
+            图 = self._缩放图(self._评级图, (图宽, 图高))
+            if 图 is None:
+                return
+            try:
+                图 = 图.copy()
+                图.set_alpha(alpha)
+            except Exception:
+                pass
+            起始x = -图宽 // 2
+            当前x = int(起始x + (目标x - 起始x) * _回弹(进度))
+            rr = 图.get_rect(center=(当前x, 目标y))
+            屏幕.blit(图, rr.topleft)
+
+        间距 = int(主宽 * 0.82)
+        _画单个(副宽, 副高, 目标中心[0] - 间距, 目标中心[1] + int(主高 * 0.06))
+        _画单个(主宽, 主高, 目标中心[0], 目标中心[1])
+        _画单个(副宽, 副高, 目标中心[0] + 间距, 目标中心[1] + int(主高 * 0.06))
 
     def _绘制顶部状态动画(
         self, 屏幕: pygame.Surface, 面板矩形: pygame.Rect, 经过秒: float
@@ -418,7 +470,7 @@ class 场景_结算(场景基类):
     def _绘制奖励小窗(self, 屏幕: pygame.Surface, 面板矩形: pygame.Rect, 经过秒: float):
         if 经过秒 < float(self._奖励窗出现秒):
             return
-        if self._等级窗背景图 is None:
+        if self._等级窗背景图 is None and self._等级窗底图 is None:
             return
 
         t = _夹取((经过秒 - float(self._奖励窗出现秒)) / 0.32, 0.0, 1.0)
@@ -429,15 +481,15 @@ class 场景_结算(场景基类):
         目标y = int(面板矩形.centery - 目标高 // 2)
         当前x = int(屏宽 + 12 - (屏宽 + 12 - 目标x) * _回弹(t))
 
-        背景图 = self._缩放图(self._等级窗背景图, (目标宽, 目标高))
-        if 背景图 is None:
-            return
-        try:
-            背景图 = 背景图.copy()
-            背景图.set_alpha(int(255 * _缓出三次方(t)))
-        except Exception:
-            pass
-        屏幕.blit(背景图, (当前x, 目标y))
+        if self._等级窗背景图 is not None:
+            背景图 = self._缩放图(self._等级窗背景图, (目标宽, 目标高))
+            if 背景图 is not None:
+                try:
+                    背景图 = 背景图.copy()
+                    背景图.set_alpha(int(255 * _缓出三次方(t)))
+                except Exception:
+                    pass
+                屏幕.blit(背景图, (当前x, 目标y))
         if self._等级窗底图 is not None:
             底图 = self._缩放图(self._等级窗底图, (目标宽, 目标高))
             if 底图 is not None:
@@ -912,6 +964,10 @@ class 场景_结算(场景基类):
         小窗目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "结算等级小窗")
         self._等级窗背景图 = _安全载图(os.path.join(小窗目录, "背景.png"))
         self._等级窗底图 = _安全载图(os.path.join(小窗目录, "UI_I516.png"))
+        if self._等级窗背景图 is None and self._等级窗底图 is not None:
+            # 仓库当前只有 UI_I516.png，没有背景.png；用现有底图兜底，避免经验小窗整块不显示。
+            self._等级窗背景图 = self._等级窗底图
+            self._等级窗底图 = None
         经验条目录 = os.path.join(根目录, "UI-img", "经验条")
         self._花式经验框图 = _安全载图(os.path.join(经验条目录, "花式经验-框.png"))
         self._花式经验值图 = _安全载图(os.path.join(经验条目录, "花式经验-值.png"))
@@ -944,15 +1000,18 @@ class 场景_结算(场景基类):
         try:
             状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
             投币数 = int((状态 or {}).get("投币数", 0) or 0)
+            所需信用 = int((状态 or {}).get("每局所需信用", 3) or 3)
         except Exception:
             投币数 = 0
+            所需信用 = 3
         try:
             绘制底部联网与信用(
                 屏幕=屏幕,
                 联网原图=getattr(self, "_联网原图", None),
                 字体_credit=字体_credit,
-                credit数值=str(max(0, 投币数)),
-                文本=f"CREDIT：{max(0, 投币数)}/3",
+                credit数值=f"{max(0, 投币数)}/{int(max(1, 所需信用))}",
+                总信用需求=int(max(1, 所需信用)),
+                文本=f"CREDIT：{max(0, 投币数)}/{int(max(1, 所需信用))}",
             )
         except Exception:
             pass
@@ -1002,6 +1061,34 @@ class 场景_结算(场景基类):
                 pygame.mixer.music.play(-1)
         except Exception:
             pass
+
+    def _构建中转提示载荷(self, 经过秒: float) -> dict:
+        载荷 = dict(self._载荷)
+        try:
+            屏幕 = self.上下文.get("屏幕")
+            if isinstance(屏幕, pygame.Surface):
+                屏宽, 屏高 = 屏幕.get_size()
+                背景截图 = pygame.Surface((屏宽, 屏高))
+                背景截图.fill((0, 0, 0))
+                self._绘制结算背景(背景截图)
+
+                常驻暗层 = pygame.Surface((屏宽, 屏高), pygame.SRCALPHA)
+                常驻暗层.fill((0, 0, 0, 120))
+                背景截图.blit(常驻暗层, (0, 0))
+
+                面板尺寸 = int(max(360, min(int(屏高 * 0.82), int(屏宽 * 0.48), 700)))
+                面板矩形 = pygame.Rect(
+                    max(28, int(屏宽 * 0.06)),
+                    max(20, (屏高 - 面板尺寸) // 2),
+                    面板尺寸,
+                    面板尺寸,
+                )
+                self._绘制结算面板(背景截图, 面板矩形, float(经过秒))
+                self._绘制奖励小窗(背景截图, 面板矩形, float(经过秒))
+                载荷["结算背景截图"] = 背景截图.convert()
+        except Exception:
+            pass
+        return 载荷
 
     def _返回选歌(self):
         状态 = (

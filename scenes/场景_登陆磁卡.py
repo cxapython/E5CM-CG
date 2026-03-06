@@ -504,11 +504,14 @@ class 场景_登陆磁卡:
 
         # ✅ 底部联网图标 + CREDIT（统一用 1P/2P 标准）
         字体_credit = self.上下文["字体"]["投币_credit字"]
+        当前信用 = int(self.上下文.get("状态", {}).get("投币数", 0) or 0)
+        所需信用 = int(self.上下文.get("状态", {}).get("每局所需信用", 3) or 3)
         绘制底部联网与信用(
             屏幕=屏幕,
             联网原图=self._联网原图,
             字体_credit=字体_credit,
-            credit数值=str(int(self.上下文.get("状态", {}).get("投币数", 0) or 0)),
+            credit数值=f"{当前信用}/{所需信用}",
+            总信用需求=所需信用,
         )
 
         # 子场景

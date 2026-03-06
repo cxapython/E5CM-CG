@@ -17,6 +17,7 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Set, Callable
+from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四把
 from ui.top栏 import 生成top栏
 from ui.选歌设置菜单控件 import (
     构建设置参数文本,
@@ -189,6 +190,10 @@ class 场景_选歌(场景基类):
             玩家数=玩家数,
             是否继承已有窗口=True,
         )
+        try:
+            self._选歌实例.上下文 = self.上下文
+        except Exception:
+            pass
 
         # ✅ 用主流程的“全局点击特效”，避免“主流程+选歌”双重点击特效
         try:
@@ -2273,6 +2278,13 @@ def 解析显示BPM(sm文本: str) -> Optional[int]:
         return None
 
 
+def 解析SM标题(sm文本: str) -> str:
+    匹配 = re.search(r"#TITLE\s*:\s*([^;]+)\s*;", sm文本, flags=re.IGNORECASE)
+    if not 匹配:
+        return ""
+    return str(匹配.group(1) or "").strip()
+
+
 def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
     """
     严格按末尾 #数字 解析星级：#几 就画几颗星
@@ -2280,16 +2292,23 @@ def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
     示例：FANCY_CLUB#1+1=0_1706#4  => 星级=4，歌名=1+1=0_1706
     """
     星级 = 3
-    m = re.search(r"#\s*(\d+)\s*$", 文件夹名)
-    if m:
+    末尾星级匹配 = re.search(r"#\s*(\d+)\s*$", 文件夹名)
+    if 末尾星级匹配:
         try:
-            星级 = int(m.group(1))
+            星级 = int(末尾星级匹配.group(1))
         except Exception:
             星级 = 3
+    else:
+        前缀星级匹配 = re.match(r"^\(\s*(\d+)\s*\)\s*", 文件夹名)
+        if 前缀星级匹配:
+            try:
+                星级 = int(前缀星级匹配.group(1))
+            except Exception:
+                星级 = 3
 
     parts = 文件夹名.split("#")
     if len(parts) >= 2:
-        if m:
+        if 末尾星级匹配:
             中间 = "#".join(parts[1:-1]) if len(parts) > 2 else parts[1]
         else:
             中间 = "#".join(parts[1:])
@@ -2297,7 +2316,9 @@ def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
         中间 = 文件夹名
 
     中间 = 中间.strip()
+    中间 = re.sub(r"^\(\s*\d+\s*\)\s*", "", 中间)
     中间 = re.sub(r"^\d+\s*", "", 中间)
+    中间 = re.sub(r"^[\-_ ]+", "", 中间)
     歌名 = 中间 if 中间 else 文件夹名
 
     # ✅ 星级钳制 1~20
@@ -2308,6 +2329,42 @@ def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
     星级 = max(1, min(20, 星级))
 
     return 歌名, 星级
+
+
+def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Optional["歌曲信息"]:
+    if (not sm路径) or (not os.path.isfile(sm路径)):
+        return None
+
+    歌曲路径 = os.path.dirname(sm路径)
+    歌曲文件夹 = os.path.basename(歌曲路径)
+    if str(歌曲文件夹 or "").strip().lower() in {"backup", "backups"}:
+        return None
+    sm文本 = 安全读取文本(sm路径)
+
+    音频路径 = 找文件(歌曲路径, (".ogg", ".mp3", ".wav"))
+    封面路径 = 找封面(歌曲路径)
+    bpm = 解析显示BPM(sm文本)
+    歌名, 星级 = 从文件夹名解析歌名星级(歌曲文件夹)
+
+    if "#" not in str(歌曲文件夹 or ""):
+        sm标题 = 解析SM标题(sm文本)
+        if sm标题:
+            歌名 = sm标题
+
+    return 歌曲信息(
+        序号=0,
+        类型=str(类型名 or ""),
+        模式=str(模式名 or ""),
+        歌曲文件夹=歌曲文件夹,
+        歌曲路径=歌曲路径,
+        sm路径=sm路径,
+        mp3路径=音频路径,
+        封面路径=封面路径,
+        歌名=歌名,
+        星级=max(1, int(星级 or 1)),
+        bpm=bpm,
+        是否VIP=bool(int(星级 or 0) >= 5),
+    )
 
 
 def 找文件(目录: str, 扩展名集合: Tuple[str, ...]) -> Optional[str]:
@@ -2358,42 +2415,15 @@ def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信
 
             类型名 = parts[0]
             模式名 = parts[1]
-            歌曲文件夹 = parts[2]
-            歌曲路径 = os.path.join(songs根目录, 类型名, 模式名, 歌曲文件夹)
-
-            if not os.path.isdir(歌曲路径):
-                歌曲路径 = os.path.dirname(sm路径)
-                歌曲文件夹 = os.path.basename(歌曲路径)
-
-            mp3路径 = 找文件(歌曲路径, (".mp3",))
-            封面路径 = 找封面(歌曲路径)
-
-            sm文本 = 安全读取文本(sm路径)
-            bpm = 解析显示BPM(sm文本)
-
-            歌名, 星级 = 从文件夹名解析歌名星级(歌曲文件夹)
-            是否VIP = 星级 >= 5
+            歌 = 解析歌曲元数据(sm路径, 类型名, 模式名)
+            if 歌 is None:
+                continue
 
             键 = (类型名, 模式名)
             if 键 not in 临时收集:
                 临时收集[键] = []
 
-            临时收集[键].append(
-                歌曲信息(
-                    序号=0,
-                    类型=类型名,
-                    模式=模式名,
-                    歌曲文件夹=歌曲文件夹,
-                    歌曲路径=歌曲路径,
-                    sm路径=sm路径,
-                    mp3路径=mp3路径,
-                    封面路径=封面路径,
-                    歌名=歌名,
-                    星级=星级,
-                    bpm=bpm,
-                    是否VIP=是否VIP,
-                )
-            )
+            临时收集[键].append(歌)
 
     def _排序键(歌: 歌曲信息):
         try:
@@ -2487,38 +2517,9 @@ def 扫描songs_指定路径(
 
             类型名_实际 = parts[0]
             模式名_实际 = parts[1]
-            歌曲文件夹 = parts[2]
-            歌曲路径 = os.path.join(songs根目录, 类型名_实际, 模式名_实际, 歌曲文件夹)
-
-            if not os.path.isdir(歌曲路径):
-                歌曲路径 = os.path.dirname(sm路径)
-                歌曲文件夹 = os.path.basename(歌曲路径)
-
-            mp3路径 = 找文件(歌曲路径, (".mp3",))
-            封面路径 = 找封面(歌曲路径)
-
-            sm文本 = 安全读取文本(sm路径)
-            bpm = 解析显示BPM(sm文本)
-
-            歌名, 星级 = 从文件夹名解析歌名星级(歌曲文件夹)
-            是否VIP = 星级 >= 5
-
-            收集.append(
-                歌曲信息(
-                    序号=0,
-                    类型=类型名_实际,
-                    模式=模式名_实际,
-                    歌曲文件夹=歌曲文件夹,
-                    歌曲路径=歌曲路径,
-                    sm路径=sm路径,
-                    mp3路径=mp3路径,
-                    封面路径=封面路径,
-                    歌名=歌名,
-                    星级=星级,
-                    bpm=bpm,
-                    是否VIP=是否VIP,
-                )
-            )
+            歌 = 解析歌曲元数据(sm路径, 类型名_实际, 模式名_实际)
+            if 歌 is not None:
+                收集.append(歌)
 
     def _排序键(歌: 歌曲信息):
         try:
@@ -3609,6 +3610,7 @@ class 选歌游戏:
         pygame.display.set_caption("e舞成名 选歌界面（Pygame）")
 
         # === 外部传入的关键变量 ===
+        self.上下文: dict = {}
         self.songs根目录 = songs根目录
         self.背景音乐路径 = 背景音乐路径
         self.logo路径 = logo路径  # 参数保留避免别处调用崩
@@ -4418,6 +4420,11 @@ class 选歌游戏:
         except Exception:
             人气 = 0
 
+        状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+        当前关卡 = 取当前关卡(状态, 1)
+        累计S数 = 取累计S数(状态)
+        已赠送第四把 = 是否赠送第四把(状态)
+
         return {
             "sm路径": sm路径,
             "封面路径": 封面路径,
@@ -4433,6 +4440,10 @@ class 选歌游戏:
             "歌曲文件夹": 歌曲文件夹,
             "原始歌曲文件夹": 原始歌曲文件夹,
             "选歌原始索引": int(当前索引 if 歌 is not None else -1),
+            "当前关卡": int(当前关卡),
+            "局数": int(当前关卡),
+            "累计S数": int(累计S数),
+            "是否赠送第四把": bool(已赠送第四把),
         }
 
     def _写入加载页json(self, 载荷: dict):

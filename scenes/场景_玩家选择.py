@@ -10,6 +10,7 @@ except Exception:
     cv2 = None
     _可用视频 = False
 
+from core.对局状态 import 初始化对局流程, 消耗信用, 取每局所需信用
 from ui.按钮特效 import 公用按钮点击特效, 公用按钮音效
 
 
@@ -252,19 +253,13 @@ class 场景_玩家选择:
         else:
             self._2p图_hover = None
 
-    def _消耗开局信用(self, 数量: int = 3):
+    def _消耗开局信用(self, 数量: int | None = None):
         状态 = self.上下文.get("状态", {})
         if not isinstance(状态, dict):
             return
-
-        try:
-            当前投币数 = int(状态.get("投币数", 0) or 0)
-        except Exception:
-            当前投币数 = 0
-
-        剩余投币数 = max(0, 当前投币数 - max(0, int(数量)))
-        状态["投币数"] = int(剩余投币数)
-        状态["credit"] = str(int(剩余投币数))
+        if 数量 is None:
+            数量 = 取每局所需信用(状态)
+        消耗信用(状态, int(数量))
 
     # -------------------------
     # 生命周期
@@ -331,11 +326,18 @@ class 场景_玩家选择:
 
         from core.工具 import 绘制底部联网与信用
 
+        状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+        try:
+            当前信用 = int((状态 or {}).get("投币数", 0) or 0)
+        except Exception:
+            当前信用 = 0
+        所需信用 = 取每局所需信用(状态)
         绘制底部联网与信用(
             屏幕=屏幕,
             联网原图=self._联网原图,  # ✅ 用原图，公共函数内部会按 1P/2P bbox 缩放缓存
             字体_credit=字体_credit,
-            credit数值=str(int(self.上下文.get("状态", {}).get("投币数", 0) or 0)),
+            credit数值=f"{当前信用}/{int(所需信用)}",
+            总信用需求=int(所需信用),
         )
 
         # 1P/2P
@@ -377,14 +379,16 @@ class 场景_玩家选择:
             if self._1p_rect.collidepoint(事件.pos):
                 self.按钮音效.播放()
                 self._1p特效.触发()
-                self._消耗开局信用(3)
+                self._消耗开局信用()
+                初始化对局流程(self.上下文.get("状态", {}))
                 self.上下文["状态"]["玩家数"] = 1
                 return {"切换到": "登陆磁卡"}
 
             if self._2p_rect.collidepoint(事件.pos):
                 self.按钮音效.播放()
                 self._2p特效.触发()
-                self._消耗开局信用(3)
+                self._消耗开局信用()
+                初始化对局流程(self.上下文.get("状态", {}))
                 self.上下文["状态"]["玩家数"] = 2
                 return {"切换到": "登陆磁卡"}
 

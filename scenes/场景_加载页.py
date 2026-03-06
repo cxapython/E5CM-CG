@@ -120,6 +120,33 @@ def _自动换行(字体: pygame.font.Font, 文本: str, 最大宽: int) -> List
     return 行列表
 
 
+def _载荷值有效(值) -> bool:
+    if 值 is None:
+        return False
+    if isinstance(值, str):
+        文本 = 值.strip()
+        return 文本.lower() not in ("", "未知", "loading...")
+    if isinstance(值, (list, tuple, set, dict)):
+        return len(值) > 0
+    return True
+
+
+def _合并载荷源(*载荷源) -> Dict:
+    合并后: Dict = {}
+    for 载荷 in 载荷源:
+        if not isinstance(载荷, dict):
+            continue
+        for 键, 值 in 载荷.items():
+            if _载荷值有效(值) or (键 not in 合并后):
+                if isinstance(值, dict):
+                    合并后[键] = dict(值)
+                elif isinstance(值, list):
+                    合并后[键] = list(值)
+                else:
+                    合并后[键] = 值
+    return 合并后
+
+
 class 场景_加载页(场景基类):
     名称 = "加载页"
 
@@ -148,16 +175,28 @@ class 场景_加载页(场景基类):
         self._联网原图: Optional[pygame.Surface] = None
         self._选歌设置数据: dict = {}
         self._选歌设置参数文本: str = ""
+        self._背景原图: Optional[pygame.Surface] = None
+        self._背景缩放缓存: Optional[pygame.Surface] = None
+        self._背景缩放尺寸 = (0, 0)
+        self._星星原图: Optional[pygame.Surface] = None
+        self._封面原图: Optional[pygame.Surface] = None
+        self._封面缩放缓存: Optional[pygame.Surface] = None
+        self._封面缩放尺寸 = (0, 0)
 
     def 进入(self, 载荷=None):
         self._入场开始 = time.time()
+        状态载荷 = {}
+        try:
+            状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+            临时载荷 = (状态 or {}).get("加载页_载荷", {})
+            if isinstance(临时载荷, dict):
+                状态载荷 = dict(临时载荷)
+        except Exception:
+            状态载荷 = {}
 
-        # ✅ 1) 优先使用主流程传入的载荷（必须非空 dict）
-        if isinstance(载荷, dict) and len(载荷) > 0:
-            self._载荷 = dict(载荷)
-        else:
-            # ✅ 2) 兜底：从 根目录/json/加载页.json 读
-            self._载荷 = self._读取加载页json()
+        传入载荷 = dict(载荷) if isinstance(载荷, dict) else {}
+        落盘载荷 = self._读取加载页json()
+        self._载荷 = _合并载荷源(落盘载荷, 状态载荷, 传入载荷)
 
         self._选歌设置数据 = self._读取选歌设置json()
         self._选歌设置参数文本 = self._构建选歌设置参数文本(self._选歌设置数据)
@@ -204,6 +243,16 @@ class 场景_加载页(场景基类):
             self._布局渲染器 = None
             self._联网原图 = None
 
+        try:
+            if isinstance(self.上下文, dict):
+                状态 = self.上下文.get("状态", {}) or {}
+                if isinstance(状态, dict):
+                    状态["加载页_载荷"] = dict(self._载荷)
+        except Exception:
+            pass
+
+        self._加载资源()
+        self._加载封面()
         self._刷新个人资料缓存(强制=True)
 
     def _读取个人资料json(self, 文件路径: str) -> dict:
@@ -408,15 +457,18 @@ class 场景_加载页(场景基类):
         try:
             状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
             投币数 = int((状态 or {}).get("投币数", 0) or 0)
+            所需信用 = int((状态 or {}).get("每局所需信用", 3) or 3)
         except Exception:
             投币数 = 0
+            所需信用 = 3
         try:
             绘制底部联网与信用(
                 屏幕=屏幕,
                 联网原图=getattr(self, "_联网原图", None),
                 字体_credit=字体_credit,
-                credit数值=str(max(0, 投币数)),
-                文本=f"CREDIT：{max(0, 投币数)}/3",
+                credit数值=f"{max(0, 投币数)}/{int(max(1, 所需信用))}",
+                总信用需求=int(max(1, 所需信用)),
+                文本=f"CREDIT：{max(0, 投币数)}/{int(max(1, 所需信用))}",
             )
         except Exception:
             pass
