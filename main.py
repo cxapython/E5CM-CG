@@ -326,6 +326,12 @@ def 主函数():
     初始h = min(默认窗口h, int(信息.current_h or 默认窗口h))
     屏幕 = _创建显示窗口((初始w, 初始h), pygame.RESIZABLE)
 
+    # ✅ 窗口创建后立即再次切换输入法（因为 Pygame 窗口激活时会重置输入法）
+    import time
+    time.sleep(0.15)
+    _切换英文输入法()
+    pygame.event.clear()  # 清除任何输入事件
+
     时钟 = pygame.time.Clock()
     资源 = 默认资源路径()
 
