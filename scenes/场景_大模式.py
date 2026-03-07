@@ -326,11 +326,26 @@ class 场景_大模式(场景基类):
         self._提示文本 = ""
         self._提示截止时间 = 0.0
 
+        状态 = self.上下文.setdefault("状态", {})
+        if not isinstance(状态, dict):
+            状态 = {}
+            self.上下文["状态"] = 状态
+
         for cfg in self._模式列表:
             if cfg["键"] == 键:
                 self._当前文案 = cfg["文案"]
-                self.上下文["状态"]["大模式"] = cfg["键"]
-                self.上下文["状态"]["songs子文件夹"] = cfg["songs子目录"]
+
+                类型名 = str(cfg.get("键", "") or "").strip()
+                songs子目录 = str(cfg.get("songs子目录", "") or 类型名).strip()
+
+                状态["大模式"] = 类型名
+                状态["songs子文件夹"] = songs子目录
+                状态["选歌_类型"] = songs子目录 or 类型名
+
+                # ✅ 大模式一旦变了，旧的子模式/选歌模式一律清空，防止串台
+                状态["子模式"] = ""
+                状态["选歌_模式"] = ""
+                状态.pop("选歌_BGM", None)
                 break
 
     def _取当前选择索引(self) -> int | None:
@@ -449,8 +464,17 @@ class 场景_大模式(场景基类):
 
         标签色 = (255, 223, 180) if 脉冲 >= 0.5 else (255, 201, 147)
         提示色 = (255, 241, 220)
-        绘制文本(屏幕, "UNAVAILABLE", 小字, 标签色, (rect.centerx, rect.y + 24), "center")
-        绘制文本(屏幕, self._提示文本, 小字, 提示色, (rect.centerx, rect.centery + 16), "center")
+        绘制文本(
+            屏幕, "UNAVAILABLE", 小字, 标签色, (rect.centerx, rect.y + 24), "center"
+        )
+        绘制文本(
+            屏幕,
+            self._提示文本,
+            小字,
+            提示色,
+            (rect.centerx, rect.centery + 16),
+            "center",
+        )
 
     # ---------------- 绘制 ----------------
     def _画背景(self):

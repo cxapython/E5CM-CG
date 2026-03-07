@@ -35,6 +35,8 @@ from scenes.场景基类 import 场景基类
 
 
 _项目根目录_缓存: str | None = None
+_运行根目录_缓存: str | None = None
+_songs根目录_缓存: str | None = None
 
 
 def _取项目根目录() -> str:
@@ -42,32 +44,235 @@ def _取项目根目录() -> str:
     if _项目根目录_缓存:
         return _项目根目录_缓存
 
-    # 打包 exe：资源通常相对 exe
+    候选起点列表: List[str] = []
+
     try:
         if getattr(sys, "frozen", False):
-            起点 = os.path.dirname(os.path.abspath(sys.executable))
-        else:
-            起点 = os.path.dirname(os.path.abspath(__file__))
+            临时资源目录 = str(getattr(sys, "_MEIPASS", "") or "").strip()
+            if 临时资源目录:
+                候选起点列表.append(os.path.abspath(临时资源目录))
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
     except Exception:
-        起点 = os.getcwd()
+        pass
 
-    当前 = os.path.abspath(起点)
-    for _ in range(8):
-        if (
-            os.path.isdir(os.path.join(当前, "core"))
-            and os.path.isdir(os.path.join(当前, "ui"))
-            and os.path.isdir(os.path.join(当前, "songs"))
-        ):
-            _项目根目录_缓存 = 当前
-            return 当前
-        上级 = os.path.dirname(当前)
-        if 上级 == 当前:
-            break
-        当前 = 上级
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
 
-    # 兜底：找不到就用起点
-    _项目根目录_缓存 = os.path.abspath(起点)
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    已检查: Set[str] = set()
+    for 起点 in 候选起点列表:
+        当前 = os.path.abspath(str(起点 or ""))
+        if (not 当前) or (当前 in 已检查):
+            continue
+        已检查.add(当前)
+
+        for _ in range(10):
+            if os.path.isdir(os.path.join(当前, "UI-img")) and os.path.isdir(
+                os.path.join(当前, "json")
+            ):
+                _项目根目录_缓存 = 当前
+                return 当前
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    for 起点 in 候选起点列表:
+        if 起点:
+            _项目根目录_缓存 = os.path.abspath(起点)
+            return _项目根目录_缓存
+
+    _项目根目录_缓存 = os.getcwd()
     return _项目根目录_缓存
+
+
+def _取运行根目录() -> str:
+    global _运行根目录_缓存
+    if _运行根目录_缓存:
+        return _运行根目录_缓存
+
+    候选起点列表: List[str] = []
+
+    try:
+        if getattr(sys, "frozen", False):
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    已检查: Set[str] = set()
+    for 起点 in 候选起点列表:
+        当前 = os.path.abspath(str(起点 or ""))
+        if (not 当前) or (当前 in 已检查):
+            continue
+        已检查.add(当前)
+
+        for _ in range(10):
+            if os.path.isdir(os.path.join(当前, "songs")) or os.path.isfile(
+                os.path.join(当前, "main.py")
+            ):
+                _运行根目录_缓存 = 当前
+                return 当前
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    try:
+        if getattr(sys, "frozen", False):
+            _运行根目录_缓存 = os.path.dirname(os.path.abspath(sys.executable))
+            return _运行根目录_缓存
+    except Exception:
+        pass
+
+    _运行根目录_缓存 = os.path.abspath(
+        os.path.dirname(os.path.abspath(__file__))
+        if "__file__" in globals()
+        else os.getcwd()
+    )
+    return _运行根目录_缓存
+
+
+def _取songs根目录(资源: Optional[dict] = None) -> str:
+    global _songs根目录_缓存
+
+    候选路径列表: List[str] = []
+    if isinstance(资源, dict):
+        for 键名 in ("songs根目录", "外置songs根目录"):
+            值 = str(资源.get(键名, "") or "").strip()
+            if 值:
+                候选路径列表.append(os.path.abspath(值))
+        资源根 = str(资源.get("根", "") or "").strip()
+        if 资源根:
+            候选路径列表.append(os.path.abspath(os.path.join(资源根, "songs")))
+
+    运行根目录 = _取运行根目录()
+    候选路径列表.append(os.path.abspath(os.path.join(运行根目录, "songs")))
+    候选路径列表.append(os.path.abspath(os.path.join(_取项目根目录(), "songs")))
+
+    for 候选路径 in 候选路径列表:
+        if 候选路径 and os.path.isdir(候选路径):
+            _songs根目录_缓存 = 候选路径
+            return 候选路径
+
+    if _songs根目录_缓存:
+        return _songs根目录_缓存
+
+    默认路径 = os.path.abspath(os.path.join(运行根目录, "songs"))
+    _songs根目录_缓存 = 默认路径
+    return 默认路径
+
+
+def _归一化目录名(名称: str) -> str:
+    return re.sub(r"[\s_\-]+", "", str(名称 or "")).strip().lower()
+
+
+def _列出一级子目录(目录路径: str) -> List[str]:
+    结果: List[str] = []
+    if not os.path.isdir(目录路径):
+        return 结果
+
+    try:
+        for 名称 in os.listdir(目录路径):
+            完整路径 = os.path.join(目录路径, 名称)
+            if os.path.isdir(完整路径):
+                结果.append(str(名称))
+    except Exception:
+        return []
+
+    结果.sort()
+    return 结果
+
+
+def _在现有名称中匹配(现有名称列表: List[str], 候选名称: str) -> str:
+    if not 现有名称列表:
+        return ""
+
+    目标 = str(候选名称 or "").strip()
+    if not 目标:
+        return ""
+
+    if 目标 in 现有名称列表:
+        return 目标
+
+    目标归一 = _归一化目录名(目标)
+    for 现有名称 in 现有名称列表:
+        if _归一化目录名(现有名称) == 目标归一:
+            return 现有名称
+
+    return ""
+
+
+def _匹配子目录名(父目录: str, 候选名称列表: List[str]) -> str:
+    子目录列表 = _列出一级子目录(父目录)
+    if not 子目录列表:
+        return ""
+
+    for 候选名称 in 候选名称列表:
+        匹配结果 = _在现有名称中匹配(子目录列表, str(候选名称 or ""))
+        if 匹配结果:
+            return 匹配结果
+
+    return ""
+
+
+def _解析选歌入口参数(状态: dict, songs根目录: str) -> Tuple[str, str]:
+    if not isinstance(状态, dict):
+        状态 = {}
+
+    类型候选列表 = [
+        状态.get("选歌_类型", ""),
+        状态.get("大模式", ""),
+        状态.get("songs子文件夹", ""),
+    ]
+    模式候选列表 = [
+        状态.get("选歌_模式", ""),
+        状态.get("子模式", ""),
+    ]
+
+    类型名 = _匹配子目录名(songs根目录, [str(x or "") for x in 类型候选列表])
+    if not 类型名:
+        所有类型列表 = _列出一级子目录(songs根目录)
+        if len(所有类型列表) == 1:
+            类型名 = 所有类型列表[0]
+
+    模式父目录 = os.path.join(songs根目录, 类型名) if 类型名 else ""
+    模式名 = _匹配子目录名(模式父目录, [str(x or "") for x in 模式候选列表])
+
+    if (not 模式名) and 模式父目录:
+        所有模式列表 = _列出一级子目录(模式父目录)
+        if len(所有模式列表) == 1:
+            模式名 = 所有模式列表[0]
+
+    if 类型名:
+        状态["选歌_类型"] = 类型名
+        if not str(状态.get("大模式", "") or "").strip():
+            状态["大模式"] = 类型名
+    else:
+        状态.pop("选歌_类型", None)
+
+    if 模式名:
+        状态["选歌_模式"] = 模式名
+        状态["子模式"] = 模式名
+    else:
+        状态.pop("选歌_模式", None)
+
+    return str(类型名 or ""), str(模式名 or "")
 
 
 class 场景_选歌(场景基类):
@@ -99,23 +304,30 @@ class 场景_选歌(场景基类):
     def 进入(self, 载荷=None):
         资源 = self.上下文.get("资源", {})
         状态 = self.上下文.get("状态", {})
+        if not isinstance(状态, dict):
+            状态 = {}
+            self.上下文["状态"] = 状态
 
-        根目录 = str(资源.get("根", "") or os.getcwd())
-        songs根目录 = os.path.join(根目录, "songs")
-
+        资源根目录 = _取项目根目录()
+        songs根目录 = _取songs根目录(资源)
         玩家数 = int(状态.get("玩家数", 1) or 1)
-        类型名 = str(状态.get("选歌_类型", 状态.get("大模式", "")) or "")
-        模式名 = str(状态.get("选歌_模式", 状态.get("子模式", "")) or "")
+
+        类型名, 模式名 = _解析选歌入口参数(状态, songs根目录)
 
         def _取第一个存在的文件(*候选路径: str) -> str:
-            for p in 候选路径:
+            for 路径 in 候选路径:
                 try:
-                    p = str(p or "")
-                    if p and os.path.isfile(p):
-                        return p
+                    路径 = str(路径 or "")
+                    if 路径 and os.path.isfile(路径):
+                        return 路径
                 except Exception:
                     continue
             return ""
+
+        try:
+            状态["songs根目录"] = songs根目录
+        except Exception:
+            pass
 
         # ✅ 进入选歌前：停掉主流程的 音乐管理（否则和 pygame.mixer.music 撞车）
         try:
@@ -123,21 +335,19 @@ class 场景_选歌(场景基类):
         except Exception:
             pass
 
-        # 1) 优先用上游场景传入的选歌_BGM（但如果路径不存在就当无效）
         背景音乐路径 = str(状态.get("选歌_BGM", "") or "")
         if not os.path.isfile(背景音乐路径):
             背景音乐路径 = ""
 
         模式小写 = 模式名.strip().lower()
 
-        # 2) ✅ 学习/情侣：强制映射（只在文件存在时覆盖）
         学习路径 = _取第一个存在的文件(
             str(资源.get("音乐_easy", "") or ""),
-            os.path.join(根目录, "冷资源", "backsound", "easy.mp3"),
+            os.path.join(资源根目录, "冷资源", "backsound", "easy.mp3"),
         )
         情侣路径 = _取第一个存在的文件(
             str(资源.get("音乐_lover", "") or ""),
-            os.path.join(根目录, "冷资源", "backsound", "lover.mp3"),
+            os.path.join(资源根目录, "冷资源", "backsound", "lover.mp3"),
         )
 
         if (("学习" in 模式名) or ("easy" in 模式小写)) and 学习路径:
@@ -145,23 +355,22 @@ class 场景_选歌(场景基类):
         elif (("情侣" in 模式名) or ("lover" in 模式小写)) and 情侣路径:
             背景音乐路径 = 情侣路径
 
-        # 3) 其它模式：如果仍没BGM，再按模式兜底
         if not 背景音乐路径:
             表演路径 = _取第一个存在的文件(
                 str(资源.get("音乐_show", "") or ""),
-                os.path.join(根目录, "冷资源", "backsound", "show.mp3"),
+                os.path.join(资源根目录, "冷资源", "backsound", "show.mp3"),
             )
             疯狂路径 = _取第一个存在的文件(
                 str(资源.get("音乐_devil", "") or ""),
-                os.path.join(根目录, "冷资源", "backsound", "devil.mp3"),
+                os.path.join(资源根目录, "冷资源", "backsound", "devil.mp3"),
             )
             混音路径 = _取第一个存在的文件(
                 str(资源.get("音乐_remix", "") or ""),
-                os.path.join(根目录, "冷资源", "backsound", "remix.mp3"),
+                os.path.join(资源根目录, "冷资源", "backsound", "remix.mp3"),
             )
             club路径 = _取第一个存在的文件(
                 str(资源.get("音乐_club", "") or ""),
-                os.path.join(根目录, "冷资源", "backsound", "club.mp3"),
+                os.path.join(资源根目录, "冷资源", "backsound", "club.mp3"),
             )
 
             if "表演" in 模式名 and 表演路径:
@@ -173,7 +382,6 @@ class 场景_选歌(场景基类):
             elif (("club" in 模式小写) or ("双踏板" in 模式名)) and club路径:
                 背景音乐路径 = club路径
 
-        # 4) 最终兜底：UI音乐/投币音乐
         if not 背景音乐路径:
             背景音乐路径 = _取第一个存在的文件(
                 str(资源.get("音乐_UI", "") or ""),
@@ -181,7 +389,10 @@ class 场景_选歌(场景基类):
                 str(资源.get("投币_BGM", "") or ""),
             )
 
-        logo路径 = os.path.join(根目录, "res", "logo", "base.png")
+        logo路径 = _取第一个存在的文件(
+            os.path.join(资源根目录, "res", "logo", "base.png"),
+            os.path.join(_取运行根目录(), "res", "logo", "base.png"),
+        )
 
         self._选歌实例 = 选歌游戏(
             songs根目录=songs根目录,
@@ -197,13 +408,11 @@ class 场景_选歌(场景基类):
         except Exception:
             pass
 
-        # ✅ 用主流程的“全局点击特效”，避免“主流程+选歌”双重点击特效
         try:
             setattr(self._选歌实例, "_全局点击特效", None)
         except Exception:
             pass
 
-        # ✅ 强制把当前屏幕塞给选歌实例（避免 resize 后拿旧 surface）
         try:
             if hasattr(self._选歌实例, "绑定外部屏幕"):
                 self._选歌实例.绑定外部屏幕(self.上下文["屏幕"])
@@ -228,7 +437,9 @@ class 场景_选歌(场景基类):
                 try:
                     if int(恢复原始索引) < 0:
                         raise ValueError("restore index disabled")
-                    恢复原始索引 = int(max(0, min(int(恢复原始索引), len(原始列表) - 1)))
+                    恢复原始索引 = int(
+                        max(0, min(int(恢复原始索引), len(原始列表) - 1))
+                    )
                     self._选歌实例.当前选择原始索引 = 恢复原始索引
                     if 恢复详情页 and hasattr(self._选歌实例, "进入详情_原始索引"):
                         self._选歌实例.进入详情_原始索引(int(恢复原始索引))
@@ -531,7 +742,7 @@ _设置页_箭头预览_内边距 = 0
 # ✅ 设置页：资源/布局/绘制/交互
 # =========================
 def _设置页_持久化文件路径(self) -> str:
-    return os.path.join(_取项目根目录(), "json", "选歌设置.json")
+    return os.path.join(_取运行根目录(), "json", "选歌设置.json")
 
 
 def _设置页_从参数文本提取(参数文本: str, 键名: str) -> str:
@@ -610,7 +821,9 @@ def _设置页_加载持久化设置(self):
     _应用索引("设置_方向索引", "方向", len(getattr(self, "设置_方向选项", [])))
     _应用索引("设置_大小索引", "大小", len(getattr(self, "设置_大小选项", [])))
     _应用索引("设置_箭头索引", "箭头", len(getattr(self, "设置_箭头候选路径列表", [])))
-    _应用索引("设置_背景索引", "背景", len(getattr(self, "设置_背景大图文件名列表", [])))
+    _应用索引(
+        "设置_背景索引", "背景", len(getattr(self, "设置_背景大图文件名列表", []))
+    )
 
     参数 = 数据.get("设置参数", {})
     if not isinstance(参数, dict):
@@ -3758,14 +3971,10 @@ class 歌曲卡片:
 
             基线y = int(bpm文y + bpm文高 + int(游玩y偏移))
             游玩标签y = int(
-                基线y
-                - int(游玩标签面.get_height())
-                + int(游玩标签基线偏移)
+                基线y - int(游玩标签面.get_height()) + int(游玩标签基线偏移)
             )
             游玩数字y = int(
-                基线y
-                - int(游玩数字面.get_height())
-                + int(游玩数字基线偏移)
+                基线y - int(游玩数字面.get_height()) + int(游玩数字基线偏移)
             )
             游玩标签y = max(
                 信息条.y, min(信息条.bottom - int(游玩标签面.get_height()), 游玩标签y)
@@ -3879,10 +4088,7 @@ class 歌曲卡片:
                             hotx偏移 -= int(hotw * 0.82)
 
                         hx = (
-                            边框锚点矩形.right
-                            - hotw
-                            - int(hot右内边距)
-                            + int(hotx偏移)
+                            边框锚点矩形.right - hotw - int(hot右内边距) + int(hotx偏移)
                         )
                         hy = 边框锚点矩形.top + int(hot上内边距) + int(hoty偏移)
                         屏幕.blit(hot图, (hx, hy))
@@ -3961,7 +4167,6 @@ class 选歌游戏:
     ):
         pygame.init()
 
-        # ✅ mixer：避免重复 init 影响主程序
         self.音频可用 = True
         try:
             if not pygame.mixer.get_init():
@@ -3971,22 +4176,29 @@ class 选歌游戏:
 
         pygame.display.set_caption("e舞成名 选歌界面（Pygame）")
 
-        # === 外部传入的关键变量 ===
         self.上下文: dict = {}
-        self.songs根目录 = songs根目录
-        self.背景音乐路径 = 背景音乐路径
-        self.logo路径 = logo路径  # 参数保留避免别处调用崩
-        self.玩家数 = 2 if 玩家数 == 2 else 1
-        self.指定类型名 = 指定类型名.strip()
-        self.指定模式名 = 指定模式名.strip()
 
-        # ===== 调试/热更新 =====
+        传入songs根目录 = (
+            os.path.abspath(str(songs根目录 or "").strip())
+            if str(songs根目录 or "").strip()
+            else ""
+        )
+        if 传入songs根目录 and os.path.isdir(传入songs根目录):
+            self.songs根目录 = 传入songs根目录
+        else:
+            self.songs根目录 = _取songs根目录()
+
+        self.背景音乐路径 = 背景音乐路径
+        self.logo路径 = logo路径
+        self.玩家数 = 2 if 玩家数 == 2 else 1
+        self.指定类型名 = str(指定类型名 or "").strip()
+        self.指定模式名 = str(指定模式名 or "").strip()
+
         self._需要退出 = False
-        self._返回状态 = "NORMAL"  # NORMAL / RESELECT_MAIN / __RELOAD__
+        self._返回状态 = "NORMAL"
         self._调试提示文本 = ""
         self._调试提示截止 = 0.0
 
-        # ✅ 判断“嵌入模式”：被主程序调用时，display 已经有 surface
         现有屏幕 = None
         try:
             if pygame.display.get_init():
@@ -3999,12 +4211,10 @@ class 选歌游戏:
         else:
             self._是否嵌入模式 = bool(是否继承已有窗口)
 
-        # ✅ 窗口：嵌入模式继承主窗口；独立运行才创建默认窗口
         if self._是否嵌入模式 and (现有屏幕 is not None):
             self.屏幕 = 现有屏幕
             self.宽, self.高 = self.屏幕.get_size()
         else:
-            # ✅ 默认非满屏窗口（调试/单独运行）
             try:
                 os.environ.setdefault("SDL_VIDEO_CENTERED", "1")
             except Exception:
@@ -4017,11 +4227,9 @@ class 选歌游戏:
 
         self.时钟 = pygame.time.Clock()
 
-        # ✅ 设计基准（给 ui/top栏.py 做缩放用）
         self._设计宽 = 2048
         self._设计高 = 1152
 
-        # ===== top栏（统一改用 ui/top栏.py）=====
         脚本目录 = _取项目根目录()
         self._top栏背景原图 = 安全加载图片(
             os.path.join(脚本目录, "UI-img", "top栏", "top栏背景.png"), 透明=True
@@ -4032,7 +4240,6 @@ class 选歌游戏:
         self._top标题图: Optional[pygame.Surface] = None
         self._top缓存尺寸 = (0, 0)
 
-        # === 字体 ===
         self.标题字体 = 获取字体(40)
         self.标题粗体 = 获取字体(42)
         self.按钮字体 = 获取字体(30)
@@ -4041,7 +4248,6 @@ class 选歌游戏:
         self.正文字体粗 = 获取字体(26)
         self.小字体 = 获取字体(18)
 
-        # === 业务状态 ===
         self.顶部高 = 78
         self.底部高 = 220
 
@@ -4083,7 +4289,6 @@ class 选歌游戏:
         self.按钮_设置 = 按钮("设置", pygame.Rect(0, 0, 0, 0))
         self.按钮_重选模式 = 按钮("重选模式", pygame.Rect(0, 0, 0, 0))
 
-        # === 扫描歌曲数据：优先按指定类型/模式扫描 ===
         self.数据树 = {}
         if self.指定类型名 and self.指定模式名:
             try:
@@ -4092,8 +4297,13 @@ class 选歌游戏:
                 )
             except Exception:
                 self.数据树 = {}
-        else:
-            self.数据树 = 扫描songs目录(self.songs根目录)
+
+        if not self.数据树:
+            try:
+                self.数据树 = 扫描songs目录(self.songs根目录)
+            except Exception:
+                self.数据树 = {}
+
         self._同步歌曲游玩记录()
 
         self.类型列表 = sorted(self.数据树.keys())
@@ -4101,14 +4311,18 @@ class 选歌游戏:
         self.当前模式索引 = 0
         self.模式列表 = []
 
-        if self.指定类型名 and self.指定类型名 in self.类型列表:
-            self.当前类型索引 = self.类型列表.index(self.指定类型名)
+        匹配后的类型名 = _在现有名称中匹配(self.类型列表, self.指定类型名)
+        if 匹配后的类型名:
+            self.当前类型索引 = self.类型列表.index(匹配后的类型名)
+            self.指定类型名 = 匹配后的类型名
 
         当前类型 = self.类型列表[self.当前类型索引] if self.类型列表 else ""
         self.模式列表 = sorted(self.数据树.get(当前类型, {}).keys())
 
-        if self.指定模式名 and self.指定模式名 in self.模式列表:
-            self.当前模式索引 = self.模式列表.index(self.指定模式名)
+        匹配后的模式名 = _在现有名称中匹配(self.模式列表, self.指定模式名)
+        if 匹配后的模式名:
+            self.当前模式索引 = self.模式列表.index(匹配后的模式名)
+            self.指定模式名 = 匹配后的模式名
         else:
             self.当前模式索引 = 0
 
@@ -4117,11 +4331,8 @@ class 选歌游戏:
         self.背景图_缩放尺寸 = (0, 0)
 
         self._加载背景图()
-
-        # ✅ 外置 JSON：选歌布局覆盖（缩略图框/封面/序号/大图框等）
         self._加载选歌布局覆盖(是否提示=False)
 
-        # ✅ 最后：布局与音乐
         self.重算布局()
         self.确保播放背景音乐()
         self.安排预加载(基准页=self.当前页)
@@ -4430,7 +4641,11 @@ class 选歌游戏:
         return 列表
 
     def _同步歌曲游玩记录(self):
-        根目录 = _取项目根目录()
+        根目录 = os.path.abspath(
+            os.path.dirname(self.songs根目录)
+            if str(self.songs根目录 or "").strip()
+            else _取运行根目录()
+        )
         try:
             索引 = 读取歌曲记录索引(根目录)
         except Exception:
@@ -4854,14 +5069,13 @@ class 选歌游戏:
             return
 
         try:
-            根目录 = _取项目根目录()
+            根目录 = _取运行根目录()
             目录 = os.path.join(根目录, "json")
             os.makedirs(目录, exist_ok=True)
             路径 = os.path.join(目录, "加载页.json")
-            with open(路径, "w", encoding="utf-8") as f:
-                json.dump(dict(载荷 or {}), f, ensure_ascii=False, indent=2)
+            with open(路径, "w", encoding="utf-8") as 文件:
+                json.dump(dict(载荷 or {}), 文件, ensure_ascii=False, indent=2)
         except Exception:
-            # 写盘失败不应影响“开始游戏”
             return
 
     def _记录并处理大图确认点击(self):
@@ -6220,7 +6434,9 @@ class 选歌游戏:
         for idx, 卡片 in enumerate(getattr(self, "当前页卡片", []) or []):
             try:
                 视图索引 = int(self.当前页) * int(self.每页数量) + int(idx)
-                卡片.踏板高亮 = 基准视图索引 is not None and int(基准视图索引) == 视图索引
+                卡片.踏板高亮 = (
+                    基准视图索引 is not None and int(基准视图索引) == 视图索引
+                )
             except Exception:
                 try:
                     卡片.踏板高亮 = False
@@ -6228,7 +6444,9 @@ class 选歌游戏:
                     pass
 
     def _踏板选中缩略图(self, 方向步进: int):
-        if bool(getattr(self, "动画中", False)) or bool(getattr(self, "是否设置页", False)):
+        if bool(getattr(self, "动画中", False)) or bool(
+            getattr(self, "是否设置页", False)
+        ):
             return None
         if bool(getattr(self, "是否星级筛选页", False)):
             return None
@@ -6256,7 +6474,9 @@ class 选歌游戏:
             当前视图索引 = (int(当前视图索引) + int(方向步进)) % len(映射)
 
         self._踏板选中视图索引 = int(当前视图索引)
-        self.当前页 = int(max(0, min(len(映射) - 1, 当前视图索引)) // max(1, int(self.每页数量)))
+        self.当前页 = int(
+            max(0, min(len(映射) - 1, 当前视图索引)) // max(1, int(self.每页数量))
+        )
         self.当前页卡片 = self.生成指定页卡片(self.当前页)
         self.安排预加载(基准页=self.当前页)
         self._同步踏板卡片高亮()
@@ -6273,7 +6493,9 @@ class 选歌游戏:
         return None
 
     def _踏板确认当前歌曲(self):
-        if bool(getattr(self, "动画中", False)) or bool(getattr(self, "是否设置页", False)):
+        if bool(getattr(self, "动画中", False)) or bool(
+            getattr(self, "是否设置页", False)
+        ):
             return None
         if bool(getattr(self, "是否星级筛选页", False)):
             return None
@@ -8165,10 +8387,10 @@ def 绑定场景化方法到选歌游戏类():
 
 
 def main():
-    脚本目录 = _取项目根目录()
-    songs根目录 = os.path.join(脚本目录, "songs")
-    背景音乐路径 = os.path.join(脚本目录, "冷资源", "backsound", "devil.mp3")
-    logo路径 = os.path.join(脚本目录, "res", "logo", "base.png")
+    资源根目录 = _取项目根目录()
+    songs根目录 = _取songs根目录()
+    背景音乐路径 = os.path.join(资源根目录, "冷资源", "backsound", "devil.mp3")
+    logo路径 = os.path.join(_取运行根目录(), "res", "logo", "base.png")
 
     游戏 = 选歌游戏(
         songs根目录=songs根目录,
@@ -8180,9 +8402,8 @@ def main():
 
 
 def 运行选歌(玩家数: int, 类型名: str, 模式名: str, 背景音乐路径: str):
-    脚本目录 = _取项目根目录()
-    songs根目录 = os.path.join(脚本目录, "songs")
-    logo路径 = os.path.join(脚本目录, "res", "logo", "base.png")
+    songs根目录 = _取songs根目录()
+    logo路径 = os.path.join(_取运行根目录(), "res", "logo", "base.png")
 
     游戏 = 选歌游戏(
         songs根目录=songs根目录,
