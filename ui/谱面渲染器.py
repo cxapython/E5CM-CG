@@ -39,8 +39,6 @@ class 渲染输入:
 
     血条区域: pygame.Rect
     血量显示: float
-
-    # 头像（从个人资料.json 读取）
     头像图: Optional[pygame.Surface]
     总血量HP: int = 0
     可见血量HP: int = 0

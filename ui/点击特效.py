@@ -5,12 +5,6 @@ import pygame
 
 
 class 序列帧特效资源:
-    """
-    读取目录内 png 序列帧并排序：
-    - 支持 UI_13FB.png / UI_I3FB.png（I 当成 1）
-    - 优先按“末尾十六进制编号”排序，其次按文件名排序
-    """
-
     def __init__(self, 目录: str, 扩展名: str = ".png"):
         self.目录 = 目录
         self.扩展名 = 扩展名.lower()

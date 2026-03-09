@@ -2,12 +2,11 @@ import os
 import sys
 import time
 import json
-import importlib
 import inspect
 import pygame
 
 try:
-    import cv2  # type: ignore
+    import cv2
 except Exception:
     cv2 = None
 
@@ -18,7 +17,6 @@ from core.工具 import 获取字体
 from core.音频 import 音乐管理
 from core.视频 import 全局视频循环播放器, 选择第一个视频
 from scenes.场景_投币 import 场景_投币
-from scenes.场景_玩家选择 import 场景_玩家选择
 from scenes.场景_登陆磁卡 import 场景_登陆磁卡
 from scenes.场景_个人资料 import 场景_个人资料
 from scenes.场景_大模式 import 场景_大模式
@@ -28,7 +26,6 @@ from scenes.场景_加载页 import 场景_加载页
 from scenes.场景_结算 import 场景_结算
 from scenes.场景_中转提示 import 场景_中转提示
 from scenes.场景_谱面播放器 import 场景_谱面播放器
-
 from ui.点击特效 import 序列帧特效资源, 全局点击特效管理器
 from ui.场景过渡 import 公共黑屏过渡
 
@@ -216,6 +213,21 @@ def 主函数():
                 return
             raise
 
+    def _取运行根目录() -> str:
+        try:
+            if getattr(sys, "frozen", False):
+                return os.path.dirname(os.path.abspath(sys.executable))
+        except Exception:
+            pass
+
+        try:
+            return os.path.dirname(os.path.abspath(__file__))
+        except Exception:
+            try:
+                return os.path.abspath(os.getcwd())
+            except Exception:
+                return "."
+
     def _切换全屏():
         nonlocal 是否全屏, 上次窗口尺寸, 屏幕
 
@@ -268,7 +280,6 @@ def 主函数():
         上次帧系统秒 = time.perf_counter()
 
         while True:
-            # 事件（必须处理，否则窗口会“未响应”）
             for 事件 in pygame.event.get():
                 if 事件.type == pygame.QUIT:
                     try:
@@ -301,7 +312,6 @@ def 主函数():
                 break
 
             try:
-                # BGR -> RGB
                 帧 = cv2.cvtColor(帧, cv2.COLOR_BGR2RGB)
             except Exception:
                 pass
@@ -311,13 +321,11 @@ def 主函数():
             except Exception:
                 continue
 
-            # 转成 pygame Surface（注意：surfarray 需要 numpy，opencv自带numpy一般没问题）
             try:
                 帧面 = pygame.image.frombuffer(帧.tobytes(), (帧宽, 帧高), "RGB")
             except Exception:
                 continue
 
-            # 等比铺满屏幕（居中裁切/缩放：这里做 contain 缩放，避免裁掉内容）
             屏幕w, 屏幕h = 上下文["屏幕"].get_size()
             比例 = min(屏幕w / max(1, 帧宽), 屏幕h / max(1, 帧高))
             新宽 = max(1, int(帧宽 * 比例))
@@ -349,30 +357,23 @@ def 主函数():
         pygame.quit()
         sys.exit(0)
 
-    # ✅ 启动时自动切换为英文输入法
-    _切换英文输入法()
+    # _切换英文输入法()
 
     pygame.init()
-    pygame.display.set_caption("e舞成名 - 主流程（Pygame）")
+    pygame.display.set_caption("e舞成名重构版")
 
-    # ✅ 默认窗口分辨率：1920x1080（若屏幕更小则降级，避免 set_mode 失败）
     信息 = pygame.display.Info()
 
-    # ✅ 启动默认小窗口（避免看起来像“开局全屏”）
     默认窗口w, 默认窗口h = 1280, 720
     初始w = min(默认窗口w, int(信息.current_w or 默认窗口w))
     初始h = min(默认窗口h, int(信息.current_h or 默认窗口h))
     屏幕 = _创建显示窗口((初始w, 初始h), pygame.RESIZABLE)
 
-    # ✅ 窗口创建后立即再次切换输入法（因为 Pygame 窗口激活时会重置输入法）
+    # time.sleep(0.15)
+    # _切换英文输入法()
+    pygame.event.clear()
 
-    time.sleep(0.15)
-    _切换英文输入法()
-    pygame.event.clear()  # 清除任何输入事件
-
-    # ✅ 最大化窗口
     def _最大化窗口():
-        """自动最大化 Pygame 窗口"""
         if sys.platform != "win32":
             return
         try:
@@ -389,8 +390,8 @@ def 主函数():
 
     时钟 = pygame.time.Clock()
     资源 = 默认资源路径()
+    运行根目录 = _取运行根目录()
 
-    # ===== 上下文先建出来（给开场动画用）=====
     音乐 = 音乐管理()
     字体 = {
         "大字": 获取字体(72),
@@ -410,8 +411,8 @@ def 主函数():
         "对局_当前把数": 1,
         "对局_S次数": 0,
         "对局_赠送第四把": False,
-        "投币快捷键": int(pygame.K_F1),
-        "投币快捷键显示": "F1",
+        "投币快捷键": int(pygame.K_f),
+        "投币快捷键显示": "F",
     }
 
     点击特效目录 = os.path.join(资源["根"], "UI-img", "点击特效")
@@ -423,11 +424,9 @@ def 主函数():
         缩放比例=1.0,
     )
 
-    # ✅ 窗口状态
     是否全屏 = False
     上次窗口尺寸 = 屏幕.get_size()
 
-    # ✅ 上下文
     上下文 = {
         "屏幕": 屏幕,
         "时钟": 时钟,
@@ -439,27 +438,25 @@ def 主函数():
         "背景视频": None,
     }
 
-    # ===== ✅ 1) 启动第一件事：播放开场动画（cv2）=====
     backmovies目录 = 资源.get(
         "backmovies目录", os.path.join(资源.get("根", os.getcwd()), "backmovies")
     )
     开场视频 = os.path.join(backmovies目录, "002.开场动画.mp4")
     _播放开场动画_cv2(开场视频)
 
-    # ===== ✅ 2) 开场播完再初始化你的循环背景视频 =====
     强制视频 = os.path.join(backmovies目录, "003.mp4")
     if os.path.isfile(强制视频):
         视频路径 = 强制视频
     else:
         视频路径 = 选择第一个视频(backmovies目录)
 
+    原始背景视频播放器 = 全局视频循环播放器(视频路径)
+    原始背景视频播放器.打开(是否重置进度=True)
     背景视频 = 全局视频循环播放器(视频路径)
-    背景视频.打开(是否重置进度=True)
     上下文["背景视频"] = 背景视频
 
     场景表 = {
         "投币": 场景_投币,
-        "玩家选择": 场景_玩家选择,
         "登陆磁卡": 场景_登陆磁卡,
         "个人资料": 场景_个人资料,
         "大模式": 场景_大模式,
@@ -471,19 +468,18 @@ def 主函数():
         "谱面播放器": 场景_谱面播放器,
     }
 
-    场景模块表 = {
-        "投币": "scenes.场景_投币",
-        "玩家选择": "scenes.场景_玩家选择",
-        "登陆磁卡": "scenes.场景_登陆磁卡",
-        "个人资料": "scenes.场景_个人资料",
-        "大模式": "scenes.场景_大模式",
-        "子模式": "scenes.场景_子模式",
-        "选歌": "scenes.场景_选歌",
-        "加载页": "scenes.场景_加载页",
-        "结算": "scenes.场景_结算",
-        "中转提示": "scenes.场景_中转提示",
-        "谱面播放器": "scenes.场景_谱面播放器",
-    }
+    # 场景模块表 = {
+    #     "投币": "scenes.场景_投币",
+    #     "登陆磁卡": "scenes.场景_登陆磁卡",
+    #     "个人资料": "scenes.场景_个人资料",
+    #     "大模式": "scenes.场景_大模式",
+    #     "子模式": "scenes.场景_子模式",
+    #     "选歌": "scenes.场景_选歌",
+    #     "加载页": "scenes.场景_加载页",
+    #     "结算": "scenes.场景_结算",
+    #     "中转提示": "scenes.场景_中转提示",
+    #     "谱面播放器": "scenes.场景_谱面播放器",
+    # }
 
     当前场景名 = "投币"
     当前场景 = 场景表[当前场景名](上下文)
@@ -497,9 +493,8 @@ def 主函数():
     调试提示截止 = 0.0
     非游戏菜单开启 = False
     非游戏菜单索引 = 0
-    非游戏菜单等待投币键 = False
+    投币快捷键录入中 = False
     非游戏菜单项矩形: list[pygame.Rect] = []
-    非游戏菜单关闭按钮 = pygame.Rect(0, 0, 0, 0)
     非游戏菜单背景音乐关闭 = False
     非游戏菜单背景音乐路径 = ""
     投币音效对象 = None
@@ -510,11 +505,52 @@ def 主函数():
     except Exception:
         投币音效对象 = None
 
-    投币快捷键 = int(pygame.K_F1)
-    投币快捷键显示 = "F1"
-    全局设置路径 = os.path.join(
-        str(资源.get("根", "") or os.getcwd()), "json", "全局设置.json"
-    )
+    投币快捷键 = int(pygame.K_f)
+    投币快捷键显示 = "F"
+    全局设置路径 = os.path.join(运行根目录, "json", "全局设置.json")
+    残余币值路径 = os.path.join(运行根目录, "json", "残余币值.json")
+
+    def _读取残余币值() -> int:
+        数据 = {}
+        try:
+            if os.path.isfile(残余币值路径):
+                with open(残余币值路径, "r", encoding="utf-8") as 文件:
+                    对象 = json.load(文件)
+                if isinstance(对象, dict):
+                    数据 = 对象
+        except Exception:
+            数据 = {}
+
+        for 键名 in ("投币数", "残余币值", "credit"):
+            try:
+                值 = int(数据.get(键名, 0) or 0)
+                return max(0, 值)
+            except Exception:
+                continue
+        return 0
+
+    def _保存残余币值():
+        try:
+            os.makedirs(os.path.dirname(残余币值路径), exist_ok=True)
+        except Exception:
+            pass
+
+        try:
+            当前投币数 = max(0, int(状态.get("投币数", 0) or 0))
+        except Exception:
+            当前投币数 = 0
+
+        数据 = {
+            "投币数": int(当前投币数),
+            "残余币值": int(当前投币数),
+            "credit": str(int(当前投币数)),
+        }
+
+        try:
+            with open(残余币值路径, "w", encoding="utf-8") as 文件:
+                json.dump(数据, 文件, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def _格式化按键名(键值: int) -> str:
         try:
@@ -530,6 +566,7 @@ def 主函数():
             os.makedirs(os.path.dirname(全局设置路径), exist_ok=True)
         except Exception:
             pass
+
         数据 = {
             "投币快捷键": int(投币快捷键),
             "投币快捷键显示": str(投币快捷键显示),
@@ -553,16 +590,13 @@ def 主函数():
             数据 = {}
 
         try:
-            值 = int(数据.get("投币快捷键", pygame.K_F1))
+            值 = int(数据.get("投币快捷键", pygame.K_f))
             投币快捷键 = int(max(0, min(4096, 值)))
         except Exception:
-            投币快捷键 = int(pygame.K_F1)
+            投币快捷键 = int(pygame.K_f)
         投币快捷键显示 = _格式化按键名(int(投币快捷键))
         状态["投币快捷键"] = int(投币快捷键)
         状态["投币快捷键显示"] = str(投币快捷键显示)
-
-    _加载全局设置()
-    状态["非游戏菜单背景音乐关闭"] = bool(非游戏菜单背景音乐关闭)
 
     def _显示调试提示(文本: str, 秒: float = 1.2):
         nonlocal 调试提示文本, 调试提示截止
@@ -574,84 +608,20 @@ def 主函数():
             投币数 = int(状态.get("投币数", 0) or 0)
         except Exception:
             投币数 = 0
-        状态["credit"] = str(max(0, 投币数))
+        投币数 = max(0, 投币数)
+        状态["投币数"] = int(投币数)
+        状态["credit"] = str(投币数)
+        _保存残余币值()
 
-    def _选歌设置路径() -> str:
-        try:
-            根目录 = os.path.dirname(os.path.abspath(__file__))
-        except Exception:
-            根目录 = os.getcwd()
-        return os.path.join(根目录, "json", "选歌设置.json")
+    _加载全局设置()
 
-    def _读取选歌设置() -> dict:
-        路径 = _选歌设置路径()
-        if not os.path.isfile(路径):
-            return {}
-        for 编码 in ("utf-8-sig", "utf-8", "gbk"):
-            try:
-                with open(路径, "r", encoding=编码, errors="strict") as f:
-                    数据 = json.load(f)
-                return dict(数据) if isinstance(数据, dict) else {}
-            except Exception:
-                continue
-        return {}
+    try:
+        状态["投币数"] = int(_读取残余币值())
+    except Exception:
+        状态["投币数"] = 0
+    _同步投币显示()
 
-    def _规范兜底击中特效方案(方案: str) -> str:
-        文本 = str(方案 or "").strip()
-        if ("2" in 文本) or ("特效2" in 文本):
-            return "击中特效2"
-        return "击中特效1"
-
-    def _取兜底击中特效方案() -> str:
-        数据 = _读取选歌设置()
-        参数 = dict(数据.get("设置参数", {}) or {})
-        return _规范兜底击中特效方案(
-            str(
-                数据.get(
-                    "击中特效方案",
-                    参数.get("击中特效", ""),
-                )
-                or ""
-            )
-        )
-
-    def _写入选歌设置(数据: dict):
-        路径 = _选歌设置路径()
-        try:
-            os.makedirs(os.path.dirname(路径), exist_ok=True)
-            临时路径 = 路径 + ".tmp"
-            with open(临时路径, "w", encoding="utf-8") as f:
-                json.dump(dict(数据 or {}), f, ensure_ascii=False, indent=2)
-            os.replace(临时路径, 路径)
-        except Exception:
-            pass
-
-    def _切换兜底击中特效方案():
-        数据 = _读取选歌设置()
-        if not isinstance(数据, dict):
-            数据 = {}
-        参数 = dict(数据.get("设置参数", {}) or {})
-        当前 = _规范兜底击中特效方案(
-            str(数据.get("击中特效方案", 参数.get("击中特效", "")) or "")
-        )
-        新值 = "击中特效2" if 当前 == "击中特效1" else "击中特效1"
-        参数["击中特效"] = str(新值)
-        数据["设置参数"] = dict(参数)
-        数据["击中特效方案"] = str(新值)
-
-        背景文件名 = str(数据.get("背景文件名", "") or "")
-        箭头文件名 = str(数据.get("箭头文件名", "") or "")
-        try:
-            from ui.选歌设置菜单控件 import 构建设置参数文本
-
-            数据["设置参数文本"] = 构建设置参数文本(
-                参数, 背景文件名=背景文件名, 箭头文件名=箭头文件名
-            )
-        except Exception:
-            pass
-
-        _写入选歌设置(数据)
-        _显示调试提示(f"兜底击中特效已切换：{'特效2' if '2' in 新值 else '特效1'}", 1.1)
+    状态["非游戏菜单背景音乐关闭"] = bool(非游戏菜单背景音乐关闭)
 
     def _全局投币一次():
         try:
@@ -718,14 +688,14 @@ def 主函数():
         _显示调试提示("背景音乐已开启", 1.0)
 
     def _执行非游戏菜单选项(索引: int):
-        nonlocal 非游戏菜单等待投币键
+        nonlocal 投币快捷键录入中
         菜单项 = _取非游戏菜单项()
         if not 菜单项:
             return
         索引 = int(max(0, min(len(菜单项) - 1, int(索引))))
         选项 = 菜单项[索引]
         if "设置投币快捷键" in 选项:
-            非游戏菜单等待投币键 = True
+            投币快捷键录入中 = True
             _显示调试提示("请按任意键设置为投币快捷键（ESC取消）", 2.0)
             return
         if "背景音乐" in 选项:
@@ -736,9 +706,8 @@ def 主函数():
             return
 
     def _绘制非游戏菜单():
-        nonlocal 非游戏菜单项矩形, 非游戏菜单关闭按钮
+        nonlocal 非游戏菜单项矩形
         非游戏菜单项矩形 = []
-        非游戏菜单关闭按钮 = pygame.Rect(0, 0, 0, 0)
         if not 非游戏菜单开启:
             return
         try:
@@ -763,7 +732,6 @@ def 主函数():
             except Exception:
                 pass
             屏幕面.blit(副标题面, (面板.x + 26, 面板.y + 46))
-            非游戏菜单关闭按钮 = pygame.Rect(0, 0, 0, 0)
 
             按钮高 = 58
             按钮间距 = 14
@@ -781,7 +749,7 @@ def 主函数():
                 pygame.draw.rect(屏幕面, 底色, 行rect, border_radius=14)
                 pygame.draw.rect(
                     屏幕面,
-                    edge_color := 边色,
+                    边色,
                     行rect,
                     width=2 if 选中 else 1,
                     border_radius=14,
@@ -836,7 +804,8 @@ def 主函数():
                     pass
                 屏幕面.blit(行面, (面板.x + 24, 提示y))
                 提示y += int(行面.get_height()) + 2
-            if bool(非游戏菜单等待投币键):
+
+            if bool(投币快捷键录入中):
                 提示 = "等待按键输入：按任意键设为投币键（ESC取消）"
                 提示面 = 小字.render(提示, True, (255, 240, 140))
                 屏幕面.blit(提示面, (面板.x + 24, int(面板.y + 58)))
@@ -845,15 +814,17 @@ def 主函数():
 
     def _处理非游戏菜单按键(事件) -> bool:
         nonlocal 非游戏菜单开启, 非游戏菜单索引
-        nonlocal 非游戏菜单等待投币键, 投币快捷键, 投币快捷键显示
+        nonlocal 投币快捷键录入中, 投币快捷键, 投币快捷键显示
+
         if not 非游戏菜单开启:
             return False
+
         菜单项 = _取非游戏菜单项()
 
-        if bool(非游戏菜单等待投币键):
+        if bool(投币快捷键录入中):
             if 事件.type == pygame.KEYDOWN:
                 if 事件.key == pygame.K_ESCAPE:
-                    非游戏菜单等待投币键 = False
+                    投币快捷键录入中 = False
                     _显示调试提示("已取消修改投币快捷键", 1.0)
                     return True
                 投币快捷键 = int(max(0, min(4096, int(事件.key))))
@@ -861,7 +832,7 @@ def 主函数():
                 状态["投币快捷键"] = int(投币快捷键)
                 状态["投币快捷键显示"] = str(投币快捷键显示)
                 _保存全局设置()
-                非游戏菜单等待投币键 = False
+                投币快捷键录入中 = False
                 _显示调试提示(f"投币快捷键已改为：{投币快捷键显示}", 1.2)
                 return True
             return True
@@ -869,7 +840,6 @@ def 主函数():
         if 事件.type == pygame.KEYDOWN:
             if 事件.key == pygame.K_ESCAPE:
                 非游戏菜单开启 = False
-                非游戏菜单等待投币键 = False
                 return True
             if 事件.key in (pygame.K_LEFT, pygame.K_KP1, pygame.K_UP, pygame.K_KP7):
                 非游戏菜单索引 = (int(非游戏菜单索引) - 1) % len(菜单项)
@@ -895,22 +865,25 @@ def 主函数():
             return True
 
         if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-            if 非游戏菜单关闭按钮.collidepoint(事件.pos):
-                非游戏菜单开启 = False
-                return True
             for idx, rect in enumerate(非游戏菜单项矩形):
                 if rect.collidepoint(事件.pos):
                     非游戏菜单索引 = int(idx)
                     _执行非游戏菜单选项(int(idx))
                     return True
+            非游戏菜单开启 = False
+            投币快捷键录入中 = False
             return True
+
         return True
 
     def _执行场景切换():
         nonlocal 当前场景名, 当前场景, 待切换目标场景名, 待切换载荷
-        nonlocal 非游戏菜单开启, 非游戏菜单索引, 非游戏菜单等待投币键
+        nonlocal 非游戏菜单开启, 非游戏菜单索引, 投币快捷键录入中
+
         目标 = 待切换目标场景名
         载荷 = 待切换载荷
+        if 目标 == "玩家选择":
+            目标 = "投币"
         if not 目标 or (目标 not in 场景表):
             return
 
@@ -927,63 +900,10 @@ def 主函数():
         待切换载荷 = None
         非游戏菜单开启 = False
         非游戏菜单索引 = 0
-        非游戏菜单等待投币键 = False
+        投币快捷键录入中 = False
 
     def _当前场景允许非游戏菜单() -> bool:
         return bool(当前场景名 not in ("谱面播放器", "结算", "中转提示"))
-
-    def _热更新当前场景():
-        nonlocal 当前场景, 当前场景名, 场景表
-        try:
-            模块名 = 场景模块表.get(当前场景名)
-            if not 模块名:
-                _显示调试提示(f"F5 失败：未知场景 {当前场景名}", 1.8)
-                return
-
-            类名 = 当前场景.__class__.__name__
-            importlib.invalidate_caches()
-
-            模块对象 = sys.modules.get(模块名)
-            if 模块对象 is None:
-                模块对象 = importlib.import_module(模块名)
-
-            新模块 = importlib.reload(模块对象)
-            新类 = getattr(新模块, 类名, None)
-
-            if 新类 is None:
-                新类候选 = None
-                for v in 新模块.__dict__.values():
-                    try:
-                        if (
-                            isinstance(v, type)
-                            and getattr(v, "名称", None) == 当前场景名
-                        ):
-                            新类候选 = v
-                            break
-                    except Exception:
-                        pass
-                新类 = 新类候选
-
-            if 新类 is None:
-                _显示调试提示(f"F5 失败：模块{模块名}里找不到类 {类名}", 2.0)
-                return
-
-            try:
-                当前场景.退出()
-            except Exception:
-                pass
-
-            场景表[当前场景名] = 新类
-            当前场景 = 新类(上下文)
-            _安全进入场景(当前场景, None)
-            _显示调试提示(f"F5 热重载成功：{当前场景名}", 1.2)
-
-        except Exception as e:
-            try:
-                print("F5 热重载失败：", repr(e))
-            except Exception:
-                pass
-            _显示调试提示(f"F5 热重载失败：{type(e).__name__}", 2.0)
 
     def _获取当前目标帧率() -> int:
         try:
@@ -1012,6 +932,9 @@ def 主函数():
             except Exception:
                 目标 = None
 
+        if 目标 == "玩家选择":
+            目标 = "投币"
+
         if not 目标 or (目标 not in 场景表):
             return False
 
@@ -1033,7 +956,7 @@ def 主函数():
             if (
                 事件.type == pygame.KEYDOWN
                 and int(事件.key) == int(投币快捷键)
-                and (not bool(非游戏菜单等待投币键))
+                and (not bool(投币快捷键录入中))
             ):
                 _全局投币一次()
                 if (not 过渡.是否进行中()) and 当前场景名 == "投币":
@@ -1043,9 +966,10 @@ def 主函数():
                         当前币 = 0
                     所需信用 = 取每局所需信用(状态)
                     if 当前币 >= int(所需信用):
-                        待切换目标场景名 = "玩家选择"
-                        待切换载荷 = None
-                        _执行场景切换()
+                        _显示调试提示(
+                            f"已满足开局条件：请选择 1P / 2P（{int(当前币)}/{int(所需信用)}）",
+                            0.9,
+                        )
                     else:
                         _显示调试提示(
                             f"还需 {max(0, int(所需信用) - 当前币)} 币（{int(所需信用)}币开局）",
@@ -1053,7 +977,6 @@ def 主函数():
                         )
                 continue
 
-            # ✅ F11 全屏切换（全局）
             if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F11:
                 if not 过渡.是否进行中():
                     _切换全屏()
@@ -1064,13 +987,12 @@ def 主函数():
                 新h = int(max(540, int(getattr(事件, "h", 0) or 0)))
                 屏幕 = _创建显示窗口((新w, 新h), pygame.RESIZABLE)
                 上下文["屏幕"] = 屏幕
-                # ✅ 记录窗口尺寸，退出全屏时回到这里
                 上次窗口尺寸 = 屏幕.get_size()
 
-            if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F5:
-                if not 过渡.是否进行中():
-                    _热更新当前场景()
-                continue
+            # if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F5:
+            #     if not 过渡.是否进行中():
+            #         _热更新当前场景()
+            #     continue
 
             if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
                 x, y = 事件.pos
@@ -1081,17 +1003,24 @@ def 主函数():
 
             if _当前场景允许非游戏菜单():
                 if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_ESCAPE:
-                    非游戏菜单开启 = not bool(非游戏菜单开启)
-                    非游戏菜单索引 = 0
-                    状态["非游戏菜单背景音乐关闭"] = bool(非游戏菜单背景音乐关闭)
+                    if bool(非游戏菜单开启) and bool(投币快捷键录入中):
+                        投币快捷键录入中 = False
+                        _显示调试提示("已取消修改投币快捷键", 1.0)
+                    else:
+                        非游戏菜单开启 = not bool(非游戏菜单开启)
+                        if not 非游戏菜单开启:
+                            投币快捷键录入中 = False
+                        非游戏菜单索引 = 0
+                        状态["非游戏菜单背景音乐关闭"] = bool(非游戏菜单背景音乐关闭)
                     continue
+
                 if _处理非游戏菜单按键(事件):
                     continue
             else:
                 if 非游戏菜单开启:
                     非游戏菜单开启 = False
                     非游戏菜单索引 = 0
-                    非游戏菜单等待投币键 = False
+                    投币快捷键录入中 = False
 
             踏板动作 = 解析踏板动作(事件)
             if 踏板动作 is not None:

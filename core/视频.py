@@ -16,7 +16,7 @@ def 选择第一个视频(目录: str) -> str:
     try:
         if not 目录 or (not os.path.isdir(目录)):
             return ""
-        目标路径 = os.path.join(目录, "001.背景视频.mp4")
+        目标路径 = os.path.join(目录, "003.mp4")
         if os.path.isfile(目标路径):
             return 目标路径
         return ""
@@ -248,9 +248,7 @@ class 全局视频循环播放器:
             return self._上一帧数组
 
         已过秒 = (
-            max(间隔, float(现在 - self._上次读帧时间))
-            if self._上次读帧时间
-            else 间隔
+            max(间隔, float(现在 - self._上次读帧时间)) if self._上次读帧时间 else 间隔
         )
         目标推进帧数 = max(1, int(round(已过秒 * float(self._fps))))
         self._上次读帧时间 = 现在
@@ -287,10 +285,7 @@ class 全局视频循环播放器:
         if frame is None:
             return self._上一帧面
 
-        if (
-            self._上一帧面 is not None
-            and int(self._上一帧面版本) == int(self._帧版本)
-        ):
+        if self._上一帧面 is not None and int(self._上一帧面版本) == int(self._帧版本):
             return self._上一帧面
 
         try:
@@ -362,7 +357,9 @@ class 全局视频顺序循环播放器:
             文件列表: list[str] = []
             for 名称 in os.listdir(目录):
                 路径 = os.path.join(目录, 名称)
-                if (not os.path.isfile(路径)) or (not str(名称).lower().endswith(候选后缀)):
+                if (not os.path.isfile(路径)) or (
+                    not str(名称).lower().endswith(候选后缀)
+                ):
                     continue
                 文件列表.append(路径)
             文件列表.sort(key=lambda p: os.path.basename(p).lower())

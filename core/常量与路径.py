@@ -10,6 +10,28 @@ def 拼路径(*片段) -> str:
     return os.path.join(获取项目根目录(), *片段)
 
 
+def 取项目根目录(资源: dict | None = None) -> str:
+    资源字典 = 资源 if isinstance(资源, dict) else {}
+    根目录 = str(资源字典.get("根", "") or "").strip()
+    if 根目录:
+        return os.path.abspath(根目录)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def 拼资源路径(*片段: str, 资源: dict | None = None) -> str:
+    项目根目录 = 取项目根目录(资源)
+
+    if len(片段) == 1:
+        路径 = str(片段[0] or "").strip()
+        if not 路径:
+            return ""
+        if os.path.isabs(路径):
+            return 路径
+        return os.path.abspath(os.path.join(项目根目录, 路径))
+
+    return os.path.abspath(os.path.join(项目根目录, *片段))
+
+
 def 默认资源路径():
     根 = 获取项目根目录()
     return {

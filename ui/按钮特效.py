@@ -1,5 +1,6 @@
 import time
 import pygame
+from core.工具 import 绘制文本, contain缩放, 画圆角面, 安全加载图片
 
 
 class 公用按钮点击特效:
@@ -112,3 +113,64 @@ class 公用按钮音效:
             self._音效.play()
         except Exception:
             pass
+
+
+class 图片按钮:
+    def __init__(self, 名称: str, 图片路径: str):
+        self.名称 = 名称
+        self.图片路径 = 图片路径
+        self.矩形 = pygame.Rect(0, 0, 160, 160)
+        self.悬停 = False
+        self.按下 = False
+        self.图片 = None
+
+    def 重新加载图片(self):
+        self.图片 = 安全加载图片(self.图片路径, 透明=True)
+
+    def 设置矩形(self, r: pygame.Rect):
+        self.矩形 = r
+
+    def 处理事件(self, 事件) -> bool:
+        if 事件.type == pygame.MOUSEMOTION:
+            self.悬停 = self.矩形.collidepoint(事件.pos)
+        elif 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
+            if self.矩形.collidepoint(事件.pos):
+                self.按下 = True
+        elif 事件.type == pygame.MOUSEBUTTONUP and 事件.button == 1:
+            命中 = self.矩形.collidepoint(事件.pos)
+            触发 = self.按下 and 命中
+            self.按下 = False
+            return 触发
+        return False
+
+    def 绘制(self, 屏幕: pygame.Surface, 字体: pygame.font.Font):
+        r = self.矩形
+
+        缩放系数 = 1.0
+        if self.悬停:
+            缩放系数 = 1.03
+        if self.按下:
+            缩放系数 = 0.98
+
+        阴影 = pygame.Rect(r.x + 6, r.y + 10, r.w, r.h)
+        pygame.draw.rect(屏幕, (0, 0, 0), 阴影, border_radius=18)
+
+        if self.图片:
+            if 缩放系数 != 1.0:
+                nw = int(r.w * 缩放系数)
+                nh = int(r.h * 缩放系数)
+                画布 = contain缩放(self.图片, nw, nh)
+                x = r.centerx - nw // 2
+                y = r.centery - nh // 2
+                屏幕.blit(画布, (x, y))
+            else:
+                画布 = contain缩放(self.图片, r.w, r.h)
+                屏幕.blit(画布, r.topleft)
+        else:
+            底 = (40, 120, 220) if not self.悬停 else (55, 140, 245)
+            if self.按下:
+                底 = (28, 95, 180)
+            面 = 画圆角面(r.w, r.h, 底, 圆角=18, alpha=245)
+            屏幕.blit(面, r.topleft)
+            pygame.draw.rect(屏幕, (255, 255, 255), r, width=4, border_radius=18)
+            绘制文本(屏幕, self.名称, 字体, (255, 255, 255), r.center, "center")

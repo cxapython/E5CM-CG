@@ -12,15 +12,92 @@ from ui.场景过渡 import 公用放大过渡器
 
 class 场景_个人资料:
     名称 = "个人资料"
-
     _设计宽 = 2048
     _设计高 = 1152
-
     _事件_延迟切场景 = pygame.USEREVENT + 25
+    # _bbox_上面板 = (130, 170, 1918, 430)
+    # _bbox_下面板 = (300, 520, 1710, 1030)
+    # _bbox_离开按钮 = (1740, 835, 1965, 1080)
 
-    _bbox_上面板 = (130, 170, 1918, 430)
-    _bbox_下面板 = (300, 520, 1710, 1030)
-    _bbox_离开按钮 = (1740, 835, 1965, 1080)
+    def _取程序根目录(self) -> str:
+        try:
+            import sys as 系统
+
+            if getattr(系统, "frozen", False):
+                return os.path.abspath(os.path.dirname(系统.executable))
+        except Exception:
+            pass
+
+        try:
+            return os.path.abspath(os.getcwd())
+        except Exception:
+            return "."
+
+    def _取资源根目录(self) -> str:
+        资源 = self.上下文.get("资源", {}) or {}
+        显式根 = str(资源.get("根", "") or "").strip()
+        if 显式根:
+            return os.path.abspath(显式根)
+
+        try:
+            import sys as 系统
+
+            if getattr(系统, "frozen", False):
+                临时目录 = str(getattr(系统, "_MEIPASS", "") or "").strip()
+                if 临时目录:
+                    return os.path.abspath(临时目录)
+        except Exception:
+            pass
+
+        return self._取程序根目录()
+
+    def _取数据根目录(self) -> str:
+        return self._取程序根目录()
+
+    def _取全局缩放(self) -> float:
+        屏幕 = self.上下文["屏幕"]
+        宽, 高 = 屏幕.get_size()
+        return min(
+            float(宽) / max(1.0, float(self._设计宽)),
+            float(高) / max(1.0, float(self._设计高)),
+        )
+
+    def _设计值(self, 值: float, 最小值: int = 1) -> int:
+        try:
+            结果 = int(round(float(值) * self._取全局缩放()))
+        except Exception:
+            结果 = int(最小值)
+        return max(int(最小值), 结果)
+
+    def _设计字号(self, 字号: int, 最小字号: int = 8) -> int:
+        return max(int(最小字号), self._设计值(字号, 最小字号))
+
+    def _设计矩形(self, x: int, y: int, w: int, h: int) -> pygame.Rect:
+        屏幕 = self.上下文["屏幕"]
+        屏幕宽, 屏幕高 = 屏幕.get_size()
+
+        缩放 = self._取全局缩放()
+        内容宽 = float(self._设计宽) * 缩放
+        内容高 = float(self._设计高) * 缩放
+        偏移x = (float(屏幕宽) - 内容宽) * 0.5
+        偏移y = (float(屏幕高) - 内容高) * 0.5
+
+        屏幕x = int(round(偏移x + float(x) * 缩放))
+        屏幕y = int(round(偏移y + float(y) * 缩放))
+        屏幕w = max(1, int(round(float(w) * 缩放)))
+        屏幕h = max(1, int(round(float(h) * 缩放)))
+        return pygame.Rect(屏幕x, 屏幕y, 屏幕w, 屏幕h)
+
+    def _布局矩形(self, 名称: str) -> pygame.Rect:
+        配置 = getattr(self, "_布局方案", {}).get(名称)
+        if not isinstance(配置, (list, tuple)) or len(配置) != 4:
+            return pygame.Rect(0, 0, 1, 1)
+        return self._设计矩形(
+            int(配置[0]),
+            int(配置[1]),
+            int(配置[2]),
+            int(配置[3]),
+        )
 
     def __init__(self, 上下文: dict):
         self.上下文 = 上下文
@@ -28,137 +105,21 @@ class 场景_个人资料:
 
         self._背景视频 = 上下文.get("背景视频")
 
+        self._资源根 = self._取资源根目录()
+        self._运行根 = self._取数据根目录()
+
         self._联网原图 = self._安全加载图片(资源.get("投币_联网图标", ""), 透明=True)
 
-        def _规范路径(路径值: str) -> str:
-            try:
-                return os.path.abspath(str(路径值 or "").strip())
-            except Exception:
-                return ""
-
-        def _推断资源根目录() -> str:
-            候选起点列表: List[str] = []
-
-            try:
-                import sys as 系统
-
-                if getattr(系统, "frozen", False):
-                    临时资源目录 = _规范路径(getattr(系统, "_MEIPASS", ""))
-                    if 临时资源目录:
-                        候选起点列表.append(临时资源目录)
-                    候选起点列表.append(
-                        _规范路径(os.path.dirname(os.path.abspath(系统.executable)))
-                    )
-            except Exception:
-                pass
-
-            try:
-                脚本目录 = _规范路径(os.path.dirname(os.path.abspath(__file__)))
-                if 脚本目录:
-                    候选起点列表.append(脚本目录)
-            except Exception:
-                pass
-
-            try:
-                工作目录 = _规范路径(os.getcwd())
-                if 工作目录:
-                    候选起点列表.append(工作目录)
-            except Exception:
-                pass
-
-            已检查 = set()
-            for 起点 in 候选起点列表:
-                当前 = _规范路径(起点)
-                if (not 当前) or (当前 in 已检查):
-                    continue
-                已检查.add(当前)
-
-                for _ in range(10):
-                    if os.path.isdir(os.path.join(当前, "UI-img")) and os.path.isdir(
-                        os.path.join(当前, "json")
-                    ):
-                        return 当前
-                    上级 = os.path.dirname(当前)
-                    if 上级 == 当前:
-                        break
-                    当前 = 上级
-
-            for 起点 in 候选起点列表:
-                if 起点:
-                    return _规范路径(起点)
-
-            return _规范路径(os.getcwd()) or "."
-
-        def _推断运行根目录() -> str:
-            候选起点列表: List[str] = []
-
-            try:
-                import sys as 系统
-
-                if getattr(系统, "frozen", False):
-                    候选起点列表.append(
-                        _规范路径(os.path.dirname(os.path.abspath(系统.executable)))
-                    )
-            except Exception:
-                pass
-
-            try:
-                工作目录 = _规范路径(os.getcwd())
-                if 工作目录:
-                    候选起点列表.append(工作目录)
-            except Exception:
-                pass
-
-            try:
-                脚本目录 = _规范路径(os.path.dirname(os.path.abspath(__file__)))
-                if 脚本目录:
-                    候选起点列表.append(脚本目录)
-            except Exception:
-                pass
-
-            已检查 = set()
-            for 起点 in 候选起点列表:
-                当前 = _规范路径(起点)
-                if (not 当前) or (当前 in 已检查):
-                    continue
-                已检查.add(当前)
-
-                for _ in range(10):
-                    if (
-                        os.path.isdir(os.path.join(当前, "songs"))
-                        or os.path.isdir(os.path.join(当前, "json"))
-                        or os.path.isfile(os.path.join(当前, "main.py"))
-                    ):
-                        return 当前
-                    上级 = os.path.dirname(当前)
-                    if 上级 == 当前:
-                        break
-                    当前 = 上级
-
-            for 起点 in 候选起点列表:
-                if 起点:
-                    return _规范路径(起点)
-
-            return _规范路径(os.getcwd()) or "."
-
-        资源根 = _规范路径(str(资源.get("根", "") or ""))
-        if not 资源根:
-            资源根 = _推断资源根目录()
-
-        运行根 = _推断运行根目录()
-
-        self._资源根 = 资源根
-        self._运行根 = 运行根
-
         self._top栏原图 = self._安全加载图片(
-            os.path.join(资源根, "UI-img", "top栏", "top栏背景.png"), 透明=True
+            os.path.join(self._资源根, "UI-img", "top栏", "top栏背景.png"),
+            透明=True,
         )
 
         self._top标题原图 = None
         标题候选 = [
-            os.path.join(资源根, "UI-img", "top栏", "个人中心top标题.png"),
-            os.path.join(资源根, "UI-img", "top栏", "个人中心.png"),
-            os.path.join(资源根, "UI-img", "top栏", "个人中心top标题.jpg"),
+            os.path.join(self._资源根, "UI-img", "top栏", "个人中心top标题.png"),
+            os.path.join(self._资源根, "UI-img", "top栏", "个人中心.png"),
+            os.path.join(self._资源根, "UI-img", "top栏", "个人中心top标题.jpg"),
         ]
         for 路径 in 标题候选:
             图 = self._安全加载图片(路径, 透明=True)
@@ -166,36 +127,12 @@ class 场景_个人资料:
                 self._top标题原图 = 图
                 break
 
-        # ---------- 资源目录 / 运行数据目录 ----------
-        self._个人资料目录路径 = os.path.join(资源根, "UI-img", "个人中心-个人资料")
-        self._个人资料数据目录路径 = os.path.join(运行根, "json", "个人资料")
-        self._个人资料json路径 = os.path.join(运行根, "json", "个人资料.json")
-        self._个人资料旧json路径 = os.path.join(self._个人资料目录路径, "个人资料.json")
+        self._个人资料目录路径 = os.path.join(
+            self._资源根, "UI-img", "个人中心-个人资料"
+        )
+        self._个人资料数据目录路径 = os.path.join(self._运行根, "json", "个人资料")
+        self._个人资料json路径 = os.path.join(self._运行根, "json", "个人资料.json")
 
-        # ✅ 布局覆盖放到运行根，方便打包后改了立即生效
-        self._布局覆盖json路径 = os.path.join(运行根, "json", "个人资料场景_布局.json")
-
-        # ✅ 兼容迁移：第一次运行时，把旧 UI-img 下的个人资料.json 迁到运行根
-        try:
-            if (not os.path.isfile(self._个人资料json路径)) and os.path.isfile(
-                self._个人资料旧json路径
-            ):
-                os.makedirs(os.path.dirname(self._个人资料json路径), exist_ok=True)
-                旧数据 = None
-                for 编码 in ("utf-8-sig", "utf-8", "gbk"):
-                    try:
-                        with open(self._个人资料旧json路径, "r", encoding=编码) as 文件:
-                            旧数据 = json.load(文件)
-                        break
-                    except Exception:
-                        continue
-                if isinstance(旧数据, dict):
-                    with open(self._个人资料json路径, "w", encoding="utf-8") as 文件:
-                        json.dump(旧数据, 文件, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-        # 默认头像（静态资源）
         self._默认头像路径 = os.path.join(self._个人资料目录路径, "默认头像.png")
         if not os.path.isfile(self._默认头像路径):
             self._默认头像路径 = os.path.join(self._个人资料目录路径, "默认头像.jpg")
@@ -221,7 +158,7 @@ class 场景_个人资料:
             透明=True,
         )
 
-        经验条目录 = os.path.join(资源根, "UI-img", "经验条")
+        经验条目录 = os.path.join(self._资源根, "UI-img", "经验条")
         self._花式经验框原图 = self._安全加载图片(
             os.path.join(经验条目录, "花式经验-框.png"),
             透明=True,
@@ -268,11 +205,21 @@ class 场景_个人资料:
         self._rect_上面板 = pygame.Rect(0, 0, 1, 1)
         self._rect_下面板 = pygame.Rect(0, 0, 1, 1)
         self._rect_离开按钮 = pygame.Rect(0, 0, 1, 1)
+        self._rect_头像控件 = pygame.Rect(0, 0, 1, 1)
+        self._rect_昵称锚点 = pygame.Rect(0, 0, 1, 1)
+        self._rect_等级标识 = pygame.Rect(0, 0, 1, 1)
+        self._rect_统计区 = pygame.Rect(0, 0, 1, 1)
+        self._rect_介绍区 = pygame.Rect(0, 0, 1, 1)
+        self._rect_花式条 = pygame.Rect(0, 0, 1, 1)
+        self._rect_竞速条 = pygame.Rect(0, 0, 1, 1)
+        self._rect_软件按钮 = pygame.Rect(0, 0, 1, 1)
+        self._rect_软件信息 = pygame.Rect(0, 0, 1, 1)
+        self._rect_软件说明 = pygame.Rect(0, 0, 1, 1)
 
-        self._头像图 = None
-        self._等级图 = None
-        self._软件信息装饰图 = None
-        self._rect_软件信息装饰 = pygame.Rect(0, 0, 1, 1)
+        # self._头像图 = None
+        # self._等级图 = None
+        # self._软件信息装饰图 = None
+        # self._rect_软件信息装饰 = pygame.Rect(0, 0, 1, 1)
         self._离开按钮图 = None
 
         self._rect_昵称_渲染 = pygame.Rect(0, 0, 1, 1)
@@ -288,7 +235,7 @@ class 场景_个人资料:
         self._头像待导入源路径 = ""
         self._弹窗提示文本 = ""
 
-        self._布局覆盖_加载并应用(是否允许迁移=True)
+        self._布局覆盖_加载并应用()
 
         self._个人资料数据 = self._个人资料_读取并修复(是否回写=True)
         self._个人资料_刷新头像原图()
@@ -297,7 +244,614 @@ class 场景_个人资料:
         self._入场开始 = 0.0
         self._入场时长 = 0.22
 
-    # ---------------- 工具 ----------------
+    def _布局覆盖_加载并应用(self):
+        下移 = 26
+
+        def _下移矩形(x: int, y: int, w: int, h: int) -> list[int]:
+            return [int(x), int(y + 下移), int(w), int(h)]
+
+        self._布局方案 = {
+            "上面板": _下移矩形(222, 161, 1488, 305),
+            "下面板": _下移矩形(214, 517, 1498, 380),
+            "离开按钮": _下移矩形(1751, 776, 119, 136),
+            "软件按钮": _下移矩形(266, 480, 139, 86),
+            "头像控件": _下移矩形(281, 175, 152, 152),
+            "昵称锚点": _下移矩形(280, 336, 149, 40),
+            # 原来是 [235, 358, 226, 96]
+            # 这里按中心轻微缩小，避免视觉上压昵称
+            "等级标识": _下移矩形(244, 362, 208, 88),
+            "统计区": _下移矩形(479, 190, 767, 166),
+            "介绍区": _下移矩形(1322, 194, 362, 142),
+            "花式条": _下移矩形(633, 361, 969, 35),
+            "竞速条": _下移矩形(632, 411, 969, 35),
+            "软件信息": _下移矩形(292, 593, 1383, 274),
+            "软件说明": _下移矩形(286, 865, 1340, 44),
+        }
+
+        self._字号方案 = {
+            "昵称字号": 25,
+            "统计字号": 22,
+            "介绍字号": 16,
+            "下方左字号": 19,
+            "下方右字号": 15,
+            "进度标签字号": 24,
+            "进度LV字号": 25,
+        }
+
+        self._间距方案 = {
+            "全局字距": 2,
+            "统计行距": 38,
+            "下方左行距": 8,
+            "下方右行距": 4,
+            "进度标签间距": 8,
+            "进度LV间距": 10,
+        }
+
+        self._粗体方案 = {
+            "昵称粗体": False,
+            "统计粗体": False,
+            "介绍粗体": False,
+            "下方左粗体": False,
+            "下方右粗体": True,
+            "进度标签粗体": False,
+            "进度LV粗体": False,
+        }
+
+        self._失效主界面静态缓存()
+        self._缓存尺寸 = (0, 0)
+
+    def _确保缓存(self):
+        from ui.top栏 import 生成top栏
+
+        屏幕 = self.上下文["屏幕"]
+        宽度, 高度 = 屏幕.get_size()
+
+        if (宽度, 高度) == self._缓存尺寸:
+            return
+
+        self._缓存尺寸 = (宽度, 高度)
+        self._失效主界面静态缓存()
+        self._失效头像预览缓存()
+
+        try:
+            if hasattr(self, "_缩放缓存"):
+                self._缩放缓存 = {}
+        except Exception:
+            pass
+
+        暗层 = pygame.Surface((宽度, 高度), pygame.SRCALPHA)
+        暗层.fill((0, 0, 0, 128))
+        self._遮罩图 = 暗层
+
+        self._rect_top栏, self._top栏图, self._rect_top标题, self._top标题图 = (
+            生成top栏(
+                屏幕=屏幕,
+                top背景原图=self._top栏原图,
+                标题原图=self._top标题原图,
+                设计宽=self._设计宽,
+                设计高=self._设计高,
+                top设计高=150,
+                top背景宽占比=1,
+                top背景高占比=1,
+                标题最大宽占比=0.5,
+                标题最大高占比=0.5,
+                标题整体缩放=1,
+                标题上移比例=0.1,
+            )
+        )
+
+        self._rect_上面板 = self._布局矩形("上面板")
+        self._rect_下面板 = self._布局矩形("下面板")
+        self._rect_离开按钮 = self._布局矩形("离开按钮")
+        self._rect_软件按钮 = self._布局矩形("软件按钮")
+        self._rect_头像控件 = self._布局矩形("头像控件")
+        self._rect_昵称锚点 = self._布局矩形("昵称锚点")
+        self._rect_等级标识 = self._布局矩形("等级标识")
+        self._rect_统计区 = self._布局矩形("统计区")
+        self._rect_介绍区 = self._布局矩形("介绍区")
+        self._rect_花式条 = self._布局矩形("花式条")
+        self._rect_竞速条 = self._布局矩形("竞速条")
+        self._rect_软件信息 = self._布局矩形("软件信息")
+        self._rect_软件说明 = self._布局矩形("软件说明")
+
+        if self._离开按钮原图 is not None:
+            self._离开按钮图 = self._contain缩放(
+                self._离开按钮原图,
+                self._rect_离开按钮.w,
+                self._rect_离开按钮.h,
+                透明=True,
+            )
+        else:
+            self._离开按钮图 = None
+
+    def _绘制_上面板(self, 屏幕: pygame.Surface, 缩放: float, 透明: int):
+        from core.工具 import 获取字体
+
+        原面板 = self._rect_上面板.copy()
+        面板 = 原面板.copy()
+
+        if abs(缩放 - 1.0) > 0.001:
+            面板.w = max(1, int(round(面板.w * 缩放)))
+            面板.h = max(1, int(round(面板.h * 缩放)))
+            面板.center = 原面板.center
+
+        def _随面板缩放(原矩形: pygame.Rect) -> pygame.Rect:
+            if abs(缩放 - 1.0) <= 0.001:
+                return 原矩形.copy()
+
+            新矩形 = pygame.Rect(
+                0,
+                0,
+                max(1, int(round(原矩形.w * 缩放))),
+                max(1, int(round(原矩形.h * 缩放))),
+            )
+            偏移x = 原矩形.centerx - 原面板.centerx
+            偏移y = 原矩形.centery - 原面板.centery
+            新矩形.center = (
+                int(round(面板.centerx + 偏移x * 缩放)),
+                int(round(面板.centery + 偏移y * 缩放)),
+            )
+            return 新矩形
+
+        if isinstance(self._上面板背景原图, pygame.Surface):
+            背景图 = self._取缩放缓存图(
+                "个人资料_上背景",
+                self._上面板背景原图,
+                面板.w,
+                面板.h,
+            )
+            if isinstance(背景图, pygame.Surface):
+                背景图 = 背景图.copy()
+                背景图.set_alpha(max(0, min(255, int(透明))))
+                屏幕.blit(背景图, 面板.topleft)
+        else:
+            self._绘制圆角面板(
+                屏幕, 面板, 背景alpha=175, 线宽=2, 圆角=self._设计值(36, 12)
+            )
+
+        标题白 = (255, 255, 255)
+        数值黄 = (255, 220, 80)
+        曲目紫 = (190, 140, 255)
+        小灰 = (160, 160, 160)
+
+        数据 = (
+            self._个人资料数据
+            if isinstance(getattr(self, "_个人资料数据", None), dict)
+            else {}
+        )
+        昵称 = str(数据.get("昵称", "玩家昵称") or "玩家昵称")
+
+        统计 = 数据.get("统计", {}) if isinstance(数据.get("统计", {}), dict) else {}
+        游玩时长分钟 = int(统计.get("游玩时长分钟", 0) or 0)
+        累计评价S数 = int(统计.get("累计评价S数", 0) or 0)
+        最大Combo = int(统计.get("最大Combo", 0) or 0)
+        最大Combo曲目 = str(统计.get("最大Combo曲目", "") or "")
+        最高分 = int(统计.get("最高分", 0) or 0)
+        最高分曲目 = str(统计.get("最高分曲目", "") or "")
+
+        进度 = 数据.get("进度", {}) if isinstance(数据.get("进度", {}), dict) else {}
+        花式 = 进度.get("花式", {}) if isinstance(进度.get("花式", {}), dict) else {}
+        竞速 = 进度.get("竞速", {}) if isinstance(进度.get("竞速", {}), dict) else {}
+
+        花式等级 = int(花式.get("等级", 1) or 1)
+        花式经验 = float(花式.get("经验", 0.0) or 0.0)
+        竞速等级 = int(竞速.get("等级", 1) or 1)
+        竞速经验 = float(竞速.get("经验", 0.0) or 0.0)
+
+        花式经验 = 0.0 if 花式经验 < 0.0 else (1.0 if 花式经验 > 1.0 else 花式经验)
+        竞速经验 = 0.0 if 竞速经验 < 0.0 else (1.0 if 竞速经验 > 1.0 else 竞速经验)
+
+        头像rect = _随面板缩放(self._rect_头像控件)
+        昵称锚点 = _随面板缩放(self._rect_昵称锚点)
+        等级rect = _随面板缩放(self._rect_等级标识)
+        统计区 = _随面板缩放(self._rect_统计区)
+        介绍区 = _随面板缩放(self._rect_介绍区)
+        花式条 = _随面板缩放(self._rect_花式条)
+        竞速条 = _随面板缩放(self._rect_竞速条)
+
+        头像图 = self._取圆角头像图(min(头像rect.w, 头像rect.h))
+        if 头像图 is not None:
+            if 头像图.get_size() != (头像rect.w, 头像rect.h):
+                头像图 = self._取缩放缓存图("头像控件", 头像图, 头像rect.w, 头像rect.h)
+            if 头像图 is not None:
+                头像图 = 头像图.copy()
+                头像图.set_alpha(透明)
+                屏幕.blit(头像图, 头像rect.topleft)
+
+        昵称字 = 获取字体(
+            self._设计字号(self._字号方案["昵称字号"], 12),
+            是否粗体=bool(self._粗体方案["昵称粗体"]),
+        )
+        统计字 = 获取字体(
+            self._设计字号(self._字号方案["统计字号"], 10),
+            是否粗体=bool(self._粗体方案["统计粗体"]),
+        )
+        介绍字 = 获取字体(
+            self._设计字号(self._字号方案["介绍字号"], 9),
+            是否粗体=bool(self._粗体方案["介绍粗体"]),
+        )
+        标签字 = 获取字体(
+            self._设计字号(self._字号方案["进度标签字号"], 10),
+            是否粗体=bool(self._粗体方案["进度标签粗体"]),
+        )
+        等级字 = 获取字体(
+            self._设计字号(self._字号方案["进度LV字号"], 10),
+            是否粗体=bool(self._粗体方案["进度LV粗体"]),
+        )
+
+        全局字距 = self._设计值(self._间距方案["全局字距"], 0)
+        统计行距 = self._设计值(self._间距方案["统计行距"], 2)
+        标签间距 = self._设计值(self._间距方案["进度标签间距"], 2)
+        等级间距 = self._设计值(self._间距方案["进度LV间距"], 2)
+        介绍行距 = max(0, self._设计值(3, 0))
+
+        昵称中心x = 昵称锚点.centerx if 昵称锚点.w > 2 else 头像rect.centerx
+        昵称顶部y = 昵称锚点.y
+
+        昵称渲染rect = self._绘制文本(
+            屏幕,
+            昵称,
+            昵称字,
+            标题白,
+            (昵称中心x, 昵称顶部y),
+            "midtop",
+            字距=全局字距,
+        )
+        self._rect_昵称_渲染 = 昵称渲染rect.copy()
+
+        if self._等级原图 is not None:
+            等级图 = self._取缩放缓存图(
+                "等级标识", self._等级原图, 等级rect.w, 等级rect.h
+            )
+            if 等级图 is not None:
+                等级图 = 等级图.copy()
+                等级图.set_alpha(透明)
+                屏幕.blit(等级图, 等级rect.topleft)
+
+        当前y = 统计区.y + self._设计值(6, 1)
+        行定义 = [
+            ("游玩时长（分钟）：", str(游玩时长分钟), None),
+            ("累计评价S数：", str(累计评价S数), None),
+            (
+                "最大Combo/曲目：",
+                str(最大Combo),
+                最大Combo曲目 if 最大Combo曲目 else None,
+            ),
+            ("最高分/曲目名：", str(最高分), 最高分曲目 if 最高分曲目 else None),
+        ]
+
+        最大标题宽 = 0
+        for 标题, _, _ in 行定义:
+            try:
+                最大标题宽 = max(
+                    最大标题宽,
+                    int(
+                        self._渲染字距文本面(标题, 统计字, 标题白, 全局字距).get_width()
+                    ),
+                )
+            except Exception:
+                pass
+
+        值列x = min(
+            统计区.right - self._设计值(180, 80),
+            统计区.x + 最大标题宽 + self._设计值(24, 8),
+        )
+
+        for 标题, 数值, 曲目 in 行定义:
+            self._绘制文本(
+                屏幕,
+                标题,
+                统计字,
+                标题白,
+                (统计区.x, 当前y),
+                "topleft",
+                字距=全局字距,
+            )
+            数值rect = self._绘制文本(
+                屏幕,
+                数值,
+                统计字,
+                数值黄,
+                (值列x, 当前y),
+                "topleft",
+                字距=全局字距,
+            )
+            if 曲目:
+                self._绘制文本(
+                    屏幕,
+                    f"({曲目})",
+                    统计字,
+                    曲目紫,
+                    (数值rect.right + self._设计值(6, 2), 当前y),
+                    "topleft",
+                    字距=全局字距,
+                )
+            当前y += 统计行距
+
+        介绍文本 = (
+            "e舞成名重构版（测试）为非盈利性的游戏；\n"
+            "本游戏软件为交流、学习、测试使用，如有侵权，请率先联系我们。\n"
+            "如果你有意参与我们的开发项目；\n"
+            "请进人QQ群：1084318862\n"
+            "进群后联系Emma_H。"
+        )
+        self._绘制自动换行(
+            屏幕,
+            介绍文本,
+            介绍字,
+            小灰,
+            pygame.Rect(介绍区.x, 介绍区.y, 介绍区.w, 介绍区.h),
+            行距=介绍行距,
+            字距=全局字距,
+        )
+
+        花式标签面 = self._渲染字距文本面("花式经验值：", 标签字, 标题白, 全局字距)
+        花式标签面.set_alpha(透明)
+        花式标签rect = 花式标签面.get_rect(
+            midright=(花式条.left - 标签间距, 花式条.centery)
+        )
+        屏幕.blit(花式标签面, 花式标签rect.topleft)
+
+        花式等级面 = self._渲染字距文本面(
+            f"Lv. {max(1, 花式等级)}", 等级字, 标题白, 全局字距
+        )
+        花式等级面.set_alpha(透明)
+        花式等级rect = 花式等级面.get_rect(
+            midleft=(花式条.right + 等级间距, 花式条.centery)
+        )
+        屏幕.blit(花式等级面, 花式等级rect.topleft)
+
+        self._绘制贴图进度条(
+            屏幕,
+            花式条,
+            进度=float(花式经验),
+            框原图=self._花式经验框原图,
+            值原图=self._花式经验值原图,
+            缓存前缀="个人资料_花式经验条",
+            透明=透明,
+        )
+
+        竞速标签面 = self._渲染字距文本面("竞速经验值：", 标签字, 标题白, 全局字距)
+        竞速标签面.set_alpha(透明)
+        竞速标签rect = 竞速标签面.get_rect(
+            midright=(竞速条.left - 标签间距, 竞速条.centery)
+        )
+        屏幕.blit(竞速标签面, 竞速标签rect.topleft)
+
+        竞速等级面 = self._渲染字距文本面(
+            f"Lv. {max(1, 竞速等级)}", 等级字, 标题白, 全局字距
+        )
+        竞速等级面.set_alpha(透明)
+        竞速等级rect = 竞速等级面.get_rect(
+            midleft=(竞速条.right + 等级间距, 竞速条.centery)
+        )
+        屏幕.blit(竞速等级面, 竞速等级rect.topleft)
+
+        self._绘制贴图进度条(
+            屏幕,
+            竞速条,
+            进度=float(竞速经验),
+            框原图=self._竞速经验框原图,
+            值原图=self._竞速经验值原图,
+            缓存前缀="个人资料_竞速经验条",
+            透明=透明,
+        )
+
+    def _绘制_下面板(self, 屏幕: pygame.Surface, 缩放: float, 透明: int):
+        from core.工具 import 获取字体
+
+        原面板 = self._rect_下面板.copy()
+        面板 = 原面板.copy()
+
+        if abs(缩放 - 1.0) > 0.001:
+            面板.w = max(1, int(round(面板.w * 缩放)))
+            面板.h = max(1, int(round(面板.h * 缩放)))
+            面板.center = 原面板.center
+
+        def _随面板缩放(原矩形: pygame.Rect) -> pygame.Rect:
+            if abs(缩放 - 1.0) <= 0.001:
+                return 原矩形.copy()
+
+            新矩形 = pygame.Rect(
+                0,
+                0,
+                max(1, int(round(原矩形.w * 缩放))),
+                max(1, int(round(原矩形.h * 缩放))),
+            )
+            偏移x = 原矩形.centerx - 原面板.centerx
+            偏移y = 原矩形.centery - 原面板.centery
+            新矩形.center = (
+                int(round(面板.centerx + 偏移x * 缩放)),
+                int(round(面板.centery + 偏移y * 缩放)),
+            )
+            return 新矩形
+
+        if isinstance(self._下面板背景原图, pygame.Surface):
+            背景图 = self._取缩放缓存图(
+                "个人资料_下背景",
+                self._下面板背景原图,
+                面板.w,
+                面板.h,
+            )
+            if isinstance(背景图, pygame.Surface):
+                背景图 = 背景图.copy()
+                背景图.set_alpha(max(0, min(255, int(透明))))
+                屏幕.blit(背景图, 面板.topleft)
+        else:
+            self._绘制圆角面板(
+                屏幕, 面板, 背景alpha=185, 线宽=2, 圆角=self._设计值(36, 12)
+            )
+
+        软件按钮rect = _随面板缩放(self._rect_软件按钮)
+        软件信息区 = _随面板缩放(self._rect_软件信息)
+        软件说明区 = _随面板缩放(self._rect_软件说明)
+
+        if self._软件信息装饰原图 is not None:
+            软件按钮图 = self._取缩放缓存图(
+                "软件按钮",
+                self._软件信息装饰原图,
+                软件按钮rect.w,
+                软件按钮rect.h,
+            )
+            if 软件按钮图 is not None:
+                软件按钮图 = 软件按钮图.copy()
+                软件按钮图.set_alpha(透明)
+                屏幕.blit(软件按钮图, 软件按钮rect.topleft)
+
+        左字 = 获取字体(
+            self._设计字号(self._字号方案["下方左字号"], 10),
+            是否粗体=bool(self._粗体方案["下方左粗体"]),
+        )
+        右字 = 获取字体(
+            self._设计字号(self._字号方案["下方右字号"], 9),
+            是否粗体=bool(self._粗体方案["下方右粗体"]),
+        )
+
+        下方左行距 = self._设计值(self._间距方案["下方左行距"], 0)
+        下方右行距 = self._设计值(self._间距方案["下方右行距"], 0)
+        全局字距 = self._设计值(self._间距方案["全局字距"], 0)
+
+        黄色 = (255, 220, 80)
+        白色 = (235, 235, 235)
+        浅灰 = (190, 190, 190)
+
+        def _绘制富文本段落(
+            起始x: int,
+            起始y: int,
+            区域: pygame.Rect,
+            字体: pygame.font.Font,
+            行距: int,
+            字距: int,
+            行片段列表,
+        ):
+            if not hasattr(self, "_富文本单字缓存"):
+                self._富文本单字缓存 = {}
+
+            def _取字面(单字: str, 颜色):
+                缓存键 = (id(字体), 单字, 颜色[0], 颜色[1], 颜色[2])
+                已有 = self._富文本单字缓存.get(缓存键)
+                if isinstance(已有, pygame.Surface):
+                    return 已有
+                try:
+                    字面 = 字体.render(单字, True, 颜色)
+                except Exception:
+                    字面 = None
+                if isinstance(字面, pygame.Surface):
+                    self._富文本单字缓存[缓存键] = 字面
+                return 字面
+
+            行高 = max(1, int(字体.get_height()))
+            当前y = int(起始y)
+
+            def _落笔一行(字符列表):
+                nonlocal 当前y
+                if 当前y > 区域.bottom - 2:
+                    return
+                当前x = int(起始x)
+                for 索引, (单字, 颜色) in enumerate(字符列表):
+                    字面 = _取字面(单字, 颜色)
+                    if isinstance(字面, pygame.Surface):
+                        绘制字面 = 字面
+                        if 透明 < 255:
+                            绘制字面 = 字面.copy()
+                            绘制字面.set_alpha(透明)
+                        屏幕.blit(绘制字面, (当前x, 当前y))
+                        当前x += int(字面.get_width())
+                    else:
+                        try:
+                            当前x += int(字体.size(单字)[0])
+                        except Exception:
+                            pass
+                    if 索引 != len(字符列表) - 1:
+                        当前x += int(字距)
+                当前y += 行高 + int(行距)
+
+            for 一行片段 in 行片段列表:
+                if not 一行片段:
+                    当前y += 行高 + int(行距)
+                    if 当前y > 区域.bottom - 2:
+                        break
+                    continue
+
+                字符流 = []
+                for 文本, 颜色 in 一行片段:
+                    for 单字 in str(文本 or ""):
+                        字符流.append((单字, 颜色))
+
+                当前行 = []
+                当前宽 = 0
+
+                for 单字, 颜色 in 字符流:
+                    try:
+                        单字宽 = int(字体.size(单字)[0])
+                    except Exception:
+                        单字宽 = 0
+
+                    追加宽 = (字距 if 当前行 else 0) + 单字宽
+                    if 当前行 and (当前宽 + 追加宽 > 区域.w):
+                        _落笔一行(当前行)
+                        当前行 = [(单字, 颜色)]
+                        当前宽 = 单字宽
+                    else:
+                        当前行.append((单字, 颜色))
+                        当前宽 += 追加宽
+
+                    if 当前y > 区域.bottom - 2:
+                        break
+
+                if 当前y > 区域.bottom - 2:
+                    break
+
+                if 当前行:
+                    _落笔一行(当前行)
+
+                if 当前y > 区域.bottom - 2:
+                    break
+
+        主信息片段 = [
+            [
+                ("游戏版本：", 黄色),
+                ("e舞成名重构版v1.0.0         ", 白色),
+                ("开发团队：", 黄色),
+                (
+                    "程序工程师/策划/游戏制作人：良    UE/UI设计/策划：Emma_H（林曦）",
+                    白色,
+                ),
+            ],
+            [("特别鸣谢（排名不分先后）：", 黄色)],
+            [("    Cyan（音效提供）|  飞翔e舞模拟器（曲谱资源提供）", 白色)],
+            [("LifeErrOr（美术提供）|  小鱼（美术提供）", 白色)],
+            [("“e舞时刻”官方粉丝1群参与讨论的群友（反馈提供）", 白色)],
+            [],
+            [("玩家交流QQ群：1084318862", 白色)],
+        ]
+
+        if 软件信息区.w > 8 and 软件信息区.h > 8:
+            _绘制富文本段落(
+                起始x=软件信息区.x,
+                起始y=软件信息区.y,
+                区域=软件信息区,
+                字体=左字,
+                行距=下方左行距,
+                字距=全局字距,
+                行片段列表=主信息片段,
+            )
+
+        说明文本 = (
+            "本游戏设计初衷是为了让更多e舞玩家能在各地玩到e舞成名，"
+            "本项目纯爱发电，没有任何盈利性质，如您发现有人倒卖本软件，请及时联系我们。"
+        )
+
+        if 软件说明区.w > 20 and 软件说明区.h > 16:
+            self._绘制自动换行(
+                屏幕,
+                说明文本,
+                右字,
+                浅灰,
+                软件说明区,
+                行距=下方右行距,
+                字距=全局字距,
+            )
 
     def _安全加载图片(self, 路径: str, 透明: bool):
         try:
@@ -410,62 +964,9 @@ class 场景_个人资料:
         sh = int(round(float(h) * scale))
         return pygame.Rect(sx, sy, max(1, sw), max(1, sh))
 
-    def _覆盖值转设计rect(self, 覆盖值) -> pygame.Rect:
-        x = int(覆盖值[0])
-        y = int(覆盖值[1])
-        w = int(覆盖值[2])
-        h = int(覆盖值[3])
-
-        坐标模式 = (
-            str(getattr(self, "_布局覆盖_坐标模式", "设计") or "设计").strip().lower()
-        )
-        if 坐标模式 in ("screen", "屏幕"):
-            参考宽 = max(1, int(getattr(self, "_布局覆盖_参考宽", 1920) or 1920))
-            参考高 = max(1, int(getattr(self, "_布局覆盖_参考高", 1080) or 1080))
-            sx = float(self._设计宽) / float(参考宽)
-            sy = float(self._设计高) / float(参考高)
-            x = int(round(float(x) * sx))
-            y = int(round(float(y) * sy))
-            w = int(round(float(w) * sx))
-            h = int(round(float(h) * sy))
-
-        return pygame.Rect(x, y, w, h)
-
-    def _取覆盖屏幕rect(
-        self, 名称: str, 默认: pygame.Rect, 最小边: int = 20
-    ) -> pygame.Rect:
-        try:
-            覆盖 = getattr(self, "_调试_覆盖", {}) or {}
-        except Exception:
-            覆盖 = {}
-        v = 覆盖.get(名称)
-        if isinstance(v, list) and len(v) == 4:
-            try:
-                设计rect = self._覆盖值转设计rect(v)
-                屏幕rect = self._设计rect到屏幕rect(
-                    (设计rect.x, 设计rect.y, 设计rect.w, 设计rect.h)
-                )
-                屏幕rect.w = max(int(最小边), int(屏幕rect.w))
-                屏幕rect.h = max(int(最小边), int(屏幕rect.h))
-                return 屏幕rect
-            except Exception:
-                pass
-        return 默认.copy()
-
     def _映射到屏幕_rect(self, bbox) -> pygame.Rect:
         l, t, r, b = bbox
         return self._设计rect到屏幕rect((l, t, (r - l), (b - t)))
-
-    def _稿1920rect到屏幕rect(self, x: int, y: int, w: int, h: int) -> pygame.Rect:
-        sx = float(self._设计宽) / 1920.0
-        sy = float(self._设计高) / 1080.0
-        设计rect = (
-            int(round(float(x) * sx)),
-            int(round(float(y) * sy)),
-            int(round(float(w) * sx)),
-            int(round(float(h) * sy)),
-        )
-        return self._设计rect到屏幕rect(设计rect)
 
     def _绘制圆角面板(
         self,
@@ -1387,506 +1888,10 @@ class 场景_个人资料:
 
         return True
 
-    # ---------------- 缓存/布局 ----------------
-    def _确保缓存(self):
-        from ui.top栏 import 生成top栏
-
-        屏幕 = self.上下文["屏幕"]
-        w, h = 屏幕.get_size()
-
-        # ✅ 允许调试时强制重算：调试器会把 _缓存尺寸 置(0,0)
-        if (w, h) == self._缓存尺寸:
-            return
-        self._缓存尺寸 = (w, h)
-        self._失效主界面静态缓存()
-        self._失效头像预览缓存()
-
-        # ✅ 缩放缓存：屏幕尺寸变化时清一次，避免爆内存
-        try:
-            if hasattr(self, "_缩放缓存"):
-                self._缩放缓存 = {}
-        except Exception:
-            pass
-
-        暗层 = pygame.Surface((w, h), pygame.SRCALPHA)
-        暗层.fill((0, 0, 0, 128))
-        self._遮罩图 = 暗层
-
-        # top栏
-        self._rect_top栏, self._top栏图, self._rect_top标题, self._top标题图 = (
-            生成top栏(
-                屏幕=屏幕,
-                top背景原图=self._top栏原图,
-                标题原图=self._top标题原图,
-                设计宽=self._设计宽,
-                设计高=self._设计高,
-                top设计高=150,
-                top背景宽占比=1,
-                top背景高占比=1,
-                标题最大宽占比=0.5,
-                标题最大高占比=0.5,
-                标题整体缩放=1,
-                标题上移比例=0.1,
-            )
-        )
-
-        # ---------- 三大框（必须可控） ----------
-        self._rect_上面板 = self._取覆盖屏幕rect(
-            "上面板", self._映射到屏幕_rect(self._bbox_上面板)
-        )
-        self._rect_下面板 = self._取覆盖屏幕rect(
-            "下面板", self._映射到屏幕_rect(self._bbox_下面板)
-        )
-        self._rect_离开按钮 = self._取覆盖屏幕rect(
-            "离开按钮", self._映射到屏幕_rect(self._bbox_离开按钮)
-        )
-
-        # ---------- 下方“软件按钮”(可控/可缩放) ----------
-        默认软件按钮 = pygame.Rect(
-            self._rect_下面板.left + max(18, int(self._rect_下面板.w * 0.02)),
-            self._rect_下面板.top - max(28, int(self._rect_下面板.h * 0.10)),
-            max(160, int(self._rect_下面板.w * 0.18)),
-            max(70, int(self._rect_下面板.h * 0.18)),
-        )
-        self._rect_软件按钮 = self._取覆盖屏幕rect("软件按钮", 默认软件按钮)
-
-        # ---------- 上面板内部：全部变成可编辑 rect（解决“控件太少”） ----------
-        面板 = self._rect_上面板
-        内边距 = max(10, int(面板.w * 0.015))
-        可用 = pygame.Rect(
-            面板.x + 内边距, 面板.y + 内边距, 面板.w - 内边距 * 2, 面板.h - 内边距 * 2
-        )
-
-        左宽 = max(200, int(可用.w * 0.10))  # ✅ 左侧占 10%
-        左区 = pygame.Rect(可用.x, 可用.y, 左宽, 可用.h)
-        右区 = pygame.Rect(
-            左区.right + max(8, int(可用.w * 0.01)),
-            可用.y,
-            可用.w - 左区.w - max(8, int(可用.w * 0.01)),
-            可用.h,
-        )
-
-        # 头像控件 rect（默认在左区上方）
-        头像边 = max(64, min(int(左区.w * 0.92), int(左区.h * 0.56)))
-        默认头像 = pygame.Rect(0, 0, 头像边, 头像边)
-        默认头像.midtop = (左区.centerx, 左区.y + max(2, int(左区.h * 0.02)))
-        self._rect_头像控件 = self._取覆盖屏幕rect("头像控件", 默认头像)
-
-        # 昵称锚点（作为文本起点）
-        默认昵称 = pygame.Rect(
-            self._rect_头像控件.left,
-            self._rect_头像控件.bottom + max(4, int(面板.h * 0.02)),
-            max(80, self._rect_头像控件.w),
-            24,
-        )
-        self._rect_昵称锚点 = self._取覆盖屏幕rect("昵称锚点", 默认昵称)
-
-        # 等级标识 rect（强制在上面板内，避免被挤出去）
-        默认等级 = pygame.Rect(
-            self._rect_昵称锚点.left,
-            self._rect_昵称锚点.bottom + 6,
-            max(120, int(左区.w * 0.95)),
-            max(24, int(面板.h * 0.16)),
-        )
-        默认等级.clamp_ip(面板)  # ✅ 不允许跑出面板
-        self._rect_等级标识 = self._取覆盖屏幕rect("等级标识", 默认等级)
-
-        上区 = pygame.Rect(右区.x, 右区.y, 右区.w, int(右区.h * 0.62))
-        下区 = pygame.Rect(
-            右区.x,
-            上区.bottom + max(6, int(右区.h * 0.03)),
-            右区.w,
-            右区.h - (上区.h + max(6, int(右区.h * 0.03))),
-        )
-
-        默认统计 = pygame.Rect(上区.x, 上区.y, int(上区.w * 0.62), 上区.h)
-        默认介绍 = pygame.Rect(
-            默认统计.right + max(8, int(上区.w * 0.02)),
-            上区.y,
-            上区.w - 默认统计.w - max(8, int(上区.w * 0.02)),
-            上区.h,
-        )
-
-        self._rect_统计区 = self._取覆盖屏幕rect("统计区", 默认统计)
-        self._rect_介绍区 = self._取覆盖屏幕rect("介绍区", 默认介绍)
-
-        条高 = max(12, int(下区.h * 0.32))
-        默认花式条 = pygame.Rect(
-            下区.x + int(下区.w * 0.18),
-            下区.y + max(2, int(下区.h * 0.08)),
-            int(下区.w * 0.66),
-            条高,
-        )
-        默认竞速条 = pygame.Rect(
-            默认花式条.x,
-            默认花式条.bottom + max(6, int(下区.h * 0.18)),
-            默认花式条.w,
-            条高,
-        )
-
-        self._rect_花式条 = self._取覆盖屏幕rect("花式条", 默认花式条)
-        self._rect_竞速条 = self._取覆盖屏幕rect("竞速条", 默认竞速条)
-
-        # ---------- 下面板左右两列（可控） ----------
-        面板2 = self._rect_下面板
-        内边距2 = max(12, int(面板2.w * 0.02))
-        文框 = pygame.Rect(
-            面板2.x + 内边距2,
-            面板2.y + 内边距2,
-            面板2.w - 内边距2 * 2,
-            面板2.h - 内边距2 * 2,
-        )
-        列间距 = max(10, int(文框.w * 0.02))
-        默认软件信息 = pygame.Rect(文框.x, 文框.y, int(文框.w * 0.62), 文框.h)
-        默认软件说明 = pygame.Rect(
-            默认软件信息.right + 列间距,
-            文框.y,
-            文框.w - 默认软件信息.w - 列间距,
-            文框.h,
-        )
-
-        self._rect_软件信息 = self._取覆盖屏幕rect("软件信息", 默认软件信息)
-        self._rect_软件说明 = self._取覆盖屏幕rect("软件说明", 默认软件说明)
-
-        # ---------- 资源缩放缓存（离开/软件按钮/等级） ----------
-        if self._离开按钮原图 is not None:
-            self._离开按钮图 = self._contain缩放(
-                self._离开按钮原图,
-                self._rect_离开按钮.w,
-                self._rect_离开按钮.h,
-                透明=True,
-            )
-        else:
-            self._离开按钮图 = None
-
-        # ✅ 输出给调试器：控件必须“够多”，否则你点不动/调不了
-        self._调试_rect表 = {
-            "上面板": self._rect_上面板.copy(),
-            "下面板": self._rect_下面板.copy(),
-            "离开按钮": self._rect_离开按钮.copy(),
-            "软件按钮": self._rect_软件按钮.copy(),
-            "头像控件": self._rect_头像控件.copy(),
-            "昵称锚点": self._rect_昵称锚点.copy(),
-            "等级标识": self._rect_等级标识.copy(),
-            "统计区": self._rect_统计区.copy(),
-            "介绍区": self._rect_介绍区.copy(),
-            "花式条": self._rect_花式条.copy(),
-            "竞速条": self._rect_竞速条.copy(),
-            "软件信息": self._rect_软件信息.copy(),
-            "软件说明": self._rect_软件说明.copy(),
-        }
-
-    # ---------------- 生命周期 ----------------
-    def 进入(self):
-        资源 = self.上下文.get("资源", {})
-        状态 = self.上下文.get("状态", {})
-
-        根目录 = str(资源.get("根", "") or os.getcwd())
-        排行榜BGM路径 = os.path.join(根目录, "冷资源", "backsound", "排行榜.mp3")
-
-        已经在播排行榜 = False
-        try:
-            已经在播排行榜 = bool(状态.get("bgm_排行榜_已播放", False))
-        except Exception:
-            已经在播排行榜 = False
-
-        if (not 已经在播排行榜) and os.path.isfile(排行榜BGM路径):
-            try:
-                self.上下文["音乐"].播放循环(排行榜BGM路径)
-                状态["bgm_排行榜_已播放"] = True
-            except Exception:
-                pass
-
-        self._入场开始 = time.time()
-
-        self._正在放大切场景 = False
-        self._延迟目标场景 = None
-        pygame.time.set_timer(self._事件_延迟切场景, 0)
-
-        self._按钮特效_截图 = None
-        self._按钮特效_rect = pygame.Rect(0, 0, 1, 1)
-        self._失效主界面静态缓存()
-        self._失效头像预览缓存()
-
-        # ✅ 每次进入都默认加载（方便你手动改 json 后立刻生效）
-        self._布局覆盖_加载并应用(是否允许迁移=False)
-
-        # ✅ 进入时重新读一次个人资料（可能别的场景更新了 json）
-        self._个人资料数据 = self._个人资料_读取并修复(是否回写=False)
-        self._个人资料_刷新头像原图()
-        self._个人资料_刷新段位图标()
-
-        self._确保缓存()
-
     def 退出(self):
         pygame.time.set_timer(self._事件_延迟切场景, 0)
         self._关闭二次弹窗()
 
-    def _布局覆盖_加载并应用(self, 是否允许迁移: bool = True):
-        self._调试_覆盖 = {}
-        self._调试_样式 = {}
-        self._布局覆盖_坐标模式 = "design"
-        self._布局覆盖_参考宽 = int(self._设计宽)
-        self._布局覆盖_参考高 = int(self._设计高)
-        self._布局覆盖json实际路径 = ""
-
-        def _规范路径(路径值: str) -> str:
-            try:
-                return os.path.abspath(str(路径值 or "").strip())
-            except Exception:
-                return ""
-
-        def _读json(路径: str):
-            路径 = _规范路径(路径)
-            if (not 路径) or (not os.path.isfile(路径)):
-                return None
-            for 编码 in ("utf-8-sig", "utf-8", "gbk"):
-                try:
-                    with open(路径, "r", encoding=编码) as 文件:
-                        return json.load(文件)
-                except Exception:
-                    continue
-            return None
-
-        def _写json(路径: str, 数据: dict) -> bool:
-            路径 = _规范路径(路径)
-            if (not 路径) or (not isinstance(数据, dict)):
-                return False
-            try:
-                os.makedirs(os.path.dirname(路径), exist_ok=True)
-            except Exception:
-                pass
-            try:
-                临时路径 = 路径 + ".tmp"
-                with open(临时路径, "w", encoding="utf-8") as 文件:
-                    json.dump(数据, 文件, ensure_ascii=False, indent=2)
-                os.replace(临时路径, 路径)
-                return True
-            except Exception:
-                return False
-
-        def _抽出场景数据(原始数据):
-            if not isinstance(原始数据, dict):
-                return None
-
-            if (
-                ("覆盖" in 原始数据)
-                or ("样式" in 原始数据)
-                or ("坐标模式" in 原始数据)
-                or ("参考宽" in 原始数据)
-                or ("参考高" in 原始数据)
-            ):
-                return dict(原始数据)
-
-            场景键列表 = []
-            try:
-                场景键列表.append(str(getattr(self, "名称", "") or "").strip())
-            except Exception:
-                pass
-            场景键列表.extend(["个人资料", self.__class__.__name__])
-
-            for 场景键 in 场景键列表:
-                if 场景键 and isinstance(原始数据.get(场景键), dict):
-                    return dict(原始数据.get(场景键))
-
-            return None
-
-        def _加入候选路径(路径列表: list, 路径值: str):
-            标准路径 = _规范路径(路径值)
-            if 标准路径 and (标准路径 not in 路径列表):
-                路径列表.append(标准路径)
-
-        目标文件名 = "个人资料场景_布局.json"
-        显式路径 = _规范路径(str(getattr(self, "_布局覆盖json路径", "") or ""))
-        候选路径列表 = []
-
-        _加入候选路径(候选路径列表, 显式路径)
-
-        for 根目录 in (
-            str(getattr(self, "_运行根", "") or ""),
-            str(getattr(self, "_资源根", "") or ""),
-        ):
-            标准根目录 = _规范路径(根目录)
-            if 标准根目录:
-                _加入候选路径(
-                    候选路径列表, os.path.join(标准根目录, "json", 目标文件名)
-                )
-
-        try:
-            import sys as 系统
-
-            if getattr(系统, "frozen", False):
-                exe目录 = _规范路径(os.path.dirname(os.path.abspath(系统.executable)))
-                if exe目录:
-                    _加入候选路径(
-                        候选路径列表, os.path.join(exe目录, "json", 目标文件名)
-                    )
-        except Exception:
-            pass
-
-        try:
-            当前工作目录 = _规范路径(os.getcwd())
-            if 当前工作目录:
-                _加入候选路径(
-                    候选路径列表, os.path.join(当前工作目录, "json", 目标文件名)
-                )
-        except Exception:
-            pass
-
-        try:
-            当前脚本目录 = _规范路径(os.path.dirname(os.path.abspath(__file__)))
-            if 当前脚本目录:
-                _加入候选路径(
-                    候选路径列表, os.path.join(当前脚本目录, "json", 目标文件名)
-                )
-                _加入候选路径(
-                    候选路径列表,
-                    os.path.join(os.path.dirname(当前脚本目录), "json", 目标文件名),
-                )
-        except Exception:
-            pass
-
-        if 显式路径:
-            _加入候选路径(
-                候选路径列表,
-                os.path.join(
-                    os.path.dirname(os.path.dirname(显式路径)), "json", 目标文件名
-                ),
-            )
-
-        命中路径 = ""
-        数据 = None
-
-        for 候选路径 in 候选路径列表:
-            原始数据 = _读json(候选路径)
-            场景数据 = _抽出场景数据(原始数据)
-            if isinstance(场景数据, dict):
-                数据 = 场景数据
-                命中路径 = 候选路径
-                break
-
-        if (not isinstance(数据, dict)) and bool(是否允许迁移):
-            旧单页路径 = os.path.join(
-                str(getattr(self, "_个人资料目录路径", "") or ""),
-                "layout_overrides.json",
-            )
-            旧单页数据 = _抽出场景数据(_读json(旧单页路径))
-            if isinstance(旧单页数据, dict):
-                数据 = 旧单页数据
-
-        if (not isinstance(数据, dict)) and bool(是否允许迁移):
-            旧总路径 = os.path.join(
-                str(getattr(self, "_资源根", "") or os.getcwd()),
-                "_debug",
-                "layout_overrides.json",
-            )
-            旧总数据 = _抽出场景数据(_读json(旧总路径))
-            if isinstance(旧总数据, dict):
-                数据 = 旧总数据
-
-        if isinstance(数据, dict):
-            目标写回路径 = 显式路径
-            if (not 目标写回路径) and 候选路径列表:
-                目标写回路径 = 候选路径列表[0]
-            if 目标写回路径 and (not 命中路径):
-                try:
-                    _写json(目标写回路径, 数据)
-                    命中路径 = 目标写回路径
-                except Exception:
-                    pass
-
-        self._布局覆盖json实际路径 = 命中路径 or 显式路径 or ""
-
-        if not isinstance(数据, dict):
-            try:
-                self._缓存尺寸 = (0, 0)
-            except Exception:
-                pass
-            self._失效主界面静态缓存()
-            return
-
-        覆盖 = {}
-        样式 = {}
-        坐标模式 = "auto"
-        参考宽 = 1920
-        参考高 = 1080
-
-        try:
-            if isinstance(数据.get("覆盖"), dict):
-                覆盖 = dict(数据.get("覆盖"))
-            if isinstance(数据.get("样式"), dict):
-                样式 = dict(数据.get("样式"))
-            坐标模式 = str(数据.get("坐标模式", "auto") or "auto").strip().lower()
-            try:
-                参考宽 = int(数据.get("参考宽", 1920) or 1920)
-            except Exception:
-                参考宽 = 1920
-            try:
-                参考高 = int(数据.get("参考高", 1080) or 1080)
-            except Exception:
-                参考高 = 1080
-        except Exception:
-            覆盖 = {}
-            样式 = {}
-            坐标模式 = "auto"
-            参考宽 = 1920
-            参考高 = 1080
-
-        过滤后覆盖 = {}
-        for 控件名, 控件值 in (覆盖 or {}).items():
-            if not 控件名:
-                continue
-            if isinstance(控件值, list) and len(控件值) == 4:
-                try:
-                    过滤后覆盖[str(控件名)] = [
-                        int(控件值[0]),
-                        int(控件值[1]),
-                        int(控件值[2]),
-                        int(控件值[3]),
-                    ]
-                except Exception:
-                    continue
-
-        self._调试_覆盖 = 过滤后覆盖
-        self._调试_样式 = 样式 if isinstance(样式, dict) else {}
-
-        参考宽 = max(1, int(参考宽))
-        参考高 = max(1, int(参考高))
-
-        if 坐标模式 in ("设计", "design"):
-            self._布局覆盖_坐标模式 = "design"
-            self._布局覆盖_参考宽 = int(self._设计宽)
-            self._布局覆盖_参考高 = int(self._设计高)
-        elif 坐标模式 in ("屏幕", "screen"):
-            self._布局覆盖_坐标模式 = "screen"
-            self._布局覆盖_参考宽 = int(参考宽)
-            self._布局覆盖_参考高 = int(参考高)
-        else:
-            最大右 = 0
-            最大下 = 0
-            for 控件值 in self._调试_覆盖.values():
-                try:
-                    最大右 = max(最大右, int(控件值[0]) + int(控件值[2]))
-                    最大下 = max(最大下, int(控件值[1]) + int(控件值[3]))
-                except Exception:
-                    continue
-
-            if 最大右 <= 1930 and 最大下 <= 1090:
-                self._布局覆盖_坐标模式 = "screen"
-                self._布局覆盖_参考宽 = 1920
-                self._布局覆盖_参考高 = 1080
-            else:
-                self._布局覆盖_坐标模式 = "design"
-                self._布局覆盖_参考宽 = int(self._设计宽)
-                self._布局覆盖_参考高 = int(self._设计高)
-
-        try:
-            self._缓存尺寸 = (0, 0)
-        except Exception:
-            pass
-        self._失效主界面静态缓存()
-
-    # ---------------- 切场景（放大过渡） ----------------
     def _开始放大切场景(
         self, 起始图: Optional[pygame.Surface], 起始rect: pygame.Rect, 目标场景名: str
     ):
@@ -1910,7 +1915,6 @@ class 场景_个人资料:
 
         pygame.time.set_timer(self._事件_延迟切场景, 320, loops=1)
 
-    # ---------------- 绘制 ----------------
     def 绘制(self):
         from core.工具 import 绘制底部联网与信用, 获取字体
 
@@ -1993,699 +1997,6 @@ class 场景_个人资料:
         if self._全屏放大过渡.是否进行中():
             self._全屏放大过渡.更新并绘制(屏幕)
 
-    def _绘制_上面板(self, 屏幕: pygame.Surface, 缩放: float, 透明: int):
-        from core.工具 import 获取字体
-
-        if bool(self.上下文.get("布局调试_开启", False)):
-            缩放 = 1.0
-            透明 = 255
-
-        原面板 = self._rect_上面板.copy()
-        面板 = 原面板.copy()
-        if abs(缩放 - 1.0) > 0.001:
-            面板.w = max(1, int(面板.w * 缩放))
-            面板.h = max(1, int(面板.h * 缩放))
-            面板.center = 原面板.center
-
-        def _按面板缩放矩形(原矩形: pygame.Rect) -> pygame.Rect:
-            if abs(缩放 - 1.0) <= 0.001:
-                return 原矩形.copy()
-
-            新矩形 = pygame.Rect(
-                0,
-                0,
-                max(1, int(原矩形.w * 缩放)),
-                max(1, int(原矩形.h * 缩放)),
-            )
-
-            原偏移x = 原矩形.centerx - 原面板.centerx
-            原偏移y = 原矩形.centery - 原面板.centery
-
-            新矩形.center = (
-                int(面板.centerx + 原偏移x * 缩放),
-                int(面板.centery + 原偏移y * 缩放),
-            )
-            return 新矩形
-
-        if isinstance(self._上面板背景原图, pygame.Surface):
-            背景图 = self._取缩放缓存图(
-                "个人资料_上背景",
-                self._上面板背景原图,
-                面板.w,
-                面板.h,
-            )
-            if isinstance(背景图, pygame.Surface):
-                try:
-                    背景图 = 背景图.copy()
-                    背景图.set_alpha(max(0, min(255, int(透明))))
-                except Exception:
-                    pass
-                屏幕.blit(背景图, 面板.topleft)
-        else:
-            self._绘制圆角面板(屏幕, 面板, 背景alpha=175, 线宽=2, 圆角=36)
-
-        样式 = getattr(self, "_调试_样式", None)
-
-        紧凑系数 = 0.78
-        if isinstance(样式, dict):
-            紧凑值 = 样式.get("紧凑系数")
-            if isinstance(紧凑值, (int, float)):
-                紧凑系数 = float(紧凑值)
-        紧凑系数 = 0.55 if 紧凑系数 < 0.55 else (1.10 if 紧凑系数 > 1.10 else 紧凑系数)
-
-        def _取字号(键: str, 默认: int, 下限: int, 上限: int) -> int:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get(键)
-            if isinstance(取值, int):
-                return max(下限, min(上限, int(取值)))
-            return max(下限, min(上限, int(默认)))
-
-        def _取粗体(键: str, 默认: bool) -> bool:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get(键)
-            if isinstance(取值, bool):
-                return bool(取值)
-            return bool(默认)
-
-        def _取间距(键: str, 默认: int, 下限: int = 0, 上限: int = 200) -> int:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get(键)
-            if isinstance(取值, int):
-                return max(下限, min(上限, int(取值)))
-            return max(下限, min(上限, int(默认)))
-
-        def _取行距(键: str, 默认: int, 下限: int = 0, 上限: int = 120) -> int:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get(键)
-            if isinstance(取值, int):
-                return max(下限, min(上限, int(取值)))
-            return max(下限, min(上限, int(默认)))
-
-        标题白 = (255, 255, 255)
-        数值黄 = (255, 220, 80)
-        曲目紫 = (190, 140, 255)
-        小灰 = (160, 160, 160)
-
-        数据 = (
-            self._个人资料数据
-            if isinstance(getattr(self, "_个人资料数据", None), dict)
-            else {}
-        )
-        昵称 = str(数据.get("昵称", "玩家昵称") or "玩家昵称")
-
-        统计 = 数据.get("统计", {}) if isinstance(数据.get("统计", {}), dict) else {}
-        游玩时长分钟 = int(统计.get("游玩时长分钟", 0) or 0)
-        累计评价S数 = int(统计.get("累计评价S数", 0) or 0)
-        最大Combo = int(统计.get("最大Combo", 0) or 0)
-        最大Combo曲目 = str(统计.get("最大Combo曲目", "") or "")
-        最高分 = int(统计.get("最高分", 0) or 0)
-        最高分曲目 = str(统计.get("最高分曲目", "") or "")
-
-        进度 = 数据.get("进度", {}) if isinstance(数据.get("进度", {}), dict) else {}
-        花式 = 进度.get("花式", {}) if isinstance(进度.get("花式", {}), dict) else {}
-        竞速 = 进度.get("竞速", {}) if isinstance(进度.get("竞速", {}), dict) else {}
-
-        花式等级 = int(花式.get("等级", 1) or 1)
-        花式经验 = float(花式.get("经验", 0.0) or 0.0)
-        竞速等级 = int(竞速.get("等级", 1) or 1)
-        竞速经验 = float(竞速.get("经验", 0.0) or 0.0)
-
-        花式经验 = 0.0 if 花式经验 < 0.0 else (1.0 if 花式经验 > 1.0 else 花式经验)
-        竞速经验 = 0.0 if 竞速经验 < 0.0 else (1.0 if 竞速经验 > 1.0 else 竞速经验)
-
-        头像rect = _按面板缩放矩形(
-            getattr(self, "_rect_头像控件", pygame.Rect(0, 0, 1, 1))
-        )
-        昵称锚点 = _按面板缩放矩形(
-            getattr(self, "_rect_昵称锚点", pygame.Rect(0, 0, 1, 1))
-        )
-        等级rect = _按面板缩放矩形(
-            getattr(self, "_rect_等级标识", pygame.Rect(0, 0, 1, 1))
-        )
-        统计区 = _按面板缩放矩形(getattr(self, "_rect_统计区", pygame.Rect(0, 0, 1, 1)))
-        介绍区 = _按面板缩放矩形(getattr(self, "_rect_介绍区", pygame.Rect(0, 0, 1, 1)))
-        花式条 = _按面板缩放矩形(getattr(self, "_rect_花式条", pygame.Rect(0, 0, 1, 1)))
-        竞速条 = _按面板缩放矩形(getattr(self, "_rect_竞速条", pygame.Rect(0, 0, 1, 1)))
-
-        花式条.w = max(10, 花式条.w)
-        花式条.h = max(10, 花式条.h)
-        竞速条.w = max(10, 竞速条.w)
-        竞速条.h = max(10, 竞速条.h)
-
-        头像图 = self._取圆角头像图(min(头像rect.w, 头像rect.h))
-        if 头像图 is not None:
-            if (
-                (头像rect.w != 头像rect.h)
-                or (头像图.get_width() != 头像rect.w)
-                or (头像图.get_height() != 头像rect.h)
-            ):
-                头像图 = self._取缩放缓存图("头像控件", 头像图, 头像rect.w, 头像rect.h)
-            if 头像图 is not None:
-                try:
-                    头像图 = 头像图.copy()
-                    头像图.set_alpha(透明)
-                except Exception:
-                    pass
-                屏幕.blit(头像图, 头像rect.topleft)
-
-        昵称字号 = _取字号(
-            "昵称字号",
-            默认=max(14, int(面板.h * 0.10 * 紧凑系数)),
-            下限=10,
-            上限=48,
-        )
-        昵称粗体 = _取粗体("昵称粗体", True)
-        昵称字 = 获取字体(昵称字号, 是否粗体=昵称粗体)
-
-        昵称中心x = int(昵称锚点.centerx if 昵称锚点.w > 2 else 头像rect.centerx)
-        昵称顶部y = int(昵称锚点.y)
-
-        昵称渲染rect = self._绘制文本(
-            屏幕,
-            昵称,
-            昵称字,
-            标题白,
-            (昵称中心x, 昵称顶部y),
-            "midtop",
-        )
-        try:
-            self._rect_昵称_渲染 = 昵称渲染rect.copy()
-        except Exception:
-            self._rect_昵称_渲染 = pygame.Rect(
-                昵称锚点.x,
-                昵称锚点.y,
-                max(60, 昵称锚点.w),
-                max(20, 昵称锚点.h),
-            )
-
-        if self._等级原图 is not None:
-            try:
-                等级原图 = self._等级原图.convert_alpha()
-            except Exception:
-                等级原图 = self._等级原图
-            等级图 = self._取缩放缓存图("等级标识", 等级原图, 等级rect.w, 等级rect.h)
-            if 等级图 is not None:
-                try:
-                    等级图 = 等级图.copy()
-                    等级图.set_alpha(透明)
-                except Exception:
-                    pass
-                屏幕.blit(等级图, 等级rect.topleft)
-
-        统计字号 = _取字号(
-            "统计字号",
-            默认=max(11, int(面板.h * 0.055 * 紧凑系数)),
-            下限=9,
-            上限=28,
-        )
-        统计粗体 = _取粗体("统计粗体", False)
-        统计字 = 获取字体(统计字号, 是否粗体=统计粗体)
-
-        默认统计行距 = max(2, int(统计字.get_height() * 1.00))
-        统计行距 = _取行距("统计行距", 默认=默认统计行距, 下限=0, 上限=120)
-
-        当前y = 统计区.y + max(1, int(统计区.h * 0.07 * 紧凑系数))
-        行定义 = [
-            ("游玩时长（分钟）：", str(游玩时长分钟), None),
-            ("累计评价S数：", str(累计评价S数), None),
-            (
-                "最大Combo/曲目：",
-                str(最大Combo),
-                最大Combo曲目 if 最大Combo曲目 else None,
-            ),
-            ("最高分/曲目名：", str(最高分), 最高分曲目 if 最高分曲目 else None),
-        ]
-
-        最大标题宽 = 0
-        for 标题, _, _ in 行定义:
-            try:
-                最大标题宽 = max(最大标题宽, int(统计字.size(标题)[0]))
-            except Exception:
-                pass
-
-        值列x = min(
-            统计区.right - int(max(120, 统计区.w * 0.28)),
-            统计区.x + 最大标题宽 + int(max(14, 统计区.w * 0.03)),
-        )
-
-        def _画统计行(标题: str, 数值: str, 曲目: Optional[str] = None):
-            nonlocal 当前y
-            self._绘制文本(屏幕, 标题, 统计字, 标题白, (统计区.x, 当前y), "topleft")
-            数值rect = self._绘制文本(
-                屏幕, 数值, 统计字, 数值黄, (值列x, 当前y), "topleft"
-            )
-            if 曲目:
-                self._绘制文本(
-                    屏幕,
-                    f"({曲目})",
-                    统计字,
-                    曲目紫,
-                    (数值rect.right + 6, 当前y),
-                    "topleft",
-                )
-            当前y += int(统计行距)
-
-        for 标题, 数值, 曲目 in 行定义:
-            _画统计行(标题, 数值, 曲目)
-
-        介绍字号 = _取字号(
-            "介绍字号",
-            默认=max(9, int(面板.h * 0.045 * 紧凑系数)),
-            下限=8,
-            上限=20,
-        )
-        介绍粗体 = _取粗体("介绍粗体", False)
-        介绍字 = 获取字体(介绍字号, 是否粗体=介绍粗体)
-
-        默认介绍行距 = max(0, int(介绍字.get_height() * 0.18))
-        介绍行距 = _取行距("介绍行距", 默认=默认介绍行距, 下限=0, 上限=120)
-
-        介绍文本 = (
-            "e舞成名重构版（测试）为非盈利性的游戏；\n"
-            "本游戏软件为交流、学习、测试使用，如有侵权，请率先联系我们。\n"
-            "如果你有意参与我们的开发项目；\n"
-            "请进人QQ群：1084318862\n"
-            "进群后联系Emma_H。"
-        )
-        self._绘制自动换行(
-            屏幕,
-            介绍文本,
-            介绍字,
-            小灰,
-            pygame.Rect(介绍区.x, 介绍区.y, 介绍区.w, 介绍区.h),
-            行距=int(介绍行距),
-        )
-
-        进度标签字号 = _取字号("进度标签字号", 默认=int(统计字号), 下限=10, 上限=64)
-        进度LV字号 = _取字号("进度LV字号", 默认=int(统计字号), 下限=10, 上限=64)
-        进度标签粗体 = _取粗体("进度标签粗体", False)
-        进度LV粗体 = _取粗体("进度LV粗体", False)
-
-        标签字 = 获取字体(进度标签字号, 是否粗体=进度标签粗体)
-        Lv字 = 获取字体(进度LV字号, 是否粗体=进度LV粗体)
-
-        标签间距 = _取间距("进度标签间距", 默认=max(6, int(进度标签字号 * 0.30)))
-        LV间距 = _取间距("进度LV间距", 默认=max(10, int(进度LV字号 * 0.36)))
-
-        花式标签面 = 标签字.render("花式经验值：", True, 标题白)
-        花式标签默认rect = 花式标签面.get_rect(
-            midright=(花式条.left - 标签间距, 花式条.centery)
-        )
-        花式标签rect = self._取覆盖屏幕rect("花式标签", 花式标签默认rect, 最小边=10)
-        花式标签面.set_alpha(透明)
-        屏幕.blit(花式标签面, 花式标签rect.topleft)
-
-        花式LV面 = Lv字.render(f"Lv. {max(1, 花式等级)}", True, 标题白)
-        花式LV默认rect = 花式LV面.get_rect(
-            midleft=(花式条.right + LV间距, 花式条.centery)
-        )
-        花式LVrect = self._取覆盖屏幕rect("花式LV", 花式LV默认rect, 最小边=10)
-        花式LV面.set_alpha(透明)
-        屏幕.blit(花式LV面, 花式LVrect.topleft)
-
-        self._绘制贴图进度条(
-            屏幕,
-            花式条,
-            进度=float(花式经验),
-            框原图=self._花式经验框原图,
-            值原图=self._花式经验值原图,
-            缓存前缀="个人资料_花式经验条",
-            透明=透明,
-        )
-
-        竞速标签面 = 标签字.render("竞速经验值：", True, 标题白)
-        竞速标签默认rect = 竞速标签面.get_rect(
-            midright=(竞速条.left - 标签间距, 竞速条.centery)
-        )
-        竞速标签rect = self._取覆盖屏幕rect("竞速标签", 竞速标签默认rect, 最小边=10)
-        竞速标签面.set_alpha(透明)
-        屏幕.blit(竞速标签面, 竞速标签rect.topleft)
-
-        竞速LV面 = Lv字.render(f"Lv. {max(1, 竞速等级)}", True, 标题白)
-        竞速LV默认rect = 竞速LV面.get_rect(
-            midleft=(竞速条.right + LV间距, 竞速条.centery)
-        )
-        竞速LVrect = self._取覆盖屏幕rect("竞速LV", 竞速LV默认rect, 最小边=10)
-        竞速LV面.set_alpha(透明)
-        屏幕.blit(竞速LV面, 竞速LVrect.topleft)
-
-        self._绘制贴图进度条(
-            屏幕,
-            竞速条,
-            进度=float(竞速经验),
-            框原图=self._竞速经验框原图,
-            值原图=self._竞速经验值原图,
-            缓存前缀="个人资料_竞速经验条",
-            透明=透明,
-        )
-
-        if not isinstance(getattr(self, "_调试_rect表", None), dict):
-            self._调试_rect表 = {}
-        self._调试_rect表.update(
-            {
-                "花式标签": 花式标签rect.copy(),
-                "花式LV": 花式LVrect.copy(),
-                "竞速标签": 竞速标签rect.copy(),
-                "竞速LV": 竞速LVrect.copy(),
-                "昵称渲染": self._rect_昵称_渲染.copy(),
-            }
-        )
-
-    def _绘制_下面板(self, 屏幕: pygame.Surface, 缩放: float, 透明: int):
-        from core.工具 import 获取字体
-
-        if bool(self.上下文.get("布局调试_开启", False)):
-            缩放 = 1.0
-            透明 = 255
-
-        原面板 = self._rect_下面板.copy()
-        面板 = 原面板.copy()
-        if abs(缩放 - 1.0) > 0.001:
-            面板.w = max(1, int(面板.w * 缩放))
-            面板.h = max(1, int(面板.h * 缩放))
-            面板.center = 原面板.center
-
-        def _按面板缩放矩形(原矩形: pygame.Rect) -> pygame.Rect:
-            if abs(缩放 - 1.0) <= 0.001:
-                return 原矩形.copy()
-
-            新矩形 = pygame.Rect(
-                0,
-                0,
-                max(1, int(原矩形.w * 缩放)),
-                max(1, int(原矩形.h * 缩放)),
-            )
-
-            原偏移x = 原矩形.centerx - 原面板.centerx
-            原偏移y = 原矩形.centery - 原面板.centery
-
-            新矩形.center = (
-                int(面板.centerx + 原偏移x * 缩放),
-                int(面板.centery + 原偏移y * 缩放),
-            )
-            return 新矩形
-
-        if isinstance(self._下面板背景原图, pygame.Surface):
-            背景图 = self._取缩放缓存图(
-                "个人资料_下背景",
-                self._下面板背景原图,
-                面板.w,
-                面板.h,
-            )
-            if isinstance(背景图, pygame.Surface):
-                try:
-                    背景图 = 背景图.copy()
-                    背景图.set_alpha(max(0, min(255, int(透明))))
-                except Exception:
-                    pass
-                屏幕.blit(背景图, 面板.topleft)
-        else:
-            self._绘制圆角面板(屏幕, 面板, 背景alpha=185, 线宽=2, 圆角=36)
-
-        样式 = getattr(self, "_调试_样式", None)
-
-        def _取字号(键: str, 默认: int, 下限: int, 上限: int) -> int:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get(键)
-            if isinstance(取值, int):
-                return max(下限, min(上限, int(取值)))
-            return max(下限, min(上限, int(默认)))
-
-        def _取粗体(键: str, 默认: bool) -> bool:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get(键)
-            if isinstance(取值, bool):
-                return bool(取值)
-            return bool(默认)
-
-        def _取行距(键: str, 默认: int, 下限: int = 0, 上限: int = 160) -> int:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get(键)
-            if isinstance(取值, int):
-                return max(下限, min(上限, int(取值)))
-            return max(下限, min(上限, int(默认)))
-
-        def _取全局字距(默认: int = 1) -> int:
-            取值 = None
-            if isinstance(样式, dict):
-                取值 = 样式.get("全局字距", 默认)
-            try:
-                取值 = int(取值)
-            except Exception:
-                取值 = 默认
-            return 0 if 取值 < 0 else (40 if 取值 > 40 else 取值)
-
-        软件按钮rect = _按面板缩放矩形(
-            getattr(self, "_rect_软件按钮", pygame.Rect(0, 0, 1, 1))
-        )
-        软件信息区 = _按面板缩放矩形(
-            getattr(self, "_rect_软件信息", pygame.Rect(0, 0, 1, 1))
-        )
-        软件说明区 = _按面板缩放矩形(
-            getattr(self, "_rect_软件说明", pygame.Rect(0, 0, 1, 1))
-        )
-
-        if isinstance(软件按钮rect, pygame.Rect) and self._软件信息装饰原图 is not None:
-            try:
-                软件按钮原图 = self._软件信息装饰原图.convert_alpha()
-            except Exception:
-                软件按钮原图 = self._软件信息装饰原图
-
-            软件按钮图 = self._取缩放缓存图(
-                "软件按钮",
-                软件按钮原图,
-                软件按钮rect.w,
-                软件按钮rect.h,
-            )
-            if 软件按钮图 is not None:
-                try:
-                    软件按钮图 = 软件按钮图.copy()
-                    软件按钮图.set_alpha(透明)
-                except Exception:
-                    pass
-                屏幕.blit(软件按钮图, 软件按钮rect.topleft)
-
-        左字号 = _取字号(
-            "下方左字号",
-            默认=max(12, int(面板.h * 0.052)),
-            下限=9,
-            上限=30,
-        )
-        左粗体 = _取粗体("下方左粗体", True)
-        左字 = 获取字体(左字号, 是否粗体=左粗体)
-
-        默认左行距 = max(0, int(左字.get_height() * 0.45))
-        下方左行距 = _取行距("下方左行距", 默认=默认左行距, 下限=0, 上限=160)
-
-        右字号 = _取字号(
-            "下方右字号",
-            默认=max(11, int(面板.h * 0.040)),
-            下限=8,
-            上限=28,
-        )
-        右粗体 = _取粗体("下方右粗体", False)
-        右字 = 获取字体(右字号, 是否粗体=右粗体)
-
-        默认右行距 = max(0, int(右字.get_height() * 0.22))
-        下方右行距 = _取行距("下方右行距", 默认=默认右行距, 下限=0, 上限=160)
-
-        全局字距 = _取全局字距(默认=1)
-
-        黄色 = (255, 220, 80)
-        白色 = (235, 235, 235)
-        浅灰 = (190, 190, 190)
-
-        def _绘制富文本段落(
-            起始x: int,
-            起始y: int,
-            区域: pygame.Rect,
-            字体: pygame.font.Font,
-            行距: int,
-            字距: int,
-            行片段列表,
-        ):
-            if not hasattr(self, "_富文本单字缓存"):
-                self._富文本单字缓存 = {}
-
-            def _取字面(单字: str, 颜色):
-                缓存键 = (id(字体), 单字, 颜色[0], 颜色[1], 颜色[2])
-                已有 = self._富文本单字缓存.get(缓存键)
-                if isinstance(已有, pygame.Surface):
-                    return 已有
-                try:
-                    字面 = 字体.render(单字, True, 颜色)
-                except Exception:
-                    字面 = None
-                if isinstance(字面, pygame.Surface):
-                    self._富文本单字缓存[缓存键] = 字面
-                return 字面
-
-            行高 = max(1, int(字体.get_height()))
-            当前y = int(起始y)
-
-            def _落笔一行(字符列表):
-                nonlocal 当前y
-                if 当前y > 区域.bottom - 2:
-                    return
-                当前x = int(起始x)
-                for 索引, (单字, 颜色) in enumerate(字符列表):
-                    字面 = _取字面(单字, 颜色)
-                    if isinstance(字面, pygame.Surface):
-                        绘制字面 = 字面
-                        if 透明 < 255:
-                            绘制字面 = 字面.copy()
-                            绘制字面.set_alpha(透明)
-                        屏幕.blit(绘制字面, (当前x, 当前y))
-                        当前x += int(字面.get_width())
-                    else:
-                        try:
-                            当前x += int(字体.size(单字)[0])
-                        except Exception:
-                            pass
-                    if 索引 != len(字符列表) - 1:
-                        当前x += int(字距)
-                当前y += 行高 + int(行距)
-
-            for 一行片段 in 行片段列表:
-                if not 一行片段:
-                    当前y += 行高 + int(行距)
-                    if 当前y > 区域.bottom - 2:
-                        break
-                    continue
-
-                字符流 = []
-                for 文本, 颜色 in 一行片段:
-                    文本 = str(文本 or "")
-                    for 单字 in 文本:
-                        字符流.append((单字, 颜色))
-
-                当前行 = []
-                当前宽 = 0
-
-                for 单字, 颜色 in 字符流:
-                    if 单字 == "\n":
-                        _落笔一行(当前行)
-                        当前行 = []
-                        当前宽 = 0
-                        continue
-
-                    try:
-                        单字宽 = int(字体.size(单字)[0])
-                    except Exception:
-                        单字宽 = 0
-
-                    追加宽 = (字距 if 当前行 else 0) + 单字宽
-                    if 当前行 and (当前宽 + 追加宽 > 区域.w):
-                        _落笔一行(当前行)
-                        当前行 = [(单字, 颜色)]
-                        当前宽 = 单字宽
-                    else:
-                        当前行.append((单字, 颜色))
-                        当前宽 += 追加宽
-
-                    if 当前y > 区域.bottom - 2:
-                        break
-
-                if 当前y > 区域.bottom - 2:
-                    break
-
-                if 当前行:
-                    _落笔一行(当前行)
-
-                if 当前y > 区域.bottom - 2:
-                    break
-
-            return 当前y
-
-        主信息片段 = [
-            [
-                ("游戏版本：", 黄色),
-                ("e舞成名重构版v1.0.0         ", 白色),
-                ("开发团队：", 黄色),
-                (
-                    "程序工程师/策划/游戏制作人：良    UE/UI设计/策划：Emma_H（林曦）",
-                    白色,
-                ),
-            ],
-            [
-                ("特别鸣谢（排名不分先后）：", 黄色),
-            ],
-            [
-                ("    Cyan（音效提供）|  飞翔e舞模拟器（曲谱资源提供）", 白色),
-            ],
-            [
-                ("LifeErrOr（美术提供）|  小鱼（美术提供）", 白色),
-            ],
-            [
-                ("“e舞时刻”官方粉丝1群参与讨论的群友（反馈提供）", 白色),
-            ],
-            [],
-            [
-                ("玩家交流QQ群：1084318862", 白色),
-            ],
-        ]
-
-        if 软件信息区.w > 8 and 软件信息区.h > 8:
-            _绘制富文本段落(
-                起始x=软件信息区.x,
-                起始y=软件信息区.y,
-                区域=软件信息区,
-                字体=左字,
-                行距=int(下方左行距),
-                字距=int(全局字距),
-                行片段列表=主信息片段,
-            )
-
-        说明文本 = (
-            "本游戏设计初衷是为了让更多e舞玩家能在各地玩到e舞成名，"
-            "本项目纯爱发电，没有任何盈利性质，如您发现有人倒卖本软件，请及时联系我们。"
-        )
-
-        说明区可用 = (
-            isinstance(软件说明区, pygame.Rect)
-            and 软件说明区.w > 20
-            and 软件说明区.h > 16
-        )
-
-        if 说明区可用:
-            self._绘制自动换行(
-                屏幕,
-                说明文本,
-                右字,
-                浅灰,
-                软件说明区,
-                行距=int(下方右行距),
-                字距=int(全局字距),
-            )
-        elif 软件信息区.w > 8 and 软件信息区.h > 8:
-            补充起始y = int(
-                min(
-                    软件信息区.bottom - max(右字.get_height(), 20),
-                    软件信息区.y + int(软件信息区.h * 0.82),
-                )
-            )
-            self._绘制自动换行(
-                屏幕,
-                说明文本,
-                右字,
-                浅灰,
-                pygame.Rect(
-                    软件信息区.x,
-                    补充起始y,
-                    软件信息区.w,
-                    max(20, 软件信息区.bottom - 补充起始y),
-                ),
-                行距=int(下方右行距),
-                字距=int(全局字距),
-            )
-
     def _绘制_离开按钮(self, 屏幕: pygame.Surface, 透明: int):
         r = self._rect_离开按钮
         if self._离开按钮图 is not None:
@@ -2708,7 +2019,6 @@ class 场景_个人资料:
             面.set_alpha(透明)
             屏幕.blit(面, r.topleft)
 
-    # ---------------- 事件 ----------------
     def 处理全局踏板(self, 动作: str):
         if 动作 != 踏板动作_确认:
             return None
@@ -3486,3 +2796,44 @@ class 场景_个人资料:
 
         # 刷新资源（头像不用动，段位可能变）
         self._个人资料_刷新段位图标()
+
+    def 进入(self):
+        资源 = self.上下文.get("资源", {})
+        状态 = self.上下文.get("状态", {})
+
+        根目录 = str(资源.get("根", "") or os.getcwd())
+        排行榜BGM路径 = os.path.join(根目录, "冷资源", "backsound", "排行榜.mp3")
+
+        已经在播排行榜 = False
+        try:
+            已经在播排行榜 = bool(状态.get("bgm_排行榜_已播放", False))
+        except Exception:
+            已经在播排行榜 = False
+
+        if (not 已经在播排行榜) and os.path.isfile(排行榜BGM路径):
+            try:
+                self.上下文["音乐"].播放循环(排行榜BGM路径)
+                状态["bgm_排行榜_已播放"] = True
+            except Exception:
+                pass
+
+        self._入场开始 = time.time()
+
+        self._正在放大切场景 = False
+        self._延迟目标场景 = None
+        pygame.time.set_timer(self._事件_延迟切场景, 0)
+
+        self._按钮特效_截图 = None
+        self._按钮特效_rect = pygame.Rect(0, 0, 1, 1)
+        self._失效主界面静态缓存()
+        self._失效头像预览缓存()
+
+        # 布局改为纯硬编码，但仍保留统一初始化入口
+        self._布局覆盖_加载并应用()
+
+        # 进入时重新读一次个人资料（别的场景可能写过）
+        self._个人资料数据 = self._个人资料_读取并修复(是否回写=False)
+        self._个人资料_刷新头像原图()
+        self._个人资料_刷新段位图标()
+
+        self._确保缓存()

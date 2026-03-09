@@ -78,9 +78,6 @@ def _取项目根目录() -> str:
     return _项目根目录_缓存
 
 
-print("谱面播放器资源根目录:", _取项目根目录())
-
-
 def _取运行根目录() -> str:
     try:
         已缓存路径 = getattr(_取运行根目录, "_缓存路径", "")
@@ -1870,6 +1867,102 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
 
+    def _取电视跟跳设置路径(self) -> str:
+        候选路径列表 = [
+            os.path.join(_取运行根目录(), "json", "电视跟跳设置.json"),
+            os.path.join(_取项目根目录(), "json", "电视跟跳设置.json"),
+        ]
+
+        for 路径 in 候选路径列表:
+            try:
+                if 路径 and os.path.isfile(路径):
+                    return os.path.abspath(路径)
+            except Exception:
+                continue
+
+        for 路径 in 候选路径列表:
+            try:
+                if 路径:
+                    return os.path.abspath(路径)
+            except Exception:
+                continue
+
+        return os.path.abspath(
+            os.path.join(_取运行根目录(), "json", "电视跟跳设置.json")
+        )
+
+    def _读取电视跟跳开关(self) -> bool:
+        路径 = self._取电视跟跳设置路径()
+
+        try:
+            数据 = _安全读json(路径)
+            if not isinstance(数据, dict):
+                return False
+
+            if "开启" in 数据:
+                return bool(数据.get("开启", False))
+
+            if "无踏板电视跟跳" in 数据:
+                return bool(数据.get("无踏板电视跟跳", False))
+
+            if "电视跟跳开启" in 数据:
+                return bool(数据.get("电视跟跳开启", False))
+
+            return False
+        except Exception:
+            return False
+
+    def _保存电视跟跳开关(self, 是否开启: bool):
+        路径 = self._取电视跟跳设置路径()
+
+        数据 = {
+            "开启": bool(是否开启),
+            "无踏板电视跟跳": bool(是否开启),
+            "电视跟跳开启": bool(是否开启),
+            "更新时间": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        }
+
+        try:
+            os.makedirs(os.path.dirname(路径), exist_ok=True)
+            临时路径 = 路径 + ".tmp"
+            with open(临时路径, "w", encoding="utf-8") as 文件:
+                json.dump(数据, 文件, ensure_ascii=False, indent=2)
+            os.replace(临时路径, 路径)
+        except Exception:
+            pass
+
+        try:
+            self._载荷["无踏板电视跟跳"] = bool(是否开启)
+            self._载荷["电视跟跳开启"] = bool(是否开启)
+        except Exception:
+            pass
+
+    def _同步电视跟跳状态(self):
+        持久开关已开启 = bool(getattr(self, "_电视跟跳开启", False))
+
+        if 持久开关已开启:
+            self._是否自动模式 = True
+
+        try:
+            if self._判定系统 is not None:
+                self._判定系统.自动模式 = bool(self._是否自动模式)
+        except Exception:
+            pass
+
+    def _菜单切换电视跟跳(self):
+        当前状态 = bool(getattr(self, "_电视跟跳开启", False))
+        新状态 = not 当前状态
+
+        self._电视跟跳开启 = bool(新状态)
+
+        if bool(self._电视跟跳开启):
+            self._是否自动模式 = True
+        else:
+            self._是否自动模式 = False
+
+        self._保存电视跟跳开关(bool(self._电视跟跳开启))
+        self._同步电视跟跳状态()
+
     def _菜单切换调速(self):
         选项 = ["3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0"]
         try:
@@ -2071,9 +2164,13 @@ class 场景_谱面播放器(场景基类):
                 )
         except Exception:
             默认背景遮罩alpha = int(round(255.0 * 0.70))
-        self._是否自动模式 = bool(
+
+        self._电视跟跳开启 = bool(self._读取电视跟跳开关())
+        载荷自动模式 = bool(
             self._载荷.get("自动播放", self._载荷.get("自动模式", False))
         )
+        self._是否自动模式 = bool(self._电视跟跳开启 or 载荷自动模式)
+
         self._性能模式 = bool(self._载荷.get("性能模式", False))
         self._视频背景关闭 = bool(self._载荷.get("关闭视频背景", False))
         try:
@@ -2097,7 +2194,6 @@ class 场景_谱面播放器(场景基类):
         self._准备动画开始秒 = 0.0
         self._准备动画设置 = 读取准备动画设置(self._准备动画设置路径)
         try:
-            # 让准备动画蒙版与当前游戏背景蒙版一致，避免亮度断层
             self._准备动画设置["背景蒙版透明度"] = float(
                 max(0, min(255, int(self._背景暗层alpha or 0)))
             )
@@ -2118,7 +2214,6 @@ class 场景_谱面播放器(场景基类):
         self._双踏板入场锁定判定线y = None
         self._双踏板入场待首帧校正 = False
 
-        # ✅ 确保项目根目录在 sys.path（解决 core/ui 导入失败）
         try:
             根目录 = _取项目根目录()
             if 根目录 and (根目录 not in sys.path):
@@ -2126,7 +2221,6 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             根目录 = ""
 
-        # ✅ 渲染器（懒加载）
         try:
             from ui.谱面渲染器 import 谱面渲染器
 
@@ -2136,7 +2230,6 @@ class 场景_谱面播放器(场景基类):
             self._谱面渲染器 = None
             self._错误提示 = f"渲染器初始化失败：{type(异常).__name__} {异常}"
 
-        # ✅ 手装饰默认隐藏（F3可切换）
         self._显示手装饰 = False
 
         try:
@@ -2156,9 +2249,9 @@ class 场景_谱面播放器(场景基类):
         选歌设置 = _读取选歌设置json()
         if isinstance(选歌设置, dict):
             try:
-                v = 选歌设置.get("设置参数", None)
-                if isinstance(v, dict):
-                    设置参数 = dict(v)
+                值 = 选歌设置.get("设置参数", None)
+                if isinstance(值, dict):
+                    设置参数 = dict(值)
             except Exception:
                 设置参数 = {}
             try:
@@ -2176,9 +2269,9 @@ class 场景_谱面播放器(场景基类):
 
         if not 设置参数:
             try:
-                v = self._载荷.get("设置参数", None)
-                if isinstance(v, dict):
-                    设置参数 = dict(v)
+                值 = self._载荷.get("设置参数", None)
+                if isinstance(值, dict):
+                    设置参数 = dict(值)
             except Exception:
                 设置参数 = {}
 
@@ -2244,7 +2337,6 @@ class 场景_谱面播放器(场景基类):
         )
         self._背景模式 = _解析背景模式(设置参数, 参数文本)
 
-        # ESC 菜单里的“视频背景开关”默认值读选歌设置（默认图片=关闭视频）。
         默认关闭视频 = bool(self._背景模式 != "视频")
         if "关闭视频背景" in self._载荷:
             try:
@@ -2264,7 +2356,6 @@ class 场景_谱面播放器(场景基类):
         self._准备动画图 = 加载准备动画图片(_取项目根目录())
         self._加载准备动画音效()
 
-        # ✅ 皮肤编号（默认 03）
         箭头文件 = _从设置参数文本提取(参数文本, "箭头")
         if not 箭头文件:
             箭头文件 = str(设置箭头文件名 or "")
@@ -2282,7 +2373,6 @@ class 场景_谱面播放器(场景基类):
             _取项目根目录(), "UI-img", "游戏界面", "箭头", 箭头编号
         )
 
-        # ✅ 路径自检（你现在最需要这个）
         关键1 = os.path.join(self._皮肤目录, "arrow", "skin.json")
         关键2 = os.path.join(self._皮肤目录, "key", "skin.json")
         if not os.path.isfile(关键1):
@@ -2294,7 +2384,6 @@ class 场景_谱面播放器(场景基类):
                 self._错误提示 + " | " if self._错误提示 else ""
             ) + f"缺少：{关键2}"
 
-        # ✅ 让渲染器加载皮肤（目录优先；找不到会自己尝试 03.zip）
         if self._谱面渲染器 is not None:
             try:
                 self._谱面渲染器.设置皮肤(self._皮肤目录)
@@ -2347,9 +2436,9 @@ class 场景_谱面播放器(场景基类):
                 self._刷新按键映射()
                 self._同步双踏板渲染器()
                 self._事件 = [
-                    e
-                    for e in 事件
-                    if 0 <= int(getattr(e, "轨道序号", -1)) < int(self._轨道数)
+                    事件项
+                    for 事件项 in 事件
+                    if 0 <= int(getattr(事件项, "轨道序号", -1)) < int(self._轨道数)
                 ]
                 self._offset = float(偏移)
                 self._谱面总时长秒 = float(总时长)
@@ -2381,13 +2470,13 @@ class 场景_谱面播放器(场景基类):
             if self._星级 <= 0:
                 try:
                     目录名 = os.path.basename(os.path.dirname(self._sm路径))
-                    m = re.search(r"#(\d+)$", str(目录名))
-                    if m:
-                        self._星级 = int(m.group(1))
+                    匹配结果 = re.search(r"#(\d+)$", str(目录名))
+                    if 匹配结果:
+                        self._星级 = int(匹配结果.group(1))
                 except Exception:
                     self._星级 = 0
 
-        self._事件.sort(key=lambda e: float(e.开始秒))
+        self._事件.sort(key=lambda 事件项: float(事件项.开始秒))
         self._拆分双踏板渲染事件()
 
         self._入场系统秒 = time.perf_counter()
@@ -2398,7 +2487,6 @@ class 场景_谱面播放器(场景基类):
         self._音频暂停中 = False
         self._音频开始系统秒 = 0.0
 
-        # ✅ 把“当前背景音乐路径”塞进上下文资源（给后续调试/扩展用）
         try:
             资源 = self.上下文.get("资源", None)
             if isinstance(资源, dict):
@@ -2406,7 +2494,6 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
 
-        # ✅ 圆环频谱装饰（只在本场景用）
         if bool(self._性能模式):
             self._圆环频谱舞台装饰 = None
         else:
@@ -2416,7 +2503,6 @@ class 场景_谱面播放器(场景基类):
                 self._圆环频谱舞台装饰 = 圆环频谱舞台装饰()
                 self._应用圆环频谱调试设置()
                 if self._音频路径 and os.path.isfile(self._音频路径):
-                    # 这里会尝试解码 mp3/ogg/wav -> sndarray（失败会抛异常，我们捕获后降级）
                     self._圆环频谱舞台装饰.绑定音频(str(self._音频路径))
             except Exception as 异常:
                 self._圆环频谱舞台装饰 = None
@@ -2435,7 +2521,6 @@ class 场景_谱面播放器(场景基类):
         self._预热渲染缓存()
         self._判定统计 = {"perfect": 0, "cool": 0, "good": 0, "miss": 0}
 
-        # ✅ 玩法初始化（保持你原来逻辑）
         try:
             from core.玩法.判定系统 import 判定系统, 判定参数
             from core.玩法.计分系统 import 计分系统
@@ -2449,14 +2534,14 @@ class 场景_谱面播放器(场景基类):
 
             输入事件列表 = [
                 输入音符事件(
-                    轨道序号=int(e.轨道序号),
-                    开始秒=float(e.开始秒),
-                    结束秒=float(e.结束秒),
-                    开始beat=float(e.开始beat),
-                    结束beat=float(e.结束beat),
-                    类型=str(e.类型),
+                    轨道序号=int(事件项.轨道序号),
+                    开始秒=float(事件项.开始秒),
+                    结束秒=float(事件项.结束秒),
+                    开始beat=float(事件项.开始beat),
+                    结束beat=float(事件项.结束beat),
+                    类型=str(事件项.类型),
                 )
-                for e in self._事件
+                for 事件项 in self._事件
             ]
 
             判定音符列表, 总分 = 构建判定谱面(输入事件列表, _beat转秒_闭包)
@@ -2472,6 +2557,8 @@ class 场景_谱面播放器(场景基类):
 
             self._判定音符列表缓存 = 判定音符列表
             self._谱面总分缓存 = int(总分)
+
+            self._同步电视跟跳状态()
 
         except Exception as 异常:
             self._判定系统 = None
@@ -2656,6 +2743,12 @@ class 场景_谱面播放器(场景基类):
             return None
 
         if 事件.key == pygame.K_F2:
+            if bool(getattr(self, "_电视跟跳开启", False)):
+                self._是否自动模式 = True
+                self._同步电视跟跳状态()
+                self._设置操作反馈("电视跟跳已开启，请到ESC菜单关闭")
+                return None
+
             self._是否自动模式 = not bool(self._是否自动模式)
             if self._判定系统 is not None:
                 try:
@@ -2685,16 +2778,13 @@ class 场景_谱面播放器(场景基类):
                 "禁用黑屏过渡": True,
             }
 
-        # 数字键玩法
         轨道 = self._按键到轨道.get(事件.key, None)
         if 轨道 is not None:
-            # 按下反馈：判定区缩放回弹
             self._触发轨道按下反馈(int(轨道))
 
             if self._判定系统 is not None and self._计分系统 is not None:
                 回报列表 = self._判定系统.处理按下(int(轨道), float(self._当前谱面秒))
 
-                # ✅ 击中特效：只对非 miss 且 tap/hold_head 播放
                 try:
                     for 回报 in 回报列表:
                         判定 = str(getattr(回报, "判定", "") or "").lower()
@@ -2707,7 +2797,6 @@ class 场景_谱面播放器(场景基类):
                 except Exception:
                     pass
 
-                # ✅ 先结算
                 结算前连击 = int(getattr(self._计分系统, "当前连击", 0) or 0)
                 self._计分系统.批量结算(回报列表)
                 self._记录判定统计(回报列表)
@@ -3075,6 +3164,10 @@ class 场景_谱面播放器(场景基类):
         性能状态 = "已开启" if bool(self._性能模式) else "已关闭"
         调速文本 = f"X{float(getattr(self, '_卷轴速度倍率', 4.0) or 4.0):.1f}"
         背景亮度文本 = self._取背景亮度菜单文本()
+        电视跟跳状态 = (
+            "已开启" if bool(getattr(self, "_电视跟跳开启", False)) else "已关闭"
+        )
+
         return [
             f"调速（{调速文本}）",
             f"背景（{背景状态}）",
@@ -3084,6 +3177,7 @@ class 场景_谱面播放器(场景基类):
             f"大小（{self._取当前大小选项文本()}）",
             f"切换背景亮度（{背景亮度文本}）",
             f"极简性能模式（{性能状态}）",
+            f"无踏板电视跟跳（{电视跟跳状态}）",
             "退出本局",
             "退出到桌面",
         ]
@@ -3198,6 +3292,13 @@ class 场景_谱面播放器(场景基类):
             return None
 
         if 选项索引 == 8:
+            self._菜单切换电视跟跳()
+            self._设置操作反馈(
+                f"电视跟跳已{'开启' if bool(getattr(self, '_电视跟跳开启', False)) else '关闭'}"
+            )
+            return None
+
+        if 选项索引 == 9:
             self._暂停菜单开启 = False
             return {"切换到": "选歌", "禁用黑屏过渡": True}
 
@@ -3354,42 +3455,85 @@ class 场景_谱面播放器(场景基类):
     def _绘制操作反馈(self, 屏幕: pygame.Surface):
         if self._小字体 is None:
             return
-        if self._操作反馈剩余秒 <= 0.0 or (not self._操作反馈文本):
+
+        if self._操作反馈剩余秒 > 0.0 and self._操作反馈文本:
+            比率 = float(
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        self._操作反馈剩余秒 / max(0.001, self._操作反馈总秒),
+                    ),
+                )
+            )
+            透明 = int(255 * (0.35 + 0.65 * 比率))
+            try:
+                文图 = self._小字体.render(
+                    str(self._操作反馈文本), True, (255, 255, 255)
+                ).convert_alpha()
+                文图.set_alpha(透明)
+            except Exception:
+                文图 = None
+
+            if 文图 is not None:
+                内边距x = 12
+                内边距y = 8
+                rect = pygame.Rect(
+                    int(屏幕.get_width() - 文图.get_width() - 内边距x * 2 - 18),
+                    92,
+                    int(文图.get_width() + 内边距x * 2),
+                    int(文图.get_height() + 内边距y * 2),
+                )
+                try:
+                    背板 = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+                    背板.fill((0, 30, 36, int(150 * 比率)))
+                    屏幕.blit(背板, rect.topleft)
+                    pygame.draw.rect(
+                        屏幕, (0, 239, 251), rect, width=1, border_radius=8
+                    )
+                except Exception:
+                    pass
+
+                屏幕.blit(
+                    文图,
+                    (
+                        int(rect.x + (rect.w - 文图.get_width()) // 2),
+                        int(rect.y + (rect.h - 文图.get_height()) // 2),
+                    ),
+                )
+
+        if not bool(getattr(self, "_电视跟跳开启", False)):
             return
 
-        比率 = float(
-            max(0.0, min(1.0, self._操作反馈剩余秒 / max(0.001, self._操作反馈总秒)))
-        )
-        透明 = int(255 * (0.35 + 0.65 * 比率))
         try:
-            文图 = self._小字体.render(
-                str(self._操作反馈文本), True, (255, 255, 255)
+            常亮文图 = self._小字体.render(
+                "电视跟跳已开启", True, (255, 252, 210)
             ).convert_alpha()
-            文图.set_alpha(透明)
         except Exception:
             return
 
-        内边距x = 12
+        内边距x = 14
         内边距y = 8
-        rect = pygame.Rect(
-            int(屏幕.get_width() - 文图.get_width() - 内边距x * 2 - 18),
-            92,
-            int(文图.get_width() + 内边距x * 2),
-            int(文图.get_height() + 内边距y * 2),
+        提示框 = pygame.Rect(
+            int(屏幕.get_width() - 常亮文图.get_width() - 内边距x * 2 - 18),
+            42,
+            int(常亮文图.get_width() + 内边距x * 2),
+            int(常亮文图.get_height() + 内边距y * 2),
         )
+
         try:
-            背板 = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
-            背板.fill((0, 30, 36, int(150 * 比率)))
-            屏幕.blit(背板, rect.topleft)
-            pygame.draw.rect(屏幕, (0, 239, 251), rect, width=1, border_radius=8)
+            背板 = pygame.Surface((提示框.w, 提示框.h), pygame.SRCALPHA)
+            背板.fill((42, 96, 24, 185))
+            屏幕.blit(背板, 提示框.topleft)
+            pygame.draw.rect(屏幕, (180, 255, 120), 提示框, width=2, border_radius=8)
         except Exception:
             pass
 
         屏幕.blit(
-            文图,
+            常亮文图,
             (
-                int(rect.x + (rect.w - 文图.get_width()) // 2),
-                int(rect.y + (rect.h - 文图.get_height()) // 2),
+                int(提示框.x + (提示框.w - 常亮文图.get_width()) // 2),
+                int(提示框.y + (提示框.h - 常亮文图.get_height()) // 2),
             ),
         )
 
