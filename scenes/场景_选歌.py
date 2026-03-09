@@ -963,6 +963,11 @@ _大图_序号数字_缩放 = 1.00
 _大图_序号数字_x偏移 = 10
 _大图_序号数字_y偏移 = 10
 
+_详情大框贴图_宽缩放 = 1.07
+_详情大框贴图_高缩放 = 1.02
+_详情大框贴图_x偏移 = 0
+_详情大框贴图_y偏移 = 0.01
+
 _序号显示格式_缩略图 = "{:02d}"  # 01 02 03...
 _序号显示格式_大图 = "{:02d}"  # 想大图显示不一样也行
 
@@ -2110,8 +2115,8 @@ def _选歌布局_默认值() -> dict:
             "_缩略图封面_y下移像素": 8,
         },
         "缩略图大框": {
-            "_缩略图大框_宽缩放": 1.0,
-            "_缩略图大框_高缩放": 1.1,
+            "_缩略图大框_宽缩放": 1.1,
+            "_缩略图大框_高缩放": 1.15,
             "_缩略图大框_x偏移": 0.0,
             "_缩略图大框_y偏移": 0.0,
         },
@@ -3189,130 +3194,167 @@ def 载入并缩放封面(
 ) -> Optional[pygame.Surface]:
     """
     模式:
-      - cover   : 填满，可能裁切（缩略图用）
-
-      - contain : 完整展示，不裁切（大图用）
+      - cover   : 等比铺满，超出裁切
+      - contain : 等比完整显示，留透明边
+      - stretch : 直接拉伸铺满
     """
     try:
         原图 = pygame.image.load(路径).convert_alpha()
     except Exception:
         return None
 
-    ow, oh = 原图.get_size()
+    try:
+        目标宽 = max(1, int(目标宽))
+        目标高 = max(1, int(目标高))
+    except Exception:
+        return None
+
+    try:
+        ow, oh = 原图.get_size()
+    except Exception:
+        return None
+
     if ow <= 0 or oh <= 0:
         return None
 
-    if 模式 == "contain":
-        比例 = min(目标宽 / ow, 目标高 / oh)
-        新宽 = max(1, int(ow * 比例))
-        新高 = max(1, int(oh * 比例))
-        缩放 = pygame.transform.smoothscale(原图, (新宽, 新高))
+    模式 = str(模式 or "cover").strip().lower()
+    if 模式 not in ("cover", "contain", "stretch"):
+        模式 = "cover"
 
-        画布 = pygame.Surface((目标宽, 目标高), pygame.SRCALPHA)
-        画布.fill((0, 0, 0, 0))
-        x = (目标宽 - 新宽) // 2
-        y = (目标高 - 新高) // 2
-        画布.blit(缩放, (x, y))
+    try:
+        if 模式 == "stretch":
+            结果图 = pygame.transform.smoothscale(原图, (目标宽, 目标高)).convert_alpha()
+            if 圆角 > 0:
+                蒙版 = 生成圆角蒙版(目标宽, 目标高, 圆角)
+                结果图.blit(蒙版, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            return 结果图
 
-        蒙版 = 生成圆角蒙版(目标宽, 目标高, 圆角)
-        画布.blit(蒙版, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-        return 画布
+        if 模式 == "contain":
+            比例 = min(目标宽 / ow, 目标高 / oh)
+            新宽 = max(1, int(round(ow * 比例)))
+            新高 = max(1, int(round(oh * 比例)))
+            缩放图 = pygame.transform.smoothscale(原图, (新宽, 新高)).convert_alpha()
 
-    # cover
-    比例 = max(目标宽 / ow, 目标高 / oh)
-    新宽 = max(1, int(ow * 比例))
-    新高 = max(1, int(oh * 比例))
-    缩放 = pygame.transform.smoothscale(原图, (新宽, 新高))
+            结果图 = pygame.Surface((目标宽, 目标高), pygame.SRCALPHA)
+            结果图.fill((0, 0, 0, 0))
+            x = (目标宽 - 新宽) // 2
+            y = (目标高 - 新高) // 2
+            结果图.blit(缩放图, (x, y))
 
-    x = (新宽 - 目标宽) // 2
-    y = (新高 - 目标高) // 2
-    裁切 = pygame.Surface((目标宽, 目标高), pygame.SRCALPHA)
-    裁切.blit(缩放, (0, 0), area=pygame.Rect(x, y, 目标宽, 目标高))
+            if 圆角 > 0:
+                蒙版 = 生成圆角蒙版(目标宽, 目标高, 圆角)
+                结果图.blit(蒙版, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            return 结果图
 
-    蒙版 = 生成圆角蒙版(目标宽, 目标高, 圆角)
-    裁切.blit(蒙版, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-    return 裁切
+        比例 = max(目标宽 / ow, 目标高 / oh)
+        新宽 = max(1, int(round(ow * 比例)))
+        新高 = max(1, int(round(oh * 比例)))
+        缩放图 = pygame.transform.smoothscale(原图, (新宽, 新高)).convert_alpha()
+
+        x = (新宽 - 目标宽) // 2
+        y = (新高 - 目标高) // 2
+
+        结果图 = pygame.Surface((目标宽, 目标高), pygame.SRCALPHA)
+        结果图.fill((0, 0, 0, 0))
+        结果图.blit(缩放图, (0, 0), area=pygame.Rect(x, y, 目标宽, 目标高))
+
+        if 圆角 > 0:
+            蒙版 = 生成圆角蒙版(目标宽, 目标高, 圆角)
+            结果图.blit(蒙版, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        return 结果图
+    except Exception:
+        return None
+
 
 def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> dict:
     """
-    按框体视觉资源的固定比例，计算：
-    1. 封面槽位
-    2. 信息条
-    3. 星星区域
-    4. 游玩次数区域
-    5. BPM区域
-
-    说明：
-    - 这里不是“整个框内缩进”
-    - 而是按框体资源视觉结构，取右侧玻璃槽位
-    - 后续要微调，只改这里一处
+    稳定版槽位布局：
+    - 不再用“目标像素尺寸反推倍率”的屎味算法
+    - 统一按框体内部的相对比例取槽位
+    - 小图/大图都保证槽位不会跑出框体
     """
+    框宽 = max(1, int(框体矩形.w))
+    框高 = max(1, int(框体矩形.h))
+
     if 是否大图:
-        # 大框：中间玻璃区域
-        封面左占比 = 0.165
-        封面上占比 = 0.060
-        封面宽占比 = 0.690
-        封面高占比 = 0.805
-
-        信息条高占比 = 0.235
-        信息条左右内边距占比 = 0.050
-
-        星区上内边距占比 = 0.055
-        星区高占比 = 0.285
-
-        文本区左右内边距占比 = 0.060
-        底栏高占比 = 0.160
+        参数 = {
+            "封面左占比": 0.05,
+            "封面上占比": 0.05,
+            "封面宽占比": 0.95,
+            "封面高占比": 1.0,
+            "信息条高占比": 0.35,
+            "信息条左右内边距占比": 0.040,
+            "星区上内边距占比": 0.050,
+            "星区高占比": 0.3,
+            "文本区左右内边距占比": 0.050,
+            "底栏高占比": 0.245,
+        }
     else:
-        # 小框：右侧玻璃槽位
-        封面左占比 = 0.165
-        封面上占比 = 0.075
-        封面宽占比 = 0.765
-        封面高占比 = 0.740
+        参数 = {
+            "封面左占比": 0.10,
+            "封面上占比": 0.060,
+            "封面宽占比": 0.845,
+            "封面高占比": 0.870,
+            "信息条高占比": 0.315,
+            "信息条左右内边距占比": 0.035,
+            "星区上内边距占比": 0,
+            "星区高占比": 0.6,
+            "文本区左右内边距占比": 0.040,
+            "底栏高占比": 0.345,
+        }
 
-        信息条高占比 = 0.230
-        信息条左右内边距占比 = 0.040
-
-        星区上内边距占比 = 0.050
-        星区高占比 = 0.260
-
-        文本区左右内边距占比 = 0.050
-        底栏高占比 = 0.165
+    def _夹紧矩形(矩形: pygame.Rect, 外框: pygame.Rect) -> pygame.Rect:
+        x = max(外框.left, min(矩形.x, 外框.right - 1))
+        y = max(外框.top, min(矩形.y, 外框.bottom - 1))
+        w = max(1, min(矩形.w, 外框.right - x))
+        h = max(1, min(矩形.h, 外框.bottom - y))
+        return pygame.Rect(x, y, w, h)
 
     封面矩形 = pygame.Rect(
-        int(框体矩形.x + 框体矩形.w * 封面左占比),
-        int(框体矩形.y + 框体矩形.h * 封面上占比),
-        max(1, int(框体矩形.w * 封面宽占比)),
-        max(1, int(框体矩形.h * 封面高占比)),
+        int(round(框体矩形.x + 框宽 * 参数["封面左占比"])),
+        int(round(框体矩形.y + 框高 * 参数["封面上占比"])),
+        max(1, int(round(框宽 * 参数["封面宽占比"]))),
+        max(1, int(round(框高 * 参数["封面高占比"]))),
     )
+    封面矩形 = _夹紧矩形(封面矩形, 框体矩形)
 
-    信息条高 = max(14, int(封面矩形.h * 信息条高占比))
+    信息条高 = max(14, int(round(封面矩形.h * 参数["信息条高占比"])))
     信息条矩形 = pygame.Rect(
         封面矩形.x,
         封面矩形.bottom - 信息条高,
         封面矩形.w,
         信息条高,
     )
+    信息条矩形 = _夹紧矩形(信息条矩形, 封面矩形)
 
-    信息条左右内边距 = max(4, int(信息条矩形.w * 信息条左右内边距占比))
-    文本区左右内边距 = max(4, int(信息条矩形.w * 文本区左右内边距占比))
+    信息条左右内边距 = max(
+        4, int(round(信息条矩形.w * 参数["信息条左右内边距占比"]))
+    )
+    文本区左右内边距 = max(
+        4, int(round(信息条矩形.w * 参数["文本区左右内边距占比"]))
+    )
 
     星星区域 = pygame.Rect(
         信息条矩形.x + 信息条左右内边距,
-        信息条矩形.y + max(1, int(信息条矩形.h * 星区上内边距占比)),
+        信息条矩形.y + max(1, int(round(信息条矩形.h * 参数["星区上内边距占比"]))),
         max(10, 信息条矩形.w - 信息条左右内边距 * 2),
-        max(6, int(信息条矩形.h * 星区高占比)),
+        max(6, int(round(信息条矩形.h * 参数["星区高占比"]))),
     )
+    星星区域 = _夹紧矩形(星星区域, 信息条矩形)
 
-    底栏高 = max(10, int(信息条矩形.h * 底栏高占比))
+    底栏高 = max(10, int(round(信息条矩形.h * 参数["底栏高占比"])))
     底栏矩形 = pygame.Rect(
         信息条矩形.x + 文本区左右内边距,
-        信息条矩形.bottom - 底栏高 - max(1, int(信息条矩形.h * 0.06)),
+        信息条矩形.bottom - 底栏高 - max(1, int(round(信息条矩形.h * 0.06))),
         max(10, 信息条矩形.w - 文本区左右内边距 * 2),
         底栏高,
     )
+    底栏矩形 = _夹紧矩形(底栏矩形, 信息条矩形)
 
-    中间安全间距 = max(8, int(底栏矩形.w * 0.05))
-    左区宽 = max(10, int(底栏矩形.w * 0.52))
+    中间安全间距 = max(8, int(round(底栏矩形.w * 0.05)))
+    左区宽 = max(10, int(round(底栏矩形.w * 0.52)))
+    左区宽 = min(左区宽, max(10, 底栏矩形.w - 中间安全间距 - 10))
     右区宽 = max(10, 底栏矩形.w - 左区宽 - 中间安全间距)
 
     游玩区域 = pygame.Rect(
@@ -3328,6 +3370,9 @@ def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> d
         底栏矩形.h,
     )
 
+    游玩区域 = _夹紧矩形(游玩区域, 底栏矩形)
+    bpm区域 = _夹紧矩形(bpm区域, 底栏矩形)
+
     return {
         "封面矩形": 封面矩形,
         "信息条矩形": 信息条矩形,
@@ -3335,6 +3380,91 @@ def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> d
         "游玩区域": 游玩区域,
         "bpm区域": bpm区域,
     }
+
+def 计算缩略图小框矩形(
+    基准矩形: pygame.Rect,
+    框路径: str,
+) -> pygame.Rect:
+    """
+    小框专用：
+    - 只允许等比缩放
+    - 比例优先跟随“小框素材原图”
+    - 宽高缩放配置不再分别直接作用到最终宽高，避免窗口一变就框体变形
+    - x/y 偏移仍保留
+    """
+    try:
+        框宽缩放 = float(_缩略图小框_宽缩放)
+    except Exception:
+        框宽缩放 = 1.0
+
+    try:
+        框高缩放 = float(_缩略图小框_高缩放)
+    except Exception:
+        框高缩放 = 1.0
+
+    try:
+        框x偏移 = int(_缩略图小框_x偏移)
+    except Exception:
+        框x偏移 = 0
+
+    try:
+        框y偏移 = int(round(float(_缩略图小框_y偏移) * float(基准矩形.h)))
+    except Exception:
+        框y偏移 = 0
+
+    框宽缩放 = max(0.05, min(5.0, 框宽缩放))
+    框高缩放 = max(0.05, min(5.0, 框高缩放))
+
+    # ✅ 关键：小框只取一个“统一等比缩放值”
+    统一缩放 = min(框宽缩放, 框高缩放)
+    统一缩放 = max(0.05, min(5.0, 统一缩放))
+
+    原框图 = 获取UI原图(框路径, 透明=True)
+
+    # 优先使用素材真实比例；没有素材时退回当前卡片比例
+    if 原框图 is not None:
+        try:
+            原宽, 原高 = 原框图.get_size()
+        except Exception:
+            原宽, 原高 = (0, 0)
+    else:
+        原宽, 原高 = (0, 0)
+
+    if 原宽 <= 0 or 原高 <= 0:
+        原宽 = max(1, int(基准矩形.w))
+        原高 = max(1, int(基准矩形.h))
+
+    原始比例 = float(原宽) / float(max(1, 原高))
+
+    # ✅ 先基于“基准矩形”求一个可容纳的等比框
+    候选宽 = max(1, int(round(float(基准矩形.w) * 统一缩放)))
+    候选高 = max(1, int(round(float(基准矩形.h) * 统一缩放)))
+
+    if 候选宽 <= 0 or 候选高 <= 0:
+        return pygame.Rect(
+            int(基准矩形.x + 框x偏移),
+            int(基准矩形.y + 框y偏移),
+            max(1, int(基准矩形.w)),
+            max(1, int(基准矩形.h)),
+        )
+
+    if (float(候选宽) / float(max(1, 候选高))) > 原始比例:
+        # 太宽了，以高为准反推宽
+        框高 = 候选高
+        框宽 = max(1, int(round(float(框高) * 原始比例)))
+    else:
+        # 太高了，以宽为准反推高
+        框宽 = 候选宽
+        框高 = max(1, int(round(float(框宽) / max(0.001, 原始比例))))
+
+    # ✅ 仍然以原来的基准中心定位，偏移继续有效
+    框矩形 = pygame.Rect(0, 0, 框宽, 框高)
+    框矩形.center = 基准矩形.center
+    框矩形.x += int(框x偏移)
+    框矩形.y += int(框y偏移)
+
+    return 框矩形
+
 
 class 渐隐放大点击特效:
     """
@@ -3950,8 +4080,8 @@ class 歌曲卡片:
 
         if 是否高亮:
             缩放 = 1.08 if bool(self.踏板高亮) else 1.04
-            新宽 = max(1, int(self.矩形.w * 缩放))
-            新高 = max(1, int(self.矩形.h * 缩放))
+            新宽 = max(1, int(round(self.矩形.w * 缩放)))
+            新高 = max(1, int(round(self.矩形.h * 缩放)))
             基准矩形.size = (新宽, 新高)
             基准矩形.center = self.矩形.center
 
@@ -3977,74 +4107,75 @@ class 歌曲卡片:
         框宽缩放 = max(0.05, min(5.0, 框宽缩放))
         框高缩放 = max(0.05, min(5.0, 框高缩放))
 
-        框绘制宽 = max(1, int(基准矩形.w * 框宽缩放))
-        框绘制高 = max(1, int(基准矩形.h * 框高缩放))
-
         框矩形 = pygame.Rect(
             int(基准矩形.x + 框x偏移),
             int(基准矩形.y + 框y偏移),
-            int(框绘制宽),
-            int(框绘制高),
+            max(1, int(round(基准矩形.w * 框宽缩放))),
+            max(1, int(round(基准矩形.h * 框高缩放))),
         )
 
-        框图 = 获取UI容器图(
-            框路径,
-            框矩形.w,
-            框矩形.h,
-            缩放模式="stretch",
-            透明=True,
+        局部框矩形 = pygame.Rect(0, 0, 框矩形.w, 框矩形.h)
+        局部布局 = 计算框体槽位布局(局部框矩形, 是否大图=False)
+
+        局部封面矩形 = 局部布局["封面矩形"]
+        局部信息条 = 局部布局["信息条矩形"]
+        局部星星区域 = 局部布局["星星区域"]
+        局部游玩区域 = 局部布局["游玩区域"]
+        局部bpm区域 = 局部布局["bpm区域"]
+
+        self.封面矩形 = pygame.Rect(
+            框矩形.x + 局部封面矩形.x,
+            框矩形.y + 局部封面矩形.y,
+            局部封面矩形.w,
+            局部封面矩形.h,
         )
 
-        布局 = 计算框体槽位布局(框矩形, 是否大图=False)
-        self.封面矩形 = 布局["封面矩形"]
-        信息条 = 布局["信息条矩形"]
-        星星区域 = 布局["星星区域"]
-        游玩区域 = 布局["游玩区域"]
-        bpm区域 = 布局["bpm区域"]
+        局部画布 = pygame.Surface((框矩形.w, 框矩形.h), pygame.SRCALPHA)
+        局部画布.fill((0, 0, 0, 0))
 
-        封面缩放模式 = "contain"
+        封面缩放模式 = "cover"
         封面圆角 = 0
 
         封面图 = None
         if self.歌曲.封面路径:
             封面图 = 图缓存.获取(
                 self.歌曲.封面路径,
-                self.封面矩形.w,
-                self.封面矩形.h,
+                局部封面矩形.w,
+                局部封面矩形.h,
                 int(封面圆角),
                 封面缩放模式,
             )
             if 封面图 is None:
                 封面图 = 载入并缩放封面(
                     self.歌曲.封面路径,
-                    self.封面矩形.w,
-                    self.封面矩形.h,
+                    局部封面矩形.w,
+                    局部封面矩形.h,
                     int(封面圆角),
                     封面缩放模式,
                 )
                 if 封面图 is not None:
                     图缓存.写入(
                         self.歌曲.封面路径,
-                        self.封面矩形.w,
-                        self.封面矩形.h,
+                        局部封面矩形.w,
+                        局部封面矩形.h,
                         int(封面圆角),
                         封面缩放模式,
                         封面图,
                     )
 
         if 封面图 is not None:
-            屏幕.blit(封面图, self.封面矩形.topleft)
+            局部画布.blit(封面图, 局部封面矩形.topleft)
         else:
-            pygame.draw.rect(屏幕, (30, 30, 40), self.封面矩形)
+            pygame.draw.rect(局部画布, (30, 30, 40), 局部封面矩形)
 
-        黑条 = pygame.Surface((信息条.w, 信息条.h), pygame.SRCALPHA)
+        黑条 = pygame.Surface((局部信息条.w, 局部信息条.h), pygame.SRCALPHA)
         黑条.fill((0, 0, 0, 145))
-        屏幕.blit(黑条, 信息条.topleft)
+        局部画布.blit(黑条, 局部信息条.topleft)
 
         小星星路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "小星星.png")
         绘制星星行_图片(
-            屏幕=屏幕,
-            区域=星星区域,
+            屏幕=局部画布,
+            区域=局部星星区域,
             星数=self.歌曲.星级,
             星星路径=小星星路径,
             星星缩放倍数=0.42,
@@ -4058,9 +4189,9 @@ class 歌曲卡片:
 
         bpm文本 = f"BPM:{self.歌曲.bpm}" if self.歌曲.bpm else "BPM:?"
 
-        游玩标签字号 = max(8, int(信息条.h * 0.26))
-        游玩数字字号 = max(8, int(信息条.h * 0.28))
-        bpm字号 = max(9, int(信息条.h * 0.31))
+        游玩标签字号 = max(8, int(局部信息条.h * 0.26))
+        游玩数字字号 = max(8, int(局部信息条.h * 0.28))
+        bpm字号 = max(9, int(局部信息条.h * 0.31))
 
         try:
             游玩标签字体 = 获取字体(游玩标签字号, 是否粗体=True)
@@ -4082,34 +4213,41 @@ class 歌曲卡片:
             bpm文面 = bpm字体.render(bpm文本, True, (255, 255, 255))
 
             游玩块宽 = int(游玩标签面.get_width()) + 2 + int(游玩数字面.get_width())
-            游玩x = 游玩区域.x
-            游玩y = 游玩区域.centery - max(
+            游玩x = 局部游玩区域.x
+            游玩y = 局部游玩区域.centery - max(
                 游玩标签面.get_height(),
                 游玩数字面.get_height(),
             ) // 2
 
-            bpmx = bpm区域.right - bpm文面.get_width()
-            bpmy = bpm区域.centery - bpm文面.get_height() // 2
+            bpmx = 局部bpm区域.right - bpm文面.get_width()
+            bpmy = 局部bpm区域.centery - bpm文面.get_height() // 2
 
             if 游玩x + 游玩块宽 > bpmx - 6:
                 压缩差值 = (游玩x + 游玩块宽) - (bpmx - 6)
                 bpmx += max(0, 压缩差值)
 
-            屏幕.blit(游玩标签面, (游玩x, 游玩y))
-            屏幕.blit(
+            局部画布.blit(游玩标签面, (游玩x, 游玩y))
+            局部画布.blit(
                 游玩数字面,
                 (游玩x + int(游玩标签面.get_width()) + 2, 游玩y),
             )
-            屏幕.blit(bpm文面, (bpmx, bpmy))
+            局部画布.blit(bpm文面, (bpmx, bpmy))
         except Exception:
             pass
 
+        框图 = 获取UI容器图(
+            框路径,
+            框矩形.w,
+            框矩形.h,
+            缩放模式="stretch",
+            透明=True,
+        )
         if 框图 is not None:
-            屏幕.blit(框图, 框矩形.topleft)
+            局部画布.blit(框图, (0, 0))
 
         绘制序号标签_图片(
-            屏幕,
-            框矩形,
+            屏幕=局部画布,
+            锚点矩形=局部框矩形,
             内部序号从0=self.歌曲.序号,
             是否大图=False,
         )
@@ -4122,9 +4260,9 @@ class 歌曲卡片:
                 vip图 = _按高等比缩放(vip原, vip高)
                 if vip图 is not None:
                     vipw, viph = vip图.get_size()
-                    vx = 框矩形.right - vipw - max(2, int(vipw * 0.06))
-                    vy = 框矩形.top - max(2, int(viph * 0.18))
-                    屏幕.blit(vip图, (vx, vy))
+                    vx = 局部框矩形.right - vipw - max(2, int(vipw * 0.06))
+                    vy = 局部框矩形.top - max(2, int(viph * 0.18))
+                    局部画布.blit(vip图, (vx, vy))
 
         try:
             if bool(getattr(self.歌曲, "是否HOT", False)):
@@ -4135,11 +4273,11 @@ class 歌曲卡片:
                     hot图 = _按高等比缩放(hot原, hot高)
                     if hot图 is not None:
                         hotw, hoth = hot图.get_size()
-                        hx = 框矩形.right - hotw - max(4, int(hot高 * 0.10))
-                        hy = 框矩形.top + max(4, int(hot高 * 0.06))
+                        hx = 局部框矩形.right - hotw - max(4, int(hot高 * 0.10))
+                        hy = 局部框矩形.top + max(4, int(hot高 * 0.06))
                         if bool(getattr(self.歌曲, "是否VIP", False)):
                             hx -= int(hotw * 0.82)
-                        屏幕.blit(hot图, (hx, hy))
+                        局部画布.blit(hot图, (hx, hy))
         except Exception:
             pass
 
@@ -4152,11 +4290,14 @@ class 歌曲卡片:
                     new图 = _按高等比缩放(new原, new高)
                     if new图 is not None:
                         neww, newh = new图.get_size()
-                        nx = 框矩形.right - neww - max(4, int(new高 * 0.10))
-                        ny = 框矩形.bottom - newh - max(4, int(new高 * 0.10))
-                        屏幕.blit(new图, (nx, ny))
+                        nx = 局部框矩形.right - neww - max(4, int(new高 * 0.10))
+                        ny = 局部框矩形.bottom - newh - max(4, int(new高 * 0.10))
+                        局部画布.blit(new图, (nx, ny))
         except Exception:
             pass
+
+        屏幕.blit(局部画布, 框矩形.topleft)
+
 
 class 选歌游戏:
 
@@ -4377,7 +4518,50 @@ class 选歌游戏:
         self._布局配置_修改时间 = float(修改时间)
         return 数据
     
+    def _取底部布局像素(
+        self, 键路径: str, 默认设计像素: int, 最小: int = None, 最大: int = None
+    ) -> int:
+        """
+        底部按钮专用：
+        - 如果 json 里写的是普通数字（如 164），按“设计稿像素”处理，再随窗口同比缩放
+        - 如果 json 里写的是字符串单位（如 0.08w / 0.12h / 0.09min），直接走原有逻辑
+        - 这样能兼容旧配置，又不会让底部按钮焊死
+        """
+        原值 = self._取布局值(键路径, 默认设计像素)
 
+        try:
+            设计宽 = float(getattr(self, "_设计宽", 2048) or 2048)
+            设计高 = float(getattr(self, "_设计高", 1152) or 1152)
+            当前宽 = float(getattr(self, "宽", 0) or 0)
+            当前高 = float(getattr(self, "高", 0) or 0)
+            缩放 = min(
+                当前宽 / max(1.0, 设计宽),
+                当前高 / max(1.0, 设计高),
+            )
+        except Exception:
+            缩放 = 1.0
+
+        缩放 = max(0.45, min(2.20, float(缩放)))
+
+        if isinstance(原值, str):
+            文本 = str(原值 or "").strip().lower()
+            if 文本:
+                try:
+                    return self._取布局像素(键路径, 默认设计像素, 最小=最小, 最大=最大)
+                except Exception:
+                    pass
+
+        try:
+            值 = int(round(float(原值) * 缩放))
+        except Exception:
+            值 = int(round(float(默认设计像素) * 缩放))
+
+        if 最小 is not None:
+            值 = max(int(最小), 值)
+        if 最大 is not None:
+            值 = min(int(最大), 值)
+        return 值
+    
     def _取布局值(self, 键路径: str, 默认值):
         配置 = self._加载布局配置(是否提示=False)
         当前 = 配置
@@ -5035,10 +5219,6 @@ class 选歌游戏:
             屏幕.blit(白, (x, 当前y))
             当前y += 白.get_height()
 
-    # -------------------------
-    # 音频
-    # -------------------------
-
     def _背景音乐被全局关闭(self) -> bool:
         try:
             状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
@@ -5091,9 +5271,6 @@ class 选歌游戏:
         except Exception:
             pass
 
-    # -------------------------
-    # 布局
-    # -------------------------
 
     def 重算布局(self):
         self._确保公共交互()
@@ -5106,8 +5283,8 @@ class 选歌游戏:
         if self.背景图_原图 is None:
             self._加载背景图()
 
-        # ========= 底部槽位（JSON可控）=========
-        槽边长 = self._取布局像素("底部.槽边长", 164, 最小=80, 最大=320)
+        # ========= 底部槽位（修复：默认值按窗口同比缩放，不再焊死） =========
+        槽边长 = self._取底部布局像素("底部.槽边长", 164, 最小=64, 最大=420)
 
         标签占比 = self._取布局值("底部.标签区高占比", 0.26)
         try:
@@ -5116,11 +5293,11 @@ class 选歌游戏:
             标签占比 = 0.26
         标签占比 = max(0.05, min(0.60, 标签占比))
 
-        标签区高 = max(34, int(槽边长 * 标签占比))
+        标签区高 = max(24, int(槽边长 * 标签占比))
         槽总高 = 槽边长 + 标签区高
 
-        底部最小高 = self._取布局像素("底部.底部最小高", 220, 最小=120, 最大=9999)
-        底部额外高 = self._取布局像素("底部.底部额外高", 40, 最小=0, 最大=9999)
+        底部最小高 = self._取底部布局像素("底部.底部最小高", 220, 最小=100, 最大=9999)
+        底部额外高 = self._取底部布局像素("底部.底部额外高", 40, 最小=0, 最大=9999)
         self.底部高 = max(底部最小高, 槽总高 + 底部额外高)
 
         self.中间区域 = pygame.Rect(
@@ -5129,10 +5306,10 @@ class 选歌游戏:
 
         槽y = self.高 - self.底部高 + (self.底部高 - 槽总高) // 2
 
-        左起 = self._取布局像素("底部.左起", 28, 最小=0, 最大=9999)
-        左组间距 = self._取布局像素("底部.左组间距", 12, 最小=0, 最大=9999)
-        右组间距 = self._取布局像素("底部.右组间距", 26, 最小=0, 最大=9999)
-        右外边距 = self._取布局像素("底部.右外边距", 40, 最小=0, 最大=9999)
+        左起 = self._取底部布局像素("底部.左起", 28, 最小=0, 最大=9999)
+        左组间距 = self._取底部布局像素("底部.左组间距", 12, 最小=0, 最大=9999)
+        右组间距 = self._取底部布局像素("底部.右组间距", 26, 最小=0, 最大=9999)
+        右外边距 = self._取底部布局像素("底部.右外边距", 40, 最小=0, 最大=9999)
 
         槽_歌曲分类 = pygame.Rect(左起, 槽y, 槽边长, 槽总高)
         槽_ALL = pygame.Rect(槽_歌曲分类.right + 左组间距, 槽y, 槽边长, 槽总高)
@@ -5222,7 +5399,7 @@ class 选歌游戏:
         self.按钮_2P加入.矩形 = 槽_P加入
         self.按钮_设置.矩形 = 槽_设置
 
-        统一文字偏移 = self._取布局像素("底部.统一文字偏移", -6, 最小=-9999, 最大=9999)
+        统一文字偏移 = self._取底部布局像素("底部.统一文字偏移", -6, 最小=-9999, 最大=9999)
         try:
             self.按钮_歌曲分类.文字y偏移 = 统一文字偏移
             self.按钮_2P加入.文字y偏移 = 统一文字偏移
@@ -5247,8 +5424,8 @@ class 选歌游戏:
         ALL缩放 = max(0.1, min(2.0, ALL缩放))
         重开缩放 = max(0.1, min(2.0, 重开缩放))
 
-        ALL边长 = max(30, int(槽边长 * ALL缩放))
-        重开边长 = max(30, int(槽边长 * 重开缩放))
+        ALL边长 = max(24, int(槽边长 * ALL缩放))
+        重开边长 = max(24, int(槽边长 * 重开缩放))
 
         ALL矩形 = pygame.Rect(0, 0, ALL边长, ALL边长)
         ALL矩形.center = 槽_ALL_图标区.center
@@ -5258,7 +5435,7 @@ class 选歌游戏:
         重开矩形.center = 槽_重开_图标区.center
         self.按钮_重选模式.矩形 = 重开矩形
 
-        # ========= 模式选择面板（JSON可控）=========
+        # ========= 模式选择面板（保留原逻辑） =========
         最大宽 = self._取布局像素("模式选择面板.最大宽", 920, 最小=300, 最大=9999)
         最大高 = self._取布局像素("模式选择面板.最大高", 460, 最小=200, 最大=9999)
 
@@ -5309,7 +5486,7 @@ class 选歌游戏:
             关闭高,
         )
 
-        # ========= 卡片网格（让每页数量跟随列行）=========
+        # ========= 卡片网格（保留原逻辑） =========
         try:
             列数 = int(self._取布局值("卡片网格.列数", 4))
         except Exception:
@@ -5846,7 +6023,6 @@ class 选歌游戏:
         self.按钮_选择竞速.绘制(self.屏幕, 获取字体(34))
         self.按钮_关闭模式选择.绘制(self.屏幕, 获取字体(26))
 
-
     def _计算保留key集合(self, 基准页: int) -> Set[Tuple[str, int, int, int, str]]:
         刷新选歌布局常量()
 
@@ -5868,22 +6044,7 @@ class 选歌游戏:
                 页集合.append(页码)
 
         需要保留键集合: Set[Tuple[str, int, int, int, str]] = set()
-
-        try:
-            框宽缩放 = float(_缩略图小框_宽缩放)
-        except Exception:
-            框宽缩放 = 1.0
-        try:
-            框高缩放 = float(_缩略图小框_高缩放)
-        except Exception:
-            框高缩放 = 1.0
-        try:
-            框x偏移 = int(_缩略图小框_x偏移)
-        except Exception:
-            框x偏移 = 0
-
-        框宽缩放 = max(0.05, min(5.0, 框宽缩放))
-        框高缩放 = max(0.05, min(5.0, 框高缩放))
+        框路径 = _资源路径("UI-img", "选歌界面资源", "缩略图小.png")
 
         for 页码 in 页集合:
             卡片列表 = self.生成指定页卡片(int(页码))
@@ -5896,22 +6057,8 @@ class 选歌游戏:
                 if (not 路径) or (not os.path.isfile(路径)):
                     continue
 
-                try:
-                    框绘制宽 = max(1, int(卡片.矩形.w * 框宽缩放))
-                    框绘制高 = max(1, int(卡片.矩形.h * 框高缩放))
-                    框y偏移 = int(round(float(_缩略图小框_y偏移) * float(卡片.矩形.h)))
-                except Exception:
-                    框绘制宽 = max(1, int(卡片.矩形.w))
-                    框绘制高 = max(1, int(卡片.矩形.h))
-                    框y偏移 = 0
-
-                框矩形 = pygame.Rect(
-                    int(卡片.矩形.x + 框x偏移),
-                    int(卡片.矩形.y + 框y偏移),
-                    int(框绘制宽),
-                    int(框绘制高),
-                )
-
+                # ✅ 必须跟实际绘制使用同一套“小框等比矩形算法”
+                框矩形 = 计算缩略图小框矩形(卡片.矩形, 框路径)
                 布局 = 计算框体槽位布局(框矩形, 是否大图=False)
                 封面矩形 = 布局["封面矩形"]
 
@@ -5921,7 +6068,7 @@ class 选歌游戏:
                         max(1, int(封面矩形.w)),
                         max(1, int(封面矩形.h)),
                         0,
-                        "contain",
+                        "cover",
                     )
                 )
 
@@ -5967,12 +6114,13 @@ class 选歌游戏:
                                 max(1, int(封面矩形.w)),
                                 max(1, int(封面矩形.h)),
                                 0,
-                                "contain",
+                                "stretch",
                             )
                         )
 
         return 需要保留键集合
-    
+
+
     def 安排预加载(self, 基准页: int):
         列表, _映射 = self.当前歌曲列表与映射()
         if not 列表:
@@ -6607,15 +6755,15 @@ class 选歌游戏:
         )
         最终缩放 = max(0.10, 最终缩放)
 
-        目标宽 = max(320, int(基准宽 * 最终缩放))
-        目标高 = max(220, int(基准高 * 最终缩放))
+        内容宽 = max(320, int(基准宽 * 最终缩放))
+        内容高 = max(220, int(基准高 * 最终缩放))
 
-        if 目标宽 > 可用宽:
-            目标宽 = 可用宽
-            目标高 = int(目标宽 / 目标比例)
-        if 目标高 > 可用高:
-            目标高 = 可用高
-            目标宽 = int(目标高 * 目标比例)
+        if 内容宽 > 可用宽:
+            内容宽 = 可用宽
+            内容高 = int(内容宽 / 目标比例)
+        if 内容高 > 可用高:
+            内容高 = 可用高
+            内容宽 = int(内容高 * 目标比例)
 
         框路径 = _资源路径("UI-img", "选歌界面资源", "缩略图大.png")
 
@@ -6636,23 +6784,228 @@ class 选歌游戏:
         except Exception:
             框y偏移 = 0
 
+        try:
+            贴图宽缩放 = float(_详情大框贴图_宽缩放)
+        except Exception:
+            贴图宽缩放 = 1.0
+        try:
+            贴图高缩放 = float(_详情大框贴图_高缩放)
+        except Exception:
+            贴图高缩放 = 1.0
+        try:
+            贴图x偏移 = int(_详情大框贴图_x偏移)
+        except Exception:
+            贴图x偏移 = 0
+        try:
+            贴图y偏移 = int(_详情大框贴图_y偏移)
+        except Exception:
+            贴图y偏移 = 0
+
         框宽缩放 = max(0.05, min(5.0, 框宽缩放))
         框高缩放 = max(0.05, min(5.0, 框高缩放))
+        贴图宽缩放 = max(0.05, min(5.0, 贴图宽缩放))
+        贴图高缩放 = max(0.05, min(5.0, 贴图高缩放))
 
-        框宽 = max(1, int(目标宽 * 框宽缩放))
-        框高 = max(1, int(目标高 * 框高缩放))
+        内容基础矩形 = pygame.Rect(
+            0,
+            0,
+            max(1, int(round(内容宽 * 框宽缩放))),
+            max(1, int(round(内容高 * 框高缩放))),
+        )
+        内容基础矩形.center = self.中间区域.center
+        内容基础矩形.x += int(框x偏移)
+        内容基础矩形.y += int(框y偏移)
 
-        框基础矩形 = pygame.Rect(0, 0, 框宽, 框高)
-        框基础矩形.center = self.中间区域.center
-        框基础矩形.x += int(框x偏移)
-        框基础矩形.y += int(框y偏移)
+        局部内容矩形 = pygame.Rect(0, 0, 内容基础矩形.w, 内容基础矩形.h)
+        局部布局 = 计算框体槽位布局(局部内容矩形, 是否大图=True)
 
-        布局 = 计算框体槽位布局(框基础矩形, 是否大图=True)
-        封面框 = 布局["封面矩形"]
-        信息条 = 布局["信息条矩形"]
-        星星区域 = 布局["星星区域"]
-        游玩区域 = 布局["游玩区域"]
-        bpm区域 = 布局["bpm区域"]
+        局部封面框 = 局部布局["封面矩形"]
+        局部信息条 = 局部布局["信息条矩形"]
+        局部星星区域 = 局部布局["星星区域"]
+        局部游玩区域 = 局部布局["游玩区域"]
+        局部bpm区域 = 局部布局["bpm区域"]
+
+        装饰贴图宽 = max(1, int(round(内容基础矩形.w * 贴图宽缩放)))
+        装饰贴图高 = max(1, int(round(内容基础矩形.h * 贴图高缩放)))
+
+        局部内容左 = 0
+        局部内容上 = 0
+        局部内容右 = 内容基础矩形.w
+        局部内容下 = 内容基础矩形.h
+
+        局部贴图左 = (内容基础矩形.w - 装饰贴图宽) // 2 + int(贴图x偏移)
+        局部贴图上 = (内容基础矩形.h - 装饰贴图高) // 2 + int(贴图y偏移)
+        局部贴图右 = 局部贴图左 + 装饰贴图宽
+        局部贴图下 = 局部贴图上 + 装饰贴图高
+
+        总左 = min(局部内容左, 局部贴图左)
+        总上 = min(局部内容上, 局部贴图上)
+        总右 = max(局部内容右, 局部贴图右)
+        总下 = max(局部内容下, 局部贴图下)
+
+        总宽 = max(1, int(总右 - 总左))
+        总高 = max(1, int(总下 - 总上))
+
+        内容偏移x = int(-总左)
+        内容偏移y = int(-总上)
+        贴图绘制x = int(局部贴图左 - 总左)
+        贴图绘制y = int(局部贴图上 - 总上)
+
+        局部画布 = pygame.Surface((总宽, 总高), pygame.SRCALPHA)
+        局部画布.fill((0, 0, 0, 0))
+
+        封面图 = None
+        if 歌.封面路径 and os.path.isfile(歌.封面路径):
+            封面图 = self.图缓存.获取(
+                歌.封面路径,
+                局部封面框.w,
+                局部封面框.h,
+                0,
+                "stretch",
+            )
+            if 封面图 is None:
+                封面图 = 载入并缩放封面(
+                    歌.封面路径,
+                    局部封面框.w,
+                    局部封面框.h,
+                    0,
+                    "stretch",
+                )
+                if 封面图 is not None:
+                    self.图缓存.写入(
+                        歌.封面路径,
+                        局部封面框.w,
+                        局部封面框.h,
+                        0,
+                        "stretch",
+                        封面图,
+                    )
+
+        if 封面图 is not None:
+            局部画布.blit(
+                封面图,
+                (局部封面框.x + 内容偏移x, 局部封面框.y + 内容偏移y),
+            )
+        else:
+            pygame.draw.rect(
+                局部画布,
+                (18, 18, 24),
+                pygame.Rect(
+                    局部封面框.x + 内容偏移x,
+                    局部封面框.y + 内容偏移y,
+                    局部封面框.w,
+                    局部封面框.h,
+                ),
+            )
+
+        黑条 = pygame.Surface((局部信息条.w, 局部信息条.h), pygame.SRCALPHA)
+        黑条.fill((0, 0, 0, 155))
+        局部画布.blit(黑条, (局部信息条.x + 内容偏移x, 局部信息条.y + 内容偏移y))
+
+        大星星路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "大星星.png")
+        光效路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "星星动态.png")
+
+        绘制星星行_图片(
+            局部画布,
+            pygame.Rect(
+                局部星星区域.x + 内容偏移x,
+                局部星星区域.y + 内容偏移y,
+                局部星星区域.w,
+                局部星星区域.h,
+            ),
+            歌.星级,
+            大星星路径,
+            1.65,
+            每行最大=10,
+            动态光效路径=光效路径,
+            光效周期秒=2.0,
+            基准高占比=0.34,
+            行间距占比=0.02,
+        )
+
+        歌名显示 = str(getattr(歌, "歌名", "") or "").replace("_", " ")
+        歌名字号 = max(16, int(局部信息条.h * 0.22))
+        歌名字体 = 获取字体(歌名字号, 是否粗体=False)
+
+        try:
+            可用文字宽 = max(80, int(局部信息条.w * 0.84))
+            当前字号 = 歌名字号
+            while 当前字号 > 12:
+                试字体 = 获取字体(当前字号, 是否粗体=False)
+                if 试字体.size(歌名显示)[0] <= 可用文字宽:
+                    break
+                当前字号 -= 1
+            歌名字体 = 获取字体(max(12, 当前字号), 是否粗体=False)
+            歌名面 = 歌名字体.render(歌名显示, True, (255, 255, 255))
+
+            歌名y = 局部星星区域.bottom + max(4, int(局部信息条.h * 0.03))
+            歌名矩形 = 歌名面.get_rect(
+                centerx=局部信息条.centerx + 内容偏移x,
+                y=歌名y + 内容偏移y,
+            )
+            局部画布.blit(歌名面, 歌名矩形.topleft)
+
+            线y = 歌名矩形.bottom + max(4, int(局部信息条.h * 0.03))
+            pygame.draw.line(
+                局部画布,
+                (165, 165, 165),
+                (
+                    局部信息条.x + 内容偏移x + max(12, int(局部信息条.w * 0.06)),
+                    线y,
+                ),
+                (
+                    局部信息条.right + 内容偏移x - max(12, int(局部信息条.w * 0.06)),
+                    线y,
+                ),
+                max(1, int(局部信息条.h * 0.012)),
+            )
+        except Exception:
+            pass
+
+        try:
+            游玩次数 = int(max(0, int(getattr(歌, "游玩次数", 0) or 0)))
+        except Exception:
+            游玩次数 = 0
+
+        bpm文本 = f"BPM:{歌.bpm}" if 歌.bpm else "BPM:?"
+        底部字号 = max(12, int(局部信息条.h * 0.13))
+        底部字体 = 获取字体(底部字号, 是否粗体=False)
+
+        try:
+            左文 = 底部字体.render(f"游玩次数:{游玩次数}", True, (230, 230, 230))
+            右文 = 底部字体.render(bpm文本, True, (230, 230, 230))
+
+            左x = 局部游玩区域.x + 内容偏移x
+            左y = 局部游玩区域.centery + 内容偏移y - 左文.get_height() // 2
+            右x = 局部bpm区域.right + 内容偏移x - 右文.get_width()
+            右y = 局部bpm区域.centery + 内容偏移y - 右文.get_height() // 2
+
+            局部画布.blit(左文, (左x, 左y))
+            局部画布.blit(右文, (右x, 右y))
+        except Exception:
+            pass
+
+        框图 = 获取UI容器图(
+            框路径,
+            装饰贴图宽,
+            装饰贴图高,
+            缩放模式="stretch",
+            透明=True,
+        )
+        if 框图 is not None:
+            局部画布.blit(框图, (贴图绘制x, 贴图绘制y))
+
+        绘制序号标签_图片(
+            屏幕=局部画布,
+            锚点矩形=pygame.Rect(
+                内容偏移x,
+                内容偏移y,
+                内容基础矩形.w,
+                内容基础矩形.h,
+            ),
+            内部序号从0=歌.序号,
+            是否大图=True,
+        )
 
         现在毫秒 = 0
         try:
@@ -6681,168 +7034,9 @@ class 选歌游戏:
         self._详情浮层_alpha = int(入场透明度)
         self._详情浮层_最后缩放 = float(入场缩放)
 
-        局部画布 = pygame.Surface((框基础矩形.w, 框基础矩形.h), pygame.SRCALPHA)
-
-        局部封面框 = pygame.Rect(
-            封面框.x - 框基础矩形.x,
-            封面框.y - 框基础矩形.y,
-            封面框.w,
-            封面框.h,
-        )
-        局部信息条 = pygame.Rect(
-            信息条.x - 框基础矩形.x,
-            信息条.y - 框基础矩形.y,
-            信息条.w,
-            信息条.h,
-        )
-        局部星星区域 = pygame.Rect(
-            星星区域.x - 框基础矩形.x,
-            星星区域.y - 框基础矩形.y,
-            星星区域.w,
-            星星区域.h,
-        )
-        局部游玩区域 = pygame.Rect(
-            游玩区域.x - 框基础矩形.x,
-            游玩区域.y - 框基础矩形.y,
-            游玩区域.w,
-            游玩区域.h,
-        )
-        局部bpm区域 = pygame.Rect(
-            bpm区域.x - 框基础矩形.x,
-            bpm区域.y - 框基础矩形.y,
-            bpm区域.w,
-            bpm区域.h,
-        )
-
-        封面图 = None
-        if 歌.封面路径 and os.path.isfile(歌.封面路径):
-            封面图 = self.图缓存.获取(
-                歌.封面路径,
-                局部封面框.w,
-                局部封面框.h,
-                0,
-                "contain",
-            )
-            if 封面图 is None:
-                封面图 = 载入并缩放封面(
-                    歌.封面路径,
-                    局部封面框.w,
-                    局部封面框.h,
-                    0,
-                    "contain",
-                )
-                if 封面图 is not None:
-                    self.图缓存.写入(
-                        歌.封面路径,
-                        局部封面框.w,
-                        局部封面框.h,
-                        0,
-                        "contain",
-                        封面图,
-                    )
-
-        if 封面图 is not None:
-            局部画布.blit(封面图, 局部封面框.topleft)
-        else:
-            pygame.draw.rect(局部画布, (18, 18, 24), 局部封面框)
-
-        黑条 = pygame.Surface((局部信息条.w, 局部信息条.h), pygame.SRCALPHA)
-        黑条.fill((0, 0, 0, 155))
-        局部画布.blit(黑条, 局部信息条.topleft)
-
-        大星星路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "大星星.png")
-        光效路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "星星动态.png")
-
-        绘制星星行_图片(
-            局部画布,
-            局部星星区域,
-            歌.星级,
-            大星星路径,
-            1.65,
-            每行最大=10,
-            动态光效路径=光效路径,
-            光效周期秒=2.0,
-            基准高占比=0.34,
-            行间距占比=0.02,
-        )
-
-        歌名显示 = str(getattr(歌, "歌名", "") or "").replace("_", " ")
-        歌名字号 = max(16, int(局部信息条.h * 0.22))
-        歌名字体 = 获取字体(歌名字号, 是否粗体=False)
-
-        try:
-            可用文字宽 = max(80, int(局部信息条.w * 0.84))
-            当前字号 = 歌名字号
-            while 当前字号 > 12:
-                试字体 = 获取字体(当前字号, 是否粗体=False)
-                if 试字体.size(歌名显示)[0] <= 可用文字宽:
-                    break
-                当前字号 -= 1
-            歌名字体 = 获取字体(max(12, 当前字号), 是否粗体=False)
-            歌名面 = 歌名字体.render(歌名显示, True, (255, 255, 255))
-
-            歌名y = 局部星星区域.bottom + max(4, int(局部信息条.h * 0.03))
-            歌名矩形 = 歌名面.get_rect(
-                centerx=局部信息条.centerx,
-                y=歌名y,
-            )
-            局部画布.blit(歌名面, 歌名矩形.topleft)
-
-            线y = 歌名矩形.bottom + max(4, int(局部信息条.h * 0.03))
-            pygame.draw.line(
-                局部画布,
-                (165, 165, 165),
-                (局部信息条.x + max(12, int(局部信息条.w * 0.06)), line_y := 线y),
-                (局部信息条.right - max(12, int(局部信息条.w * 0.06)), line_y),
-                max(1, int(局部信息条.h * 0.012)),
-            )
-        except Exception:
-            pass
-
-        try:
-            游玩次数 = int(max(0, int(getattr(歌, "游玩次数", 0) or 0)))
-        except Exception:
-            游玩次数 = 0
-
-        bpm文本 = f"BPM:{self.歌曲.bpm}" if False else (f"BPM:{歌.bpm}" if 歌.bpm else "BPM:?")
-
-        底部字号 = max(12, int(局部信息条.h * 0.13))
-        底部字体 = 获取字体(底部字号, 是否粗体=False)
-
-        try:
-            左文 = 底部字体.render(f"游玩次数:{游玩次数}", True, (230, 230, 230))
-            右文 = 底部字体.render(bpm文本, True, (230, 230, 230))
-
-            左x = 局部游玩区域.x
-            左y = 局部游玩区域.centery - 左文.get_height() // 2
-            右x = 局部bpm区域.right - 右文.get_width()
-            右y = 局部bpm区域.centery - 右文.get_height() // 2
-
-            局部画布.blit(左文, (左x, 左y))
-            局部画布.blit(右文, (右x, 右y))
-        except Exception:
-            pass
-
-        框图 = 获取UI容器图(
-            框路径,
-            框基础矩形.w,
-            框基础矩形.h,
-            缩放模式="stretch",
-            透明=True,
-        )
-        if 框图 is not None:
-            局部画布.blit(框图, (0, 0))
-
-        绘制序号标签_图片(
-            局部画布,
-            pygame.Rect(0, 0, 框基础矩形.w, 框基础矩形.h),
-            内部序号从0=歌.序号,
-            是否大图=True,
-        )
-
         if 入场缩放 != 1.0:
-            绘制宽 = max(1, int(局部画布.get_width() * 入场缩放))
-            绘制高 = max(1, int(局部画布.get_height() * 入场缩放))
+            绘制宽 = max(1, int(round(局部画布.get_width() * 入场缩放)))
+            绘制高 = max(1, int(round(局部画布.get_height() * 入场缩放)))
             绘制画布 = pygame.transform.smoothscale(局部画布, (绘制宽, 绘制高)).convert_alpha()
         else:
             绘制画布 = 局部画布
@@ -6852,7 +7046,7 @@ class 选歌游戏:
         except Exception:
             pass
 
-        当前大框 = 绘制画布.get_rect(center=框基础矩形.center)
+        当前大框 = 绘制画布.get_rect(center=内容基础矩形.center)
         self.详情大框矩形 = 当前大框
         self.屏幕.blit(绘制画布, 当前大框.topleft)
 
@@ -6865,7 +7059,6 @@ class 选歌游戏:
 
         按钮高 = max(72, int(当前大框.h * 0.22))
         按钮宽 = max(36, int(按钮高 * float(原宽) / float(max(1, 原高))))
-
         按钮外间距 = max(24, int(self.宽 * 0.022))
         按钮y偏移 = 0
 
@@ -6887,6 +7080,7 @@ class 选歌游戏:
 
         self.按钮_详情上一首.绘制(self.屏幕)
         self.按钮_详情下一首.绘制(self.屏幕)
+
 
     def 绘制星级筛选页(self):
         # 半透明遮罩
