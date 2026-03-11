@@ -129,6 +129,7 @@ class 谱面GPU管线渲染器:
         击中特效列表: List[Dict[str, Any]] = []
         计数动画图层: Optional[pygame.Surface] = None
         计数动画矩形: Optional[pygame.Rect] = None
+        Stage数据: Dict[str, Any] = {}
         游戏区参数: Dict[str, float] = {}
         布局锚点: Optional[Dict[str, Any]] = None
         if 屏幕 is not None and 软件渲染器 is not None:
@@ -175,6 +176,12 @@ class 谱面GPU管线渲染器:
                     except Exception:
                         计数动画图层 = None
                         计数动画矩形 = None
+            取Stage数据 = getattr(软件渲染器, "取GPUStage数据", None)
+            if callable(取Stage数据):
+                try:
+                    Stage数据 = dict(取Stage数据(屏幕, 输入) or {})
+                except Exception:
+                    Stage数据 = {}
 
         游戏缩放 = float(游戏区参数.get("缩放", 1.0) or 1.0)
         y偏移 = float(游戏区参数.get("y偏移", 0.0) or 0.0)
@@ -240,6 +247,7 @@ class 谱面GPU管线渲染器:
             "击中特效列表": 击中特效列表,
             "计数动画图层": 计数动画图层,
             "计数动画矩形": 计数动画矩形,
+            "Stage数据": Stage数据,
             "软件渲染器": 软件渲染器,
         }
 
@@ -290,6 +298,7 @@ class 谱面GPU管线渲染器:
         轨道中心列表 = list(帧输入.get("轨道中心列表", []) or [])[:5]
         if len(轨道中心列表) < 5:
             return 0, 0, 0, 0
+        self._绘制Stage组(渲染器, 帧输入)
         notes数 = self._绘制音符组(渲染器, 帧输入)
         判定区数 = self._绘制判定区组(渲染器, 帧输入)
         特效数 = self._绘制击中特效组(渲染器, 帧输入)
@@ -318,6 +327,192 @@ class 谱面GPU管线渲染器:
                 )
             )
         )
+
+    def _绘制Stage组(self, 渲染器, 帧输入: Dict[str, Any]):
+        Stage数据 = 帧输入.get("Stage数据")
+        if not isinstance(Stage数据, dict) or not Stage数据:
+            return
+        背景 = Stage数据.get("背景")
+        if isinstance(背景, dict):
+            self._绘制GPU图片控件(渲染器, 背景)
+        频谱 = Stage数据.get("频谱")
+        if isinstance(频谱, dict):
+            self._绘制GPU频谱数据(渲染器, 频谱.get("绘制数据"))
+        前景图层 = Stage数据.get("前景图层")
+        前景矩形 = Stage数据.get("前景矩形")
+        if isinstance(前景图层, pygame.Surface) and isinstance(前景矩形, pygame.Rect):
+            纹理 = self._建临时纹理(渲染器, 前景图层)
+            if 纹理 is not None:
+                self._绘制纹理矩形(
+                    纹理,
+                    前景图层,
+                    pygame.Rect(
+                        int(前景矩形.x),
+                        int(前景矩形.y),
+                        int(前景矩形.w),
+                        int(前景矩形.h),
+                    ),
+                    None,
+                    alpha=255,
+                    blend_mode=1,
+                )
+
+    def _绘制GPU图片控件(self, 渲染器, 数据: Dict[str, Any]) -> bool:
+        图 = 数据.get("图")
+        目标矩形 = 数据.get("rect")
+        if not isinstance(图, pygame.Surface) or not isinstance(目标矩形, pygame.Rect):
+            return False
+        纹理 = self._取纹理(渲染器, 图)
+        if 纹理 is None:
+            return False
+        alpha = int(max(0, min(255, int(数据.get("alpha", 255) or 255))))
+        blend_mode = 1
+        if str(数据.get("混合", "") or "").lower() == "add":
+            blend_mode = 2
+        等比 = str(数据.get("等比", "stretch") or "stretch").lower()
+        角度 = float(数据.get("角度", 0.0) or 0.0)
+        目标 = pygame.Rect(目标矩形)
+        if 等比 == "contain":
+            原宽 = max(1, int(图.get_width()))
+            原高 = max(1, int(图.get_height()))
+            比例 = min(float(目标.w) / float(原宽), float(目标.h) / float(原高))
+            绘制宽 = int(max(2, round(float(原宽) * 比例)))
+            绘制高 = int(max(2, round(float(原高) * 比例)))
+            目标 = pygame.Rect(
+                int(目标.centerx - 绘制宽 // 2),
+                int(目标.centery - 绘制高 // 2),
+                int(绘制宽),
+                int(绘制高),
+            )
+        if abs(角度) > 0.001:
+            self._设置纹理透明与颜色(纹理, alpha=alpha, blend_mode=blend_mode)
+            try:
+                纹理.draw(
+                    dstrect=(int(目标.x), int(目标.y), int(目标.w), int(目标.h)),
+                    angle=float(角度),
+                    origin=(float(目标.w) * 0.5, float(目标.h) * 0.5),
+                )
+                return True
+            except Exception:
+                return False
+        return self._绘制纹理矩形(
+            纹理,
+            图,
+            目标,
+            None,
+            alpha=alpha,
+            blend_mode=blend_mode,
+        )
+
+    @staticmethod
+    def _设置渲染器画笔(渲染器, 颜色: Tuple[int, int, int], alpha: int = 255):
+        if 渲染器 is None:
+            return
+        try:
+            渲染器.draw_color = (
+                int(max(0, min(255, 颜色[0]))),
+                int(max(0, min(255, 颜色[1]))),
+                int(max(0, min(255, 颜色[2]))),
+                int(max(0, min(255, alpha))),
+            )
+        except Exception:
+            pass
+        try:
+            渲染器.draw_blend_mode = 1
+        except Exception:
+            pass
+
+    def _绘制GPU频谱数据(self, 渲染器, 数据: Any):
+        if not isinstance(数据, dict):
+            return
+        for 线条 in list(数据.get("线条", []) or []):
+            if isinstance(线条, tuple) and len(线条) >= 9:
+                x1, y1, x2, y2, r, g, b, 宽度, _抗锯齿 = 线条[:9]
+                颜色 = (int(r), int(g), int(b))
+            elif isinstance(线条, dict):
+                起点 = tuple(线条.get("起点", (0.0, 0.0)) or (0.0, 0.0))
+                终点 = tuple(线条.get("终点", (0.0, 0.0)) or (0.0, 0.0))
+                x1 = int(round(float(起点[0])))
+                y1 = int(round(float(起点[1])))
+                x2 = int(round(float(终点[0])))
+                y2 = int(round(float(终点[1])))
+                颜色 = tuple(int(v) for v in tuple(线条.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
+                宽度 = int(max(1, int(线条.get("宽度", 1) or 1)))
+            else:
+                continue
+            self._设置渲染器画笔(渲染器, 颜色, 255)
+            try:
+                渲染器.draw_line((int(x1), int(y1)), (int(x2), int(y2)))
+                for 偏移 in range(1, 宽度):
+                    渲染器.draw_line(
+                        (int(x1 + 偏移 * 0.4), int(y1 + 偏移 * 0.4)),
+                        (int(x2 + 偏移 * 0.4), int(y2 + 偏移 * 0.4)),
+                    )
+            except Exception:
+                pass
+
+        for 轮廓 in list(数据.get("轮廓", []) or []):
+            if not isinstance(轮廓, dict):
+                continue
+            点列 = list(轮廓.get("点列", []) or [])
+            if len(点列) < 2:
+                continue
+            颜色 = tuple(int(v) for v in tuple(轮廓.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
+            闭合 = bool(轮廓.get("闭合", True))
+            self._设置渲染器画笔(渲染器, 颜色, 255)
+            try:
+                for 索引 in range(len(点列) - 1):
+                    起点 = 点列[索引]
+                    终点 = 点列[索引 + 1]
+                    渲染器.draw_line(
+                        (int(round(float(起点[0]))), int(round(float(起点[1])))),
+                        (int(round(float(终点[0]))), int(round(float(终点[1])))),
+                    )
+                if 闭合:
+                    起点 = 点列[-1]
+                    终点 = 点列[0]
+                    渲染器.draw_line(
+                        (int(round(float(起点[0]))), int(round(float(起点[1])))),
+                        (int(round(float(终点[0]))), int(round(float(终点[1])))),
+                    )
+            except Exception:
+                pass
+
+        for 圆 in list(数据.get("圆", []) or []):
+            if not isinstance(圆, dict):
+                continue
+            中心 = tuple(int(v) for v in tuple(圆.get("中心", (0, 0)) or (0, 0))[:2])
+            半径 = int(max(1, int(圆.get("半径", 1) or 1)))
+            宽度 = int(max(1, int(圆.get("宽度", 1) or 1)))
+            颜色 = tuple(int(v) for v in tuple(圆.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
+            self._设置渲染器画笔(渲染器, 颜色, 255)
+            段数 = int(max(24, min(144, 半径 * 2)))
+            点列 = []
+            for 索引 in range(段数):
+                角 = (float(索引) / float(段数)) * math.tau
+                点列.append(
+                    (
+                        float(中心[0]) + math.cos(角) * float(半径),
+                        float(中心[1]) + math.sin(角) * float(半径),
+                    )
+                )
+            for 厚度偏移 in range(宽度):
+                try:
+                    for 索引 in range(len(点列)):
+                        起点 = 点列[索引]
+                        终点 = 点列[(索引 + 1) % len(点列)]
+                        渲染器.draw_line(
+                            (
+                                int(round(float(起点[0]) + 厚度偏移 * 0.35)),
+                                int(round(float(起点[1]) + 厚度偏移 * 0.35)),
+                            ),
+                            (
+                                int(round(float(终点[0]) + 厚度偏移 * 0.35)),
+                                int(round(float(终点[1]) + 厚度偏移 * 0.35)),
+                            ),
+                        )
+                except Exception:
+                    pass
 
     def _取皮肤帧(self, 软件渲染器, 分包名: str, 名称: str) -> Optional[pygame.Surface]:
         if 软件渲染器 is None:

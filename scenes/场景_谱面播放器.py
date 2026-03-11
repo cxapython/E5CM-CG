@@ -1267,6 +1267,9 @@ class 场景_谱面播放器(场景基类):
             self._GPU谱面诊断文本 = ""
             self._GPU谱面诊断行列表 = []
             return
+        if not bool(self.上下文.get("显示性能调试信息", False)):
+            self._GPU谱面诊断行列表 = []
+            return
 
         行列表: List[str] = []
         第一行 = str(getattr(self, "_GPU谱面诊断文本", "") or "").strip()
@@ -3401,6 +3404,7 @@ class 场景_谱面播放器(场景基类):
                 GPU接管判定区绘制=bool(GPU接管判定区绘制),
                 GPU接管击中特效绘制=bool(GPU接管击中特效绘制),
                 GPU接管计数动画绘制=bool(GPU接管计数动画绘制),
+                GPU接管Stage绘制=bool(GPU管线已启用),
                 # ✅ 关键：把对象传给渲染器，让 JSON 控件负责“画”
                 圆环频谱对象=圆环频谱对象,
             )
@@ -3496,6 +3500,7 @@ class 场景_谱面播放器(场景基类):
                     GPU接管判定区绘制=bool(GPU接管判定区绘制),
                     GPU接管击中特效绘制=bool(GPU接管击中特效绘制),
                     GPU接管计数动画绘制=bool(GPU接管计数动画绘制),
+                    GPU接管Stage绘制=False,
                     圆环频谱对象=None,
                 )
                 _注入调试参数(输入右)

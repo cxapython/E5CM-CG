@@ -273,13 +273,17 @@ class 圆环频谱控件:
                     )
                 )
             线条列表.append(
-                {
-                    "起点": (float(x1), float(y1)),
-                    "终点": (float(x2), float(y2)),
-                    "颜色": tuple(int(v) for v in 颜色[:3]),
-                    "宽度": int(max(1, int(self.样式.条宽))),
-                    "抗锯齿": bool(self.样式.条抗锯齿),
-                }
+                (
+                    int(round(float(x1))),
+                    int(round(float(y1))),
+                    int(round(float(x2))),
+                    int(round(float(y2))),
+                    int(颜色[0]),
+                    int(颜色[1]),
+                    int(颜色[2]),
+                    int(max(1, int(self.样式.条宽))),
+                    1 if bool(self.样式.条抗锯齿) else 0,
+                )
             )
 
         数据: Dict[str, object] = {
@@ -324,15 +328,20 @@ class 圆环频谱控件:
         if 屏幕 is None or not isinstance(数据, dict):
             return
         for 线条 in list(数据.get("线条", []) or []):
-            if not isinstance(线条, dict):
+            if isinstance(线条, tuple) and len(线条) >= 9:
+                x1, y1, x2, y2, r, g, b, 宽度, 抗锯齿值 = 线条[:9]
+                颜色 = (int(r), int(g), int(b))
+                抗锯齿 = bool(int(抗锯齿值))
+            elif isinstance(线条, dict):
+                起点 = tuple(线条.get("起点", (0.0, 0.0)) or (0.0, 0.0))
+                终点 = tuple(线条.get("终点", (0.0, 0.0)) or (0.0, 0.0))
+                颜色 = tuple(int(v) for v in tuple(线条.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
+                宽度 = int(max(1, int(线条.get("宽度", 1) or 1)))
+                抗锯齿 = bool(线条.get("抗锯齿", True))
+                x1, y1 = float(起点[0]), float(起点[1])
+                x2, y2 = float(终点[0]), float(终点[1])
+            else:
                 continue
-            起点 = tuple(线条.get("起点", (0.0, 0.0)) or (0.0, 0.0))
-            终点 = tuple(线条.get("终点", (0.0, 0.0)) or (0.0, 0.0))
-            颜色 = tuple(int(v) for v in tuple(线条.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
-            宽度 = int(max(1, int(线条.get("宽度", 1) or 1)))
-            抗锯齿 = bool(线条.get("抗锯齿", True))
-            x1, y1 = float(起点[0]), float(起点[1])
-            x2, y2 = float(终点[0]), float(终点[1])
             if 抗锯齿:
                 pygame.draw.aaline(屏幕, 颜色, (x1, y1), (x2, y2), 1)
                 if 宽度 > 1:

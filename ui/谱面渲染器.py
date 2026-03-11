@@ -442,6 +442,11 @@ class 谱面渲染器:
         self._判定区实际锚点缓存值: Optional[Dict[str, Any]] = None
         self._击中特效布局缓存签名: Optional[Tuple[Any, ...]] = None
         self._击中特效布局缓存值: Optional[Dict[int, pygame.Rect]] = None
+        self._GPUStage布局缓存: Any = None
+        self._GPUStage上下文缓存: Optional[Dict[str, Any]] = None
+        self._GPUStage动态项缓存: List[Dict[str, Any]] = []
+        self._GPUStage前景项缓存: List[Dict[str, Any]] = []
+        self._GPUStage缓存屏幕尺寸: Optional[Tuple[int, int]] = None
         self._事件渲染缓存签名: Optional[Tuple[Any, ...]] = None
         self._事件渲染缓存值: Optional[Dict[str, Any]] = None
         self._头像灰度缓存key: Optional[Tuple[int, int, int]] = None
@@ -755,6 +760,11 @@ class 谱面渲染器:
         self._判定区实际锚点缓存值 = None
         self._击中特效布局缓存签名 = None
         self._击中特效布局缓存值 = None
+        self._GPUStage布局缓存 = None
+        self._GPUStage上下文缓存 = None
+        self._GPUStage动态项缓存 = []
+        self._GPUStage前景项缓存 = []
+        self._GPUStage缓存屏幕尺寸 = None
 
     @staticmethod
     def _规范兜底击中特效方案(方案: str) -> str:
@@ -1920,6 +1930,194 @@ class 谱面渲染器:
         self._击中特效布局缓存值 = self._复制矩形字典(结果)
         return self._复制矩形字典(结果)
 
+    def _取GPU图片控件数据(
+        self,
+        布局: Any,
+        项: Dict[str, Any],
+        上下文: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(项, dict):
+            return None
+        控件定义 = 项.get("def")
+        目标矩形 = 项.get("rect")
+        if not isinstance(控件定义, dict) or not isinstance(目标矩形, pygame.Rect):
+            return None
+        解析图源 = getattr(布局, "_解析图源", None)
+        if not callable(解析图源):
+            return None
+        try:
+            原图 = 解析图源(控件定义.get("图源"), 上下文, self._皮肤包)
+        except Exception:
+            原图 = None
+        if 原图 is None:
+            return None
+
+        等比 = str(控件定义.get("等比") or "stretch").lower()
+        遮罩 = str(控件定义.get("遮罩") or "").lower()
+        混合 = str(控件定义.get("混合") or "").lower()
+        旋转度数 = float(_取数(控件定义.get("旋转"), 0.0))
+        旋转速度 = float(_取数(控件定义.get("旋转速度"), 0.0))
+        旋转速度键 = str(控件定义.get("旋转速度键") or "").strip()
+        旋转时间键 = str(控件定义.get("旋转时间键") or "当前谱面秒").strip()
+        if bool(上下文.get("性能模式", False)) and bool(
+            控件定义.get("性能模式禁用旋转", False)
+        ):
+            旋转度数 = 0.0
+            旋转速度 = 0.0
+        if 旋转速度键:
+            try:
+                旋转速度 = float(_取数(上下文.get(旋转速度键), 旋转速度))
+            except Exception:
+                pass
+        if abs(float(旋转速度)) > 0.001:
+            try:
+                当前时间 = float(上下文.get(旋转时间键, 0.0) or 0.0)
+            except Exception:
+                当前时间 = 0.0
+            旋转度数 += float(旋转速度) * float(当前时间)
+
+        是否翻转 = bool(控件定义.get("水平翻转", False))
+        翻转键 = str(控件定义.get("水平翻转键") or "").strip()
+        if 翻转键:
+            try:
+                是否翻转 = bool(上下文.get(翻转键, 是否翻转))
+            except Exception:
+                pass
+        图源 = 原图
+        if 是否翻转:
+            try:
+                图源 = pygame.transform.flip(原图, True, False)
+            except Exception:
+                图源 = 原图
+
+        最终透明 = float(max(0.0, min(1.0, float(项.get("总透明", 1.0) or 1.0))))
+        return {
+            "id": str(项.get("id") or ""),
+            "图": 图源,
+            "rect": 目标矩形.copy(),
+            "等比": 等比,
+            "遮罩": 遮罩,
+            "混合": 混合,
+            "角度": float(旋转度数),
+            "alpha": int(max(0, min(255, round(255.0 * 最终透明)))),
+        }
+
+    def _取GPU圆环频谱数据(
+        self,
+        项: Dict[str, Any],
+        上下文: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(项, dict):
+            return None
+        控件定义 = 项.get("def")
+        目标矩形 = 项.get("rect")
+        if not isinstance(控件定义, dict) or not isinstance(目标矩形, pygame.Rect):
+            return None
+
+        时间键 = str(控件定义.get("时间键") or "当前谱面秒")
+        try:
+            当前播放秒 = float(上下文.get(时间键, 0.0) or 0.0)
+        except Exception:
+            当前播放秒 = 0.0
+        当前播放秒 = float(max(0.0, 当前播放秒))
+
+        频谱对象 = 上下文.get("圆环频谱对象", None)
+        if 频谱对象 is None or (not hasattr(频谱对象, "更新并取绘制数据")):
+            return None
+
+        try:
+            启用旋转 = bool(上下文.get("调试_圆环频谱_启用旋转", True))
+            变化落差 = float(_取数(上下文.get("调试_圆环频谱_变化落差"), 1.0))
+            线条数量 = int(_取数(上下文.get("调试_圆环频谱_线条数量"), 200))
+            线条粗细 = int(_取数(上下文.get("调试_圆环频谱_线条粗细"), 2))
+            线条间隔 = int(_取数(上下文.get("调试_圆环频谱_线条间隔"), 1))
+            if hasattr(频谱对象, "设置调试频谱参数"):
+                getattr(频谱对象, "设置调试频谱参数")(
+                    启用旋转=bool(启用旋转),
+                    变化落差=float(变化落差),
+                    线条数量=int(线条数量),
+                    线条粗细=int(线条粗细),
+                    线条间隔=int(线条间隔),
+                )
+            形状文件 = str(控件定义.get("形状文件") or "").strip()
+            if hasattr(频谱对象, "设置贴边形状文件"):
+                getattr(频谱对象, "设置贴边形状文件")(形状文件)
+
+            形状旋转时间键 = str(
+                控件定义.get("形状旋转时间键") or 时间键 or "当前谱面秒"
+            ).strip()
+            try:
+                形状时间秒 = float(上下文.get(形状旋转时间键, 当前播放秒) or 当前播放秒)
+            except Exception:
+                形状时间秒 = float(当前播放秒)
+            try:
+                形状旋转速度 = float(_取数(控件定义.get("形状旋转速度"), 0.0))
+            except Exception:
+                形状旋转速度 = 0.0
+            形状旋转速度键 = str(控件定义.get("形状旋转速度键") or "").strip()
+            if 形状旋转速度键:
+                try:
+                    形状旋转速度 = float(
+                        _取数(上下文.get(形状旋转速度键), 形状旋转速度)
+                    )
+                except Exception:
+                    pass
+            if hasattr(频谱对象, "设置贴边形状旋转角度"):
+                getattr(频谱对象, "设置贴边形状旋转角度")(
+                    math.radians(float(形状时间秒) * float(形状旋转速度))
+                )
+            绘制数据 = getattr(频谱对象, "更新并取绘制数据")(
+                目标矩形=目标矩形,
+                当前播放秒=float(当前播放秒),
+            )
+        except Exception:
+            绘制数据 = None
+        if not isinstance(绘制数据, dict):
+            return None
+        return {
+            "id": str(项.get("id") or ""),
+            "rect": 目标矩形.copy(),
+            "绘制数据": 绘制数据,
+        }
+
+    def 取GPUStage数据(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Dict[str, Any]:
+        if not bool(getattr(输入, "GPU接管Stage绘制", False)):
+            return {}
+        if (
+            self._GPUStage布局缓存 is None
+            or not isinstance(self._GPUStage上下文缓存, dict)
+            or tuple(int(v) for v in 屏幕.get_size()) != self._GPUStage缓存屏幕尺寸
+        ):
+            return {}
+
+        结果: Dict[str, Any] = {}
+        布局 = self._GPUStage布局缓存
+        上下文 = dict(self._GPUStage上下文缓存 or {})
+
+        for 项 in self._复制渲染项列表(self._GPUStage动态项缓存):
+            项id = str(项.get("id") or "")
+            if 项id == "Stage背景":
+                背景数据 = self._取GPU图片控件数据(布局, 项, 上下文)
+                if isinstance(背景数据, dict):
+                    结果["背景"] = 背景数据
+            elif 项id == "Stage圆环频谱":
+                频谱数据 = self._取GPU圆环频谱数据(项, 上下文)
+                if isinstance(频谱数据, dict):
+                    结果["频谱"] = 频谱数据
+
+        前景图层, 前景矩形 = self._生成GPU布局图层(
+            布局,
+            上下文,
+            self._GPUStage前景项缓存,
+        )
+        if isinstance(前景图层, pygame.Surface) and isinstance(前景矩形, pygame.Rect):
+            结果["前景图层"] = 前景图层
+            结果["前景矩形"] = 前景矩形
+
+        return 结果
+
     def 取GPU判定区数据(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
     ) -> List[Dict[str, Any]]:
@@ -2387,6 +2585,57 @@ class 谱面渲染器:
         项列表.sort(key=lambda 项: int(项.get("z", 0)))
         for 项 in 项列表:
             绘制单控件(屏幕, 项, 上下文, self._皮肤包)
+
+    @staticmethod
+    def _复制渲染项列表(渲染项列表: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        结果: List[Dict[str, Any]] = []
+        for 项 in list(渲染项列表 or []):
+            if not isinstance(项, dict):
+                continue
+            新项 = dict(项)
+            矩形 = 项.get("rect")
+            if isinstance(矩形, pygame.Rect):
+                新项["rect"] = 矩形.copy()
+            结果.append(新项)
+        return 结果
+
+    @staticmethod
+    def _取渲染项并集矩形(渲染项列表: Optional[List[Dict[str, Any]]]) -> Optional[pygame.Rect]:
+        包围: Optional[pygame.Rect] = None
+        for 项 in list(渲染项列表 or []):
+            if not isinstance(项, dict):
+                continue
+            矩形 = 项.get("rect")
+            if not isinstance(矩形, pygame.Rect):
+                continue
+            if 包围 is None:
+                包围 = 矩形.copy()
+            else:
+                包围.union_ip(矩形)
+        return 包围
+
+    def _生成GPU布局图层(
+        self,
+        布局: Any,
+        上下文: Dict[str, Any],
+        渲染项列表: Optional[List[Dict[str, Any]]],
+    ) -> Tuple[Optional[pygame.Surface], Optional[pygame.Rect]]:
+        项列表 = self._复制渲染项列表(渲染项列表)
+        if not 项列表:
+            return None, None
+        包围 = self._取渲染项并集矩形(项列表)
+        if not isinstance(包围, pygame.Rect) or 包围.w <= 0 or 包围.h <= 0:
+            return None, None
+        图层 = pygame.Surface((int(包围.w), int(包围.h)), pygame.SRCALPHA)
+        for 项 in 项列表:
+            矩形 = 项.get("rect")
+            if isinstance(矩形, pygame.Rect):
+                项["rect"] = 矩形.move(-int(包围.x), -int(包围.y))
+        try:
+            self._绘制布局项列表(图层, 布局, 上下文, 项列表)
+        except Exception:
+            return None, None
+        return 图层, 包围
 
     def _取布局根并集矩形(
         self,
@@ -3023,6 +3272,19 @@ class 谱面渲染器:
         Stage动态项 = self._过滤布局渲染项(完整HUD渲染清单, Stage动态控件ids)
         Stage静态项 = self._过滤布局渲染项(完整HUD渲染清单, Stage静态控件ids)
         右侧动态项 = self._过滤布局渲染项(完整HUD渲染清单, 右侧动态控件ids)
+        GPU接管Stage绘制 = bool(getattr(输入, "GPU接管Stage绘制", False))
+        if GPU接管Stage绘制:
+            self._GPUStage布局缓存 = 布局
+            self._GPUStage上下文缓存 = dict(上下文)
+            self._GPUStage动态项缓存 = self._复制渲染项列表(Stage动态项)
+            self._GPUStage前景项缓存 = self._复制渲染项列表(右侧动态项)
+            self._GPUStage缓存屏幕尺寸 = tuple(int(v) for v in 屏幕.get_size())
+        else:
+            self._GPUStage布局缓存 = None
+            self._GPUStage上下文缓存 = None
+            self._GPUStage动态项缓存 = []
+            self._GPUStage前景项缓存 = []
+            self._GPUStage缓存屏幕尺寸 = None
 
         try:
             if 左侧底层动态控件ids:
@@ -3064,7 +3326,7 @@ class 谱面渲染器:
                         仅绘制控件ids=左侧上层动态控件ids,
                     )
                 分项统计["hud_left_ms"] += (time.perf_counter() - 开始秒) * 1000.0
-            if Stage动态控件ids:
+            if Stage动态控件ids and (not GPU接管Stage绘制):
                 开始秒 = time.perf_counter()
                 if Stage动态项:
                     self._绘制布局项列表(屏幕, 布局, 上下文, Stage动态项)
@@ -3090,7 +3352,7 @@ class 谱面渲染器:
                     渲染项列表=Stage静态项,
                 )
                 分项统计["hud_stage_ms"] += (time.perf_counter() - 开始秒) * 1000.0
-            if 右侧动态控件ids:
+            if 右侧动态控件ids and (not GPU接管Stage绘制):
                 开始秒 = time.perf_counter()
                 if 右侧动态项:
                     self._绘制布局项列表(屏幕, 布局, 上下文, 右侧动态项)
