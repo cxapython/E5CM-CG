@@ -1105,18 +1105,31 @@ class 谱面GPU管线渲染器:
         软件渲染器 = 帧输入.get("软件渲染器")
         if not 判定区列表:
             return 0
-        self._绘制判定区双手(渲染器, 软件渲染器, 判定区列表, 使用灰度)
         绘制数 = 0
-        for 项 in 判定区列表:
+        项列表 = [项 for 项 in 判定区列表 if isinstance(项, dict)]
+        项列表.sort(
+            key=lambda 项: (
+                _取整数(项.get("z", 0), 0),
+                _取整数(项.get("_序号", 0), 0),
+            )
+        )
+        for 项 in 项列表:
             if not isinstance(项, dict):
                 continue
             轨道 = _取整数(项.get("轨道", -1), -1)
-            if 轨道 < 0:
-                continue
             if self._绘制判定区贴图项(渲染器, 软件渲染器, 项, int(轨道), 使用灰度):
                 绘制数 += 1
             else:
-                self._绘制几何判定区项(渲染器, 项, int(轨道), 使用灰度)
+                几何轨道 = int(轨道)
+                if 几何轨道 < 0:
+                    文件名 = str(项.get("文件名") or "")
+                    if 文件名 == "key_ll.png":
+                        几何轨道 = 0
+                    elif 文件名 == "key_rr.png":
+                        几何轨道 = 4
+                    else:
+                        几何轨道 = 2
+                self._绘制几何判定区项(渲染器, 项, int(几何轨道), 使用灰度)
                 绘制数 += 1
         return 绘制数
 
@@ -1255,38 +1268,34 @@ class 谱面GPU管线渲染器:
         结束谱面秒: float,
     ) -> int:
         方位 = self._轨道到arrow方位码(int(轨道))
-        头纹理, 头图 = self._取贴图条目(
-            渲染器,
-            软件渲染器,
-            f"arrow:arrow_body_{方位}.png:{int(箭头宽)}",
-            self._取皮肤帧(软件渲染器, "arrow", f"arrow_body_{方位}.png"),
-            int(箭头宽),
-            bool(使用灰度),
-        )
-        罩纹理, 罩图 = self._取贴图条目(
-            渲染器,
-            软件渲染器,
-            f"arrow:arrow_mask_{方位}.png:{int(箭头宽)}",
-            self._取皮肤帧(软件渲染器, "arrow", f"arrow_mask_{方位}.png"),
-            int(箭头宽),
-            bool(使用灰度),
-        )
-        身纹理, 身图 = self._取贴图条目(
-            渲染器,
-            软件渲染器,
-            f"arrow:arrow_repeat_{方位}.png:{int(箭头宽)}",
-            self._取皮肤帧(软件渲染器, "arrow", f"arrow_repeat_{方位}.png"),
-            int(箭头宽),
-            bool(使用灰度),
-        )
-        尾纹理, 尾图 = self._取贴图条目(
-            渲染器,
-            软件渲染器,
-            f"arrow:arrow_tail_{方位}.png:{int(箭头宽)}",
-            self._取皮肤帧(软件渲染器, "arrow", f"arrow_tail_{方位}.png"),
-            int(箭头宽),
-            bool(使用灰度),
-        )
+        皮肤包 = getattr(软件渲染器, "_皮肤包", None) if 软件渲染器 is not None else None
+        箭头图集 = getattr(皮肤包, "arrow", None) if 皮肤包 is not None else None
+        取hold图 = getattr(软件渲染器, "_取hold接缝优化图", None)
+        取hold身体模式 = getattr(软件渲染器, "_取hold身体模式", None)
+
+        def 取hold贴图(文件名: str) -> Tuple[Optional[Any], Optional[pygame.Surface]]:
+            if callable(取hold图) and 箭头图集 is not None:
+                try:
+                    图 = 取hold图(箭头图集, 文件名, int(箭头宽))
+                    if 图 is not None:
+                        if bool(使用灰度):
+                            图 = self._取灰度图(图)
+                        return self._取纹理(渲染器, 图), 图
+                except Exception:
+                    pass
+            return self._取贴图条目(
+                渲染器,
+                软件渲染器,
+                f"arrow:{文件名}:{int(箭头宽)}",
+                self._取皮肤帧(软件渲染器, "arrow", 文件名),
+                int(箭头宽),
+                bool(使用灰度),
+            )
+
+        头纹理, 头图 = 取hold贴图(f"arrow_body_{方位}.png")
+        罩纹理, 罩图 = 取hold贴图(f"arrow_mask_{方位}.png")
+        身纹理, 身图 = 取hold贴图(f"arrow_repeat_{方位}.png")
+        尾纹理, 尾图 = 取hold贴图(f"arrow_tail_{方位}.png")
         if all(x is None for x in (头纹理, 罩纹理, 身纹理, 尾纹理)):
             return int(
                 self._绘制几何长按(
@@ -1308,94 +1317,6 @@ class 谱面GPU管线渲染器:
         if bool(半隐模式) and min(int(y开始), int(y结束)) > int(半隐y阈值):
             return 0
 
-        def _取部件度量(缓存键: str, 图: Optional[pygame.Surface]) -> Optional[Dict[str, float]]:
-            if 图 is None:
-                return None
-            顶像素, 底像素 = self._取中心带不透明y边界(软件渲染器, str(缓存键), 图)
-            图高 = int(max(1, 图.get_height()))
-            return {
-                "top_px": float(int(max(0, min(图高 - 1, 顶像素)))),
-                "bottom_px": float(int(max(0, min(图高 - 1, 底像素)))),
-                "top_rel": float(-图高 * 0.5 + int(max(0, min(图高 - 1, 顶像素)))),
-                "bottom_rel": float(-图高 * 0.5 + int(max(0, min(图高 - 1, 底像素)))),
-            }
-
-        def _绘制平铺片段(
-            纹理,
-            图: Optional[pygame.Surface],
-            目标顶y: float,
-            高度px: float,
-            源顶px: float,
-            源高px: float,
-        ) -> bool:
-            if 纹理 is None or 图 is None or float(高度px) <= 0.0 or float(源高px) <= 0.0:
-                return False
-            片段顶 = float(目标顶y)
-            片段底 = float(目标顶y) + float(高度px)
-            if 片段底 <= float(上边界) or 片段顶 >= float(下边界):
-                return False
-            可见顶 = float(max(float(片段顶), float(上边界)))
-            可见底 = float(min(float(片段底), float(下边界)))
-            if 可见底 <= 可见顶:
-                return False
-            目标矩形 = pygame.Rect(
-                int(x中心 - 图.get_width() // 2),
-                int(round(可见顶)),
-                int(图.get_width()),
-                int(max(1, round(float(可见底 - 可见顶)))),
-            )
-            源矩形 = pygame.Rect(
-                0,
-                int(max(0, min(int(图.get_height()) - 1, round(float(源顶px))))),
-                int(图.get_width()),
-                int(max(1, min(int(图.get_height()), round(float(源高px))))),
-            )
-            已绘制 = False
-            当前顶 = float(片段顶)
-            片段高 = float(max(1, 源矩形.h))
-            while 当前顶 < float(片段底) - 0.01:
-                当前片段高 = float(min(片段高, float(片段底) - 当前顶))
-                当前底 = float(当前顶 + 当前片段高)
-                if 当前底 > 可见顶 and 当前顶 < 可见底:
-                    绘制顶 = float(max(当前顶, 可见顶))
-                    绘制底 = float(min(当前底, 可见底))
-                    源偏移 = int(max(0, math.floor(float(绘制顶 - 当前顶))))
-                    绘制高 = int(
-                        max(
-                            1,
-                            min(
-                                int(源矩形.h) - 源偏移,
-                                int(math.ceil(float(绘制底 - 绘制顶))),
-                            ),
-                        )
-                    )
-                    已绘制 = bool(
-                        self._绘制纹理矩形(
-                            纹理,
-                            图,
-                            pygame.Rect(
-                                int(x中心 - 图.get_width() // 2),
-                                int(round(绘制顶)),
-                                int(图.get_width()),
-                                int(绘制高),
-                            ),
-                            pygame.Rect(
-                                int(源矩形.x),
-                                int(源矩形.y + 源偏移),
-                                int(源矩形.w),
-                                int(绘制高),
-                            ),
-                        )
-                        or 已绘制
-                    )
-                当前顶 += 片段高
-            return bool(已绘制)
-
-        头度量 = _取部件度量(f"gpu:hold:body:{方位}:{int(箭头宽)}", 头图)
-        脖子度量 = _取部件度量(f"gpu:hold:mask:{方位}:{int(箭头宽)}", 罩图)
-        身体度量 = _取部件度量(f"gpu:hold:repeat:{方位}:{int(箭头宽)}", 身图)
-        尾巴度量 = _取部件度量(f"gpu:hold:tail:{方位}:{int(箭头宽)}", 尾图)
-
         头中心y = float(y开始)
         尾巴中心y = float(y结束)
         目标判定y = float(int(判定线y))
@@ -1406,73 +1327,33 @@ class 谱面GPU管线渲染器:
             if 头中心y < 目标判定y:
                 头中心y = float(目标判定y)
 
-        箭头脖子重叠偏移量 = 0.0
-        if 头度量 is not None and 脖子度量 is not None:
-            箭头脖子重叠偏移量 = float(
-                max(0.0, float(头度量["bottom_rel"]) - float(脖子度量["top_rel"]))
-            )
-        拼接偏移量 = 0.0
+        首块纹理, 首块图 = (罩纹理, 罩图)
+        if 首块图 is None:
+            首块纹理, 首块图 = 身纹理, 身图
+        if 首块图 is None:
+            首块纹理, 首块图 = 尾纹理, 尾图
 
-        脖子中心y = float(头中心y)
-        if 头度量 is not None and 脖子度量 is not None:
-            头下边缘y = float(头中心y) + float(头度量["bottom_rel"])
-            脖子中心y = float(
-                头下边缘y
-                - float(脖子度量["top_rel"])
-                - float(箭头脖子重叠偏移量)
-            )
+        中块纹理, 中块图 = (身纹理, 身图)
+        if 中块图 is None:
+            中块纹理, 中块图 = 首块纹理, 首块图
+        if 中块图 is None:
+            中块纹理, 中块图 = 尾纹理, 尾图
 
-        if 脖子度量 is not None:
-            脖子下拼接y = float(脖子中心y) + float(脖子度量["bottom_rel"])
-        elif 头度量 is not None:
-            脖子下拼接y = float(头中心y) + float(头度量["bottom_rel"])
-        else:
-            脖子下拼接y = float(头中心y)
+        末块纹理, 末块图 = (尾纹理, 尾图)
+        if 末块图 is None:
+            末块纹理, 末块图 = 中块纹理, 中块图
+        if 末块图 is None:
+            末块纹理, 末块图 = 首块纹理, 首块图
 
-        if 尾巴度量 is not None:
-            尾巴上拼接y = float(尾巴中心y) + float(尾巴度量["top_rel"])
-        else:
-            尾巴上拼接y = float(尾巴中心y)
-
-        最小尾巴上拼接y = float(脖子下拼接y) + float(拼接偏移量)
-        if (not bool(是否命中hold)) and 尾巴上拼接y < 最小尾巴上拼接y:
-            if 尾巴度量 is not None:
-                尾巴中心y = float(最小尾巴上拼接y) - float(尾巴度量["top_rel"])
-                尾巴上拼接y = float(最小尾巴上拼接y)
-            else:
-                尾巴上拼接y = float(最小尾巴上拼接y)
-                尾巴中心y = float(尾巴上拼接y)
-
-        身体起始拼接y = float(脖子下拼接y) + float(拼接偏移量)
-        身体结束拼接y = float(尾巴上拼接y) - float(拼接偏移量)
-
+        参考图 = 中块图 or 首块图 or 末块图
+        身体模式 = (
+            str(取hold身体模式() or "repeat").strip().lower()
+            if callable(取hold身体模式)
+            else "repeat"
+        )
         已绘制 = False
-        if (
-            身纹理 is not None
-            and 身图 is not None
-            and 身体度量 is not None
-            and 身体结束拼接y > 身体起始拼接y
-        ):
-            身体顶部像素 = float(身体度量["top_px"])
-            身体平铺高 = float(
-                max(
-                    1.0,
-                    float(身体度量["bottom_px"]) - float(身体顶部像素) + 1.0,
-                )
-            )
-            已绘制 = bool(
-                _绘制平铺片段(
-                    身纹理,
-                    身图,
-                    目标顶y=float(身体起始拼接y),
-                    高度px=float(身体结束拼接y - 身体起始拼接y),
-                    源顶px=float(身体顶部像素),
-                    源高px=float(身体平铺高),
-                )
-                or 已绘制
-            )
-        elif all(x is None for x in (头纹理, 罩纹理, 身纹理, 尾纹理)):
-            已绘制 = bool(
+        if 参考图 is None and 头图 is None:
+            return int(
                 self._绘制几何长按(
                     渲染器,
                     int(轨道),
@@ -1489,18 +1370,132 @@ class 谱面GPU管线渲染器:
                 )
             )
 
-        if 尾纹理 is not None and 尾图 is not None and 上边界 <= int(round(尾巴中心y)) <= 下边界:
-            已绘制 = bool(
-                self._绘制纹理中心(尾纹理, 尾图, int(x中心), int(round(尾巴中心y))) or 已绘制
-            )
         if (
-            罩纹理 is not None
-            and 罩图 is not None
-            and 上边界 <= int(round(脖子中心y)) <= 下边界
+            参考图 is not None
+            and float(尾巴中心y) > float(头中心y)
+            and int(参考图.get_height()) > 0
         ):
-            已绘制 = bool(
-                self._绘制纹理中心(罩纹理, 罩图, int(x中心), int(round(脖子中心y))) or 已绘制
-            )
+            块步进 = float(max(1, int(参考图.get_height())))
+            首块中心y = float(头中心y) + float(块步进) * 0.5
+            首块顶y = int(float(首块中心y) - float(首块图.get_height()) * 0.5) if 首块图 is not None else int(头中心y)
+            if 罩图 is not None and 首块图 is 罩图 and 头图 is not None:
+                首块顶y = int(float(头中心y) - float(首块图.get_height()) * 0.5)
+            if (
+                身体模式 == "stretch"
+                and 首块纹理 is not None
+                and 首块图 is not None
+                and 中块纹理 is not None
+                and 中块图 is not None
+                and 末块纹理 is not None
+                and 末块图 is not None
+                and float(尾巴中心y) > float(首块顶y + 首块图.get_height()) + 0.01
+            ):
+                if (
+                    float(首块顶y + 首块图.get_height()) >= float(上边界)
+                    and float(首块顶y) <= float(下边界)
+                ):
+                    已绘制 = bool(
+                        self._绘制纹理矩形(
+                            首块纹理,
+                            首块图,
+                            pygame.Rect(
+                                int(x中心 - 首块图.get_width() // 2),
+                                int(首块顶y),
+                                int(首块图.get_width()),
+                                int(首块图.get_height()),
+                            ),
+                        )
+                        or 已绘制
+                    )
+
+                身体顶y = float(首块顶y + 首块图.get_height())
+                身体底y = float(尾巴中心y)
+                if float(身体底y) > float(身体顶y) + 0.01:
+                    身体高 = int(max(1, round(float(身体底y - 身体顶y))))
+                    if float(身体顶y) < float(下边界) and float(身体顶y + 身体高) > float(上边界):
+                        已绘制 = bool(
+                            self._绘制纹理矩形(
+                                中块纹理,
+                                中块图,
+                                pygame.Rect(
+                                    int(x中心 - 中块图.get_width() // 2),
+                                    int(身体顶y),
+                                    int(中块图.get_width()),
+                                    int(身体高),
+                                ),
+                            )
+                            or 已绘制
+                        )
+
+                末块顶y = int(float(尾巴中心y))
+                if (
+                    float(末块顶y + 末块图.get_height()) >= float(上边界)
+                    and float(末块顶y) <= float(下边界)
+                ):
+                    已绘制 = bool(
+                        self._绘制纹理矩形(
+                            末块纹理,
+                            末块图,
+                            pygame.Rect(
+                                int(x中心 - 末块图.get_width() // 2),
+                                int(末块顶y),
+                                int(末块图.get_width()),
+                                int(末块图.get_height()),
+                            ),
+                        )
+                        or 已绘制
+                    )
+            else:
+                块列表: List[Tuple[Optional[Any], Optional[pygame.Surface], int, Optional[pygame.Rect]]] = []
+                if 首块图 is not None:
+                    块列表.append((首块纹理, 首块图, int(首块顶y), None))
+
+                当前顶y = int(首块顶y + (首块图.get_height() if 首块图 is not None else 0))
+                中块高 = int(max(1, 中块图.get_height())) if 中块图 is not None else 0
+                while 中块图 is not None and int(当前顶y + 中块高) <= int(float(尾巴中心y)):
+                    块列表.append((中块纹理, 中块图, int(当前顶y), None))
+                    当前顶y += int(中块高)
+
+                if 中块图 is not None and int(当前顶y) < int(float(尾巴中心y)):
+                    剩余高 = int(max(1, int(float(尾巴中心y)) - int(当前顶y)))
+                    剩余高 = int(min(剩余高, int(中块图.get_height())))
+                    if 剩余高 > 0:
+                        块列表.append(
+                            (
+                                中块纹理,
+                                中块图,
+                                int(当前顶y),
+                                pygame.Rect(0, 0, int(中块图.get_width()), int(剩余高)),
+                            )
+                        )
+
+                if 末块图 is not None:
+                    块列表.append((末块纹理, 末块图, int(float(尾巴中心y)), None))
+
+                for 块纹理, 块图, 块顶y, 源矩形 in 块列表:
+                    if 块纹理 is None or 块图 is None:
+                        continue
+                    if (
+                        float(块顶y + (源矩形.h if isinstance(源矩形, pygame.Rect) else 块图.get_height())) < float(上边界)
+                        or float(块顶y) > float(下边界)
+                    ):
+                        continue
+                    目标高 = int(源矩形.h) if isinstance(源矩形, pygame.Rect) else int(块图.get_height())
+                    已绘制 = bool(
+                        self._绘制纹理矩形(
+                            块纹理,
+                            块图,
+                            pygame.Rect(
+                                int(x中心 - 块图.get_width() // 2),
+                                int(块顶y),
+                                int(块图.get_width()),
+                                int(目标高),
+                            ),
+                            源矩形,
+                        )
+                        or 已绘制
+                    )
+
         if (
             头纹理 is not None
             and 头图 is not None
@@ -1659,31 +1654,69 @@ class 谱面GPU管线渲染器:
         轨道: int,
         使用灰度: bool,
     ) -> bool:
-        方位 = self._轨道到key方位码(int(轨道))
-        文件名 = f"key_{方位}.png"
-        目标宽 = int(
-            max(
-                8,
-                _取整数(项.get("w", 0), 0),
-                _取整数(项.get("基础宽", 0), 0),
-            )
-        )
-        纹理, 图 = self._取贴图条目(
-            渲染器,
-            软件渲染器,
-            f"key:{文件名}:{int(目标宽)}",
-            self._取皮肤帧(软件渲染器, "key", 文件名),
-            int(目标宽),
-            bool(使用灰度),
-        )
-        if 纹理 is None or 图 is None:
+        文件名 = str(项.get("文件名") or "").strip()
+        if not 文件名 and int(轨道) >= 0:
+            方位 = self._轨道到key方位码(int(轨道))
+            文件名 = f"key_{方位}.png"
+        if not 文件名:
             return False
+
+        目标矩形 = 项.get("rect")
+        if isinstance(目标矩形, pygame.Rect):
+            x中心 = int(目标矩形.centerx)
+            y中心 = int(目标矩形.centery)
+            目标宽 = int(max(8, 目标矩形.w))
+            目标高 = int(max(8, 目标矩形.h))
+        else:
+            x中心 = _取整数(项.get("x", 0), 0)
+            y中心 = _取整数(项.get("y", 0), 0)
+            目标宽 = int(
+                max(
+                    8,
+                    _取整数(项.get("w", 0), 0),
+                    _取整数(项.get("基础宽", 0), 0),
+                )
+            )
+            目标高 = int(
+                max(
+                    8,
+                    _取整数(项.get("h", 0), 0),
+                    _取整数(项.get("基础高", 0), 0),
+                )
+            )
+
+        if bool(项.get("按高缩放", False)) or 文件名 in ("key_ll.png", "key_rr.png"):
+            原图 = self._取皮肤帧(软件渲染器, "key", 文件名)
+            图 = self._取按高缩放图(
+                软件渲染器,
+                f"key:{文件名}:h:{int(目标高)}",
+                原图,
+                int(目标高),
+            )
+            if 图 is None:
+                return False
+            if bool(使用灰度):
+                图 = self._取灰度图(图)
+            纹理 = self._取纹理(渲染器, 图)
+            if 纹理 is None:
+                return False
+        else:
+            纹理, 图 = self._取贴图条目(
+                渲染器,
+                软件渲染器,
+                f"key:{文件名}:{int(目标宽)}",
+                self._取皮肤帧(软件渲染器, "key", 文件名),
+                int(目标宽),
+                bool(使用灰度),
+            )
+            if 纹理 is None or 图 is None:
+                return False
         return bool(
             self._绘制纹理中心(
                 纹理,
                 图,
-                _取整数(项.get("x", 0), 0),
-                _取整数(项.get("y", 0), 0),
+                int(x中心),
+                int(y中心),
             )
         )
 
@@ -1774,39 +1807,6 @@ class 谱面GPU管线渲染器:
             return (f"{前缀}_{帧号:04d}.png", bool(需要翻转), bool(循环播放))
         except Exception:
             return None
-
-    def _取中心带不透明y边界(
-        self,
-        软件渲染器,
-        缓存键: str,
-        图: pygame.Surface,
-    ) -> Tuple[int, int]:
-        if 图 is None:
-            return 0, 0
-        取边界 = getattr(软件渲染器, "_取中心带不透明y边界", None)
-        if callable(取边界):
-            try:
-                return tuple(int(v) for v in 取边界(str(缓存键), 图))
-            except Exception:
-                pass
-        宽 = int(max(1, 图.get_width()))
-        高 = int(max(1, 图.get_height()))
-        try:
-            alpha = pygame.surfarray.array_alpha(图)
-        except Exception:
-            return 0, max(0, 高 - 1)
-        起列 = int(max(0, min(宽 - 1, int(宽 * 0.48))))
-        止列 = int(max(起列 + 1, min(宽, int(宽 * 0.52))))
-        顶列表: List[int] = []
-        底列表: List[int] = []
-        for x in range(起列, 止列):
-            命中行 = [y for y in range(高) if int(alpha[x, y]) > 10]
-            if 命中行:
-                顶列表.append(int(命中行[0]))
-                底列表.append(int(命中行[-1]))
-        if not 顶列表 or not 底列表:
-            return 0, max(0, 高 - 1)
-        return int(min(顶列表)), int(max(底列表))
 
     def _绘制几何点按(
         self,

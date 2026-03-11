@@ -1,8 +1,10 @@
 import os
 import math
+import os
 import pygame
 
 
+from core.常量与路径 import 取项目根目录 as _公共取项目根目录
 from core.工具 import 绘制文本, cover缩放, 安全加载图片
 from core.踏板控制 import (
     踏板动作_左,
@@ -27,7 +29,7 @@ class 场景_大模式(场景基类):
     def __init__(self, 上下文: dict):
         super().__init__(上下文)
         资源 = self.上下文["资源"]
-        根 = 资源.get("根", os.getcwd())
+        根 = _公共取项目根目录(资源)
 
         self._背景视频 = self.上下文.get("背景视频")
         self._联网原图 = 安全加载图片(资源.get("投币_联网图标", ""), 透明=True)

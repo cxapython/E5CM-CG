@@ -7,11 +7,6 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Set, Callable
-from core.常量与路径 import (
-    取项目根目录 as _公共取项目根目录,
-    取运行根目录 as _公共取运行根目录,
-    取songs根目录 as _公共取songs根目录,
-)
 from core.歌曲记录 import 读取歌曲记录索引, 取歌曲记录键
 from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四把
 from core.踏板控制 import 踏板动作_左, 踏板动作_右, 踏板动作_确认
@@ -21,7 +16,11 @@ from scenes.场景基类 import 场景基类
 
 
 def 确保项目根目录在模块路径里():
-    return
+    当前文件 = os.path.abspath(__file__)
+    场景目录 = os.path.dirname(当前文件)
+    项目根目录 = os.path.abspath(os.path.join(场景目录, ".."))
+    if 项目根目录 not in sys.path:
+        sys.path.insert(0, 项目根目录)
 
 确保项目根目录在模块路径里()
 
@@ -32,20 +31,244 @@ _songs根目录_缓存: str | None = None
 
 def _取项目根目录() -> str:
     global _项目根目录_缓存
-    _项目根目录_缓存 = _公共取项目根目录()
+    if _项目根目录_缓存:
+        return _项目根目录_缓存
+
+    候选起点列表: List[str] = []
+
+    try:
+        if getattr(sys, "frozen", False):
+            临时资源目录 = str(getattr(sys, "_MEIPASS", "") or "").strip()
+            if 临时资源目录:
+                候选起点列表.append(os.path.abspath(临时资源目录))
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    已检查: Set[str] = set()
+    for 起点 in 候选起点列表:
+        当前 = os.path.abspath(str(起点 or ""))
+        if (not 当前) or (当前 in 已检查):
+            continue
+        已检查.add(当前)
+
+        for _ in range(10):
+            if os.path.isdir(os.path.join(当前, "UI-img")) and os.path.isdir(
+                os.path.join(当前, "json")
+            ):
+                _项目根目录_缓存 = 当前
+                return 当前
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    for 起点 in 候选起点列表:
+        if 起点:
+            _项目根目录_缓存 = os.path.abspath(起点)
+            return _项目根目录_缓存
+
+    _项目根目录_缓存 = os.getcwd()
     return _项目根目录_缓存
 
 
 def _取运行根目录() -> str:
     global _运行根目录_缓存
-    _运行根目录_缓存 = _公共取运行根目录()
+    if _运行根目录_缓存:
+        return _运行根目录_缓存
+
+    候选起点列表: List[str] = []
+
+    try:
+        if getattr(sys, "frozen", False):
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    已检查: Set[str] = set()
+    for 起点 in 候选起点列表:
+        当前 = os.path.abspath(str(起点 or ""))
+        if (not 当前) or (当前 in 已检查):
+            continue
+        已检查.add(当前)
+
+        for _ in range(10):
+            if os.path.isdir(os.path.join(当前, "songs")) or os.path.isfile(
+                os.path.join(当前, "main.py")
+            ):
+                _运行根目录_缓存 = 当前
+                return 当前
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    try:
+        if getattr(sys, "frozen", False):
+            _运行根目录_缓存 = os.path.dirname(os.path.abspath(sys.executable))
+            return _运行根目录_缓存
+    except Exception:
+        pass
+
+    _运行根目录_缓存 = os.path.abspath(
+        os.path.dirname(os.path.abspath(__file__))
+        if "__file__" in globals()
+        else os.getcwd()
+    )
     return _运行根目录_缓存
 
 
 def _取songs根目录(资源: Optional[dict] = None, 状态: Optional[dict] = None) -> str:
     global _songs根目录_缓存
-    _songs根目录_缓存 = _公共取songs根目录(资源=资源, 状态=状态)
-    return _songs根目录_缓存
+
+    def _规范路径(路径值) -> str:
+        try:
+            文本 = str(路径值 or "").strip()
+        except Exception:
+            文本 = ""
+        if not 文本:
+            return ""
+        try:
+            return os.path.abspath(文本)
+        except Exception:
+            return ""
+
+    def _加入候选(候选路径列表: List[str], 路径值):
+        路径 = _规范路径(路径值)
+        if 路径:
+            候选路径列表.append(路径)
+
+    def _向上搜索songs(起点路径: str, 最大层数: int = 8) -> str:
+        当前路径 = _规范路径(起点路径)
+        if not 当前路径:
+            return ""
+
+        if os.path.isfile(当前路径):
+            当前路径 = os.path.dirname(当前路径)
+
+        for _ in range(max(1, int(最大层数))):
+            songs路径 = os.path.join(当前路径, "songs")
+            try:
+                if os.path.isdir(songs路径):
+                    return os.path.abspath(songs路径)
+            except Exception:
+                pass
+
+            上级路径 = os.path.dirname(当前路径)
+            if 上级路径 == 当前路径:
+                break
+            当前路径 = 上级路径
+
+        return ""
+
+    if _songs根目录_缓存:
+        try:
+            if os.path.isdir(_songs根目录_缓存):
+                return os.path.abspath(_songs根目录_缓存)
+        except Exception:
+            pass
+        _songs根目录_缓存 = None
+
+    候选路径列表: List[str] = []
+
+    if isinstance(状态, dict):
+        _加入候选(候选路径列表, 状态.get("songs根目录", ""))
+        _加入候选(候选路径列表, 状态.get("外置songs根目录", ""))
+
+    if isinstance(资源, dict):
+        _加入候选(候选路径列表, 资源.get("songs根目录", ""))
+        _加入候选(候选路径列表, 资源.get("外置songs根目录", ""))
+
+        资源根目录 = _规范路径(资源.get("根", ""))
+        if 资源根目录:
+            _加入候选(候选路径列表, os.path.join(资源根目录, "songs"))
+
+    try:
+        if getattr(sys, "frozen", False):
+            exe目录 = os.path.dirname(os.path.abspath(sys.executable))
+            _加入候选(候选路径列表, os.path.join(exe目录, "songs"))
+            _加入候选(候选路径列表, _向上搜索songs(exe目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        启动目录 = os.path.dirname(os.path.abspath(sys.argv[0]))
+        _加入候选(候选路径列表, os.path.join(启动目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(启动目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        运行根目录 = _取运行根目录()
+        _加入候选(候选路径列表, os.path.join(运行根目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(运行根目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        项目根目录 = _取项目根目录()
+        _加入候选(候选路径列表, os.path.join(项目根目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(项目根目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        当前工作目录 = os.getcwd()
+        _加入候选(候选路径列表, os.path.join(当前工作目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(当前工作目录, 最大层数=8))
+    except Exception:
+        pass
+
+    已检查集合: Set[str] = set()
+    for 候选路径 in 候选路径列表:
+        标准路径 = _规范路径(候选路径)
+        if (not 标准路径) or (标准路径 in 已检查集合):
+            continue
+        已检查集合.add(标准路径)
+
+        try:
+            if os.path.isdir(标准路径):
+                _songs根目录_缓存 = 标准路径
+                return 标准路径
+        except Exception:
+            continue
+
+    默认根目录 = ""
+    try:
+        if getattr(sys, "frozen", False):
+            默认根目录 = os.path.dirname(os.path.abspath(sys.executable))
+    except Exception:
+        默认根目录 = ""
+
+    if not 默认根目录:
+        try:
+            默认根目录 = _取运行根目录()
+        except Exception:
+            默认根目录 = os.getcwd()
+
+    默认路径 = os.path.abspath(os.path.join(默认根目录, "songs"))
+    _songs根目录_缓存 = 默认路径
+    return 默认路径
 
 
 def _归一化目录名(名称: str) -> str:
@@ -146,13 +369,47 @@ def _解析选歌入口参数(状态: dict, songs根目录: str) -> Tuple[str, s
         return 去重后列表
 
     def _尝试修复songs根目录(原始songs根目录: str) -> str:
+        候选路径列表: List[str] = []
+
+        def _加入(路径值):
+            try:
+                路径文本 = str(路径值 or "").strip()
+            except Exception:
+                路径文本 = ""
+            if not 路径文本:
+                return
+            try:
+                候选路径列表.append(os.path.abspath(路径文本))
+            except Exception:
+                pass
+
+        _加入(原始songs根目录)
+        _加入(状态.get("songs根目录", ""))
+        _加入(os.path.join(_取运行根目录(), "songs"))
+        _加入(os.path.join(_取项目根目录(), "songs"))
+
         try:
-            路径文本 = os.path.abspath(str(原始songs根目录 or "").strip())
+            if getattr(sys, "frozen", False):
+                _加入(
+                    os.path.join(
+                        os.path.dirname(os.path.abspath(sys.executable)), "songs"
+                    )
+                )
         except Exception:
-            路径文本 = ""
-        if 路径文本 and os.path.isdir(路径文本):
-            return 路径文本
-        return _取songs根目录(状态=状态)
+            pass
+
+        已检查集合: Set[str] = set()
+        for 候选路径 in 候选路径列表:
+            if (not 候选路径) or (候选路径 in 已检查集合):
+                continue
+            已检查集合.add(候选路径)
+            try:
+                if os.path.isdir(候选路径):
+                    return 候选路径
+            except Exception:
+                continue
+
+        return _转文本(原始songs根目录)
 
     def _匹配目录名_支持别名(
         父目录: str, 候选名称列表: List[str]

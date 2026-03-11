@@ -140,7 +140,7 @@ def 显示复制计划(复制列表: list[tuple[Path, str]]):
 
 
 def 构建_pyinstaller命令(项目根目录: Path) -> list[str]:
-    图标路径 = 项目根目录 / "icon" / "app.ico"
+    图标路径 = 项目根目录 / "UI-img" / "app.ico"
     主程序路径 = 获取主程序路径(项目根目录)
     编译结果目录 = 获取编译结果目录(项目根目录)
     构建目录 = 项目根目录 / "build"

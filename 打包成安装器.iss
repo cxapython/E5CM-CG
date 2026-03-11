@@ -34,7 +34,7 @@ Source: "编译结果\E5CM-CG\backmovies\*"; DestDir: "{app}\backmovies"; Flags:
 Source: "编译结果\E5CM-CG\core\*"; DestDir: "{app}\core"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "编译结果\E5CM-CG\json\*"; DestDir: "{app}\json"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "编译结果\E5CM-CG\scenes\*"; DestDir: "{app}\scenes"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "编译结果\E5CM-CG\songs\*"; DestDir: "{app}\songs"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "编译结果\E5CM-CG\songs\*"; DestDir: "{app}\songs"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallBundledSongs
 Source: "编译结果\E5CM-CG\ui\*"; DestDir: "{app}\ui"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "编译结果\E5CM-CG\UI-img\*"; DestDir: "{app}\UI-img"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "编译结果\E5CM-CG\冷资源\*"; DestDir: "{app}\冷资源"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -46,3 +46,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "立即启动 {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function ShouldInstallBundledSongs(): Boolean;
+begin
+  Result := not DirExists(ExpandConstant('{app}\songs'));
+end;

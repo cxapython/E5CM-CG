@@ -3,6 +3,7 @@ import os
 import time
 import pygame
 
+from core.常量与路径 import 取项目根目录 as _公共取项目根目录
 from core.对局状态 import 初始化对局流程, 消耗信用, 取每局所需信用
 from core.踏板控制 import 踏板动作_左, 踏板动作_右, 踏板动作_确认
 from ui.按钮特效 import 公用按钮点击特效, 公用按钮音效
@@ -76,7 +77,7 @@ class 场景_投币:
         self._选择动画结束时间 = 0.0
         self._待切换结果 = None
 
-        根目录 = str(资源.get("根", "") or os.getcwd())
+        根目录 = _公共取项目根目录(资源)
         self._全局设置路径 = os.path.join(根目录, "json", "全局设置.json")
         self._排行榜BGM路径 = os.path.join(根目录, "冷资源", "backsound", "排行榜.mp3")
         满额音效路径 = os.path.join(根目录, "冷资源", "backsound", "elogo.wav")

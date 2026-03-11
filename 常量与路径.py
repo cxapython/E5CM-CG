@@ -2,19 +2,6 @@ import os
 import sys
 
 
-def _规范目录路径(路径: object) -> str:
-    try:
-        文本 = str(路径 or "").strip()
-    except Exception:
-        文本 = ""
-    if not 文本:
-        return ""
-    try:
-        return os.path.abspath(文本)
-    except Exception:
-        return ""
-
-
 def 取运行根目录() -> str:
     try:
         if getattr(sys, "frozen", False):
@@ -39,12 +26,8 @@ def 获取项目根目录() -> str:
     return 取运行根目录()
 
 
-def 拼运行路径(*片段: str) -> str:
-    return os.path.abspath(os.path.join(取运行根目录(), *片段))
-
-
 def 拼路径(*片段: str) -> str:
-    return 拼运行路径(*片段)
+    return os.path.abspath(os.path.join(取运行根目录(), *片段))
 
 
 def 取项目根目录(资源: dict | None = None) -> str:
@@ -53,10 +36,6 @@ def 取项目根目录(资源: dict | None = None) -> str:
     if 根目录:
         return os.path.abspath(根目录)
     return 取运行根目录()
-
-
-def 取资源根目录(资源: dict | None = None) -> str:
-    return 取项目根目录(资源)
 
 
 def 拼资源路径(*片段: str, 资源: dict | None = None) -> str:
@@ -71,35 +50,6 @@ def 拼资源路径(*片段: str, 资源: dict | None = None) -> str:
         return os.path.abspath(os.path.join(项目根目录, 路径))
 
     return os.path.abspath(os.path.join(项目根目录, *片段))
-
-
-def 取songs根目录(
-    资源: dict | None = None,
-    状态: dict | None = None,
-) -> str:
-    候选路径列表: list[str] = []
-
-    if isinstance(状态, dict):
-        候选路径列表.extend(
-            [
-                _规范目录路径(状态.get("外置songs根目录", "")),
-                _规范目录路径(状态.get("songs根目录", "")),
-            ]
-        )
-
-    if isinstance(资源, dict):
-        候选路径列表.extend(
-            [
-                _规范目录路径(资源.get("外置songs根目录", "")),
-                _规范目录路径(资源.get("songs根目录", "")),
-            ]
-        )
-
-    for 候选路径 in 候选路径列表:
-        if 候选路径 and os.path.isdir(候选路径):
-            return 候选路径
-
-    return 拼资源路径("songs", 资源=资源)
 
 
 

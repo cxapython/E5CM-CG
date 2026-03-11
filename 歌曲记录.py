@@ -3,12 +3,6 @@ import os
 import sys
 from typing import Dict, List
 
-from core.常量与路径 import (
-    取运行根目录 as _公共取运行根目录,
-    取资源根目录 as _公共取资源根目录,
-    取songs根目录 as _公共取songs根目录,
-)
-
 
 def _规范路径(路径: str) -> str:
     try:
@@ -50,28 +44,173 @@ def _向上查找目录(起点: str, 判定函数, 最大层数: int = 10) -> st
 
 
 def _取运行根目录(项目根: str = "") -> str:
+    try:
+        已缓存 = getattr(_取运行根目录, "_缓存路径", "")
+        if isinstance(已缓存, str) and 已缓存 and os.path.isdir(已缓存):
+            return 已缓存
+    except Exception:
+        pass
+
+    候选起点列表: List[str] = []
+
     if 项目根:
-        规范项目根 = _规范路径(项目根)
-        if 规范项目根 and os.path.isdir(规范项目根):
-            return 规范项目根
-    return _公共取运行根目录()
+        候选起点列表.append(项目根)
+
+    try:
+        if getattr(sys, "frozen", False):
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+
+    候选起点列表 = _去重路径列表(候选起点列表)
+
+    def _是否运行根(目录: str) -> bool:
+        return bool(
+            os.path.isdir(os.path.join(目录, "songs"))
+            or os.path.isdir(os.path.join(目录, "json"))
+            or os.path.isfile(os.path.join(目录, "main.py"))
+        )
+
+    for 起点 in 候选起点列表:
+        命中 = _向上查找目录(起点, _是否运行根, 最大层数=12)
+        if 命中:
+            setattr(_取运行根目录, "_缓存路径", 命中)
+            return 命中
+
+    for 起点 in 候选起点列表:
+        if 起点 and os.path.isdir(起点):
+            setattr(_取运行根目录, "_缓存路径", 起点)
+            return 起点
+
+    回退 = _规范路径(os.getcwd()) or "."
+    setattr(_取运行根目录, "_缓存路径", 回退)
+    return 回退
 
 
 def _取资源根目录(项目根: str = "") -> str:
+    try:
+        已缓存 = getattr(_取资源根目录, "_缓存路径", "")
+        if isinstance(已缓存, str) and 已缓存 and os.path.isdir(已缓存):
+            return 已缓存
+    except Exception:
+        pass
+
+    候选起点列表: List[str] = []
+
     if 项目根:
-        规范项目根 = _规范路径(项目根)
-        if 规范项目根 and os.path.isdir(规范项目根):
-            return 规范项目根
-    return _公共取资源根目录()
+        候选起点列表.append(项目根)
+
+    try:
+        if getattr(sys, "frozen", False):
+            临时目录 = _规范路径(getattr(sys, "_MEIPASS", ""))
+            if 临时目录:
+                候选起点列表.append(临时目录)
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+
+    候选起点列表 = _去重路径列表(候选起点列表)
+
+    def _是否资源根(目录: str) -> bool:
+        return bool(
+            os.path.isdir(os.path.join(目录, "UI-img"))
+            or os.path.isdir(os.path.join(目录, "json"))
+            or os.path.isdir(os.path.join(目录, "songs"))
+        )
+
+    for 起点 in 候选起点列表:
+        命中 = _向上查找目录(起点, _是否资源根, 最大层数=12)
+        if 命中:
+            setattr(_取资源根目录, "_缓存路径", 命中)
+            return 命中
+
+    for 起点 in 候选起点列表:
+        if 起点 and os.path.isdir(起点):
+            setattr(_取资源根目录, "_缓存路径", 起点)
+            return 起点
+
+    回退 = _规范路径(os.getcwd()) or "."
+    setattr(_取资源根目录, "_缓存路径", 回退)
+    return 回退
 
 
 def _取歌曲目录(项目根: str) -> str:
+    运行根 = _取运行根目录(项目根)
     资源根 = _取资源根目录(项目根)
-    return _公共取songs根目录(资源={"根": 资源根})
+
+    候选路径列表 = _去重路径列表(
+        [
+            os.path.join(运行根, "songs"),
+            os.path.join(str(项目根 or ""), "songs"),
+            os.path.join(资源根, "songs"),
+        ]
+    )
+
+    for 路径 in 候选路径列表:
+        if 路径 and os.path.isdir(路径):
+            return 路径
+
+    return os.path.join(运行根, "songs")
 
 
 def _取用户数据根目录(项目根: str) -> str:
-    return _取运行根目录(项目根)
+    try:
+        已缓存 = getattr(_取用户数据根目录, "_缓存路径", "")
+        if isinstance(已缓存, str) and 已缓存 and os.path.isdir(已缓存):
+            return 已缓存
+    except Exception:
+        pass
+
+    if not getattr(sys, "frozen", False):
+        数据根目录 = _取运行根目录(项目根)
+        setattr(_取用户数据根目录, "_缓存路径", 数据根目录)
+        return 数据根目录
+
+    应用目录名 = "E舞成名重构版"
+    候选基础目录列表 = _去重路径列表(
+        [
+            os.environ.get("LOCALAPPDATA", ""),
+            os.environ.get("APPDATA", ""),
+            os.path.join(os.path.expanduser("~"), "AppData", "Local"),
+            os.path.expanduser("~"),
+        ]
+    )
+
+    for 基础目录 in 候选基础目录列表:
+        if not 基础目录:
+            continue
+        try:
+            数据根目录 = os.path.join(基础目录, 应用目录名)
+            os.makedirs(数据根目录, exist_ok=True)
+            setattr(_取用户数据根目录, "_缓存路径", 数据根目录)
+            return 数据根目录
+        except Exception:
+            continue
+
+    回退目录 = os.path.join(os.path.expanduser("~"), 应用目录名)
+    os.makedirs(回退目录, exist_ok=True)
+    setattr(_取用户数据根目录, "_缓存路径", 回退目录)
+    return 回退目录
 
 
 def _主索引路径(项目根: str) -> str:
@@ -80,7 +219,20 @@ def _主索引路径(项目根: str) -> str:
 
 
 def _兼容索引路径列表(项目根: str) -> List[str]:
-    return [_主索引路径(项目根)]
+    运行根 = _取运行根目录(项目根)
+    资源根 = _取资源根目录(项目根)
+    主路径 = _主索引路径(项目根)
+
+    return _去重路径列表(
+        [
+            主路径,
+            os.path.join(运行根, "json", "歌曲记录索引.json"),
+            os.path.join(资源根, "json", "歌曲记录索引.json"),
+            os.path.join(运行根, "songs", "歌曲记录索引.json"),
+            os.path.join(str(项目根 or ""), "songs", "歌曲记录索引.json"),
+            os.path.join(资源根, "songs", "歌曲记录索引.json"),
+        ]
+    )
 
 
 def _读取json文件(路径: str):
@@ -111,7 +263,23 @@ def _写入json文件(路径: str, 数据):
 
 
 def _索引路径(项目根: str) -> str:
-    return _主索引路径(项目根)
+    主路径 = _主索引路径(项目根)
+    if os.path.isfile(主路径):
+        return 主路径
+
+    for 旧路径 in _兼容索引路径列表(项目根):
+        if 旧路径 == 主路径:
+            continue
+        if os.path.isfile(旧路径):
+            try:
+                数据 = _读取json文件(旧路径)
+                if isinstance(数据, dict):
+                    _写入json文件(主路径, 数据)
+                    return 主路径
+            except Exception:
+                continue
+
+    return 主路径
 
 
 def _提取歌曲相对路径(sm路径: str, 项目根: str) -> str:

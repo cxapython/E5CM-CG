@@ -1,68 +1,190 @@
-{"frames": [
-
 {
-	"filename": "key_bl.png",
-	"frame": {"x":1,"y":1,"w":52,"h":52},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":52,"h":52},
-	"sourceSize": {"w":52,"h":52}
-},
-{
-	"filename": "key_br.png",
-	"frame": {"x":55,"y":1,"w":52,"h":52},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":52,"h":52},
-	"sourceSize": {"w":52,"h":52}
-},
-{
-	"filename": "key_cc.png",
-	"frame": {"x":109,"y":1,"w":52,"h":52},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":52,"h":52},
-	"sourceSize": {"w":52,"h":52}
-},
-{
-	"filename": "key_ll.png",
-	"frame": {"x":271,"y":1,"w":38,"h":52},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":38,"h":52},
-	"sourceSize": {"w":38,"h":52}
-},
-{
-	"filename": "key_rr.png",
-	"frame": {"x":311,"y":1,"w":37,"h":52},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":37,"h":52},
-	"sourceSize": {"w":37,"h":52}
-},
-{
-	"filename": "key_tl.png",
-	"frame": {"x":163,"y":1,"w":52,"h":52},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":52,"h":52},
-	"sourceSize": {"w":52,"h":52}
-},
-{
-	"filename": "key_tr.png",
-	"frame": {"x":217,"y":1,"w":52,"h":52},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":52,"h":52},
-	"sourceSize": {"w":52,"h":52}
-}],
-"meta": {
-	"app": "https://www.codeandweb.com/texturepacker",
-	"version": "1.0",
-	"image": "skin.png",
-	"format": "RGBA8888",
-	"size": {"w":349,"h":54},
-	"scale": "1",
-	"smartupdate": "$TexturePacker:SmartUpdate:97fbf7d5f2bdbb25478c327b1fce6436:68bc374c582b9094b37987a1d63513f5:7a403c0f1de4950c4b2f4e76483f7a97$"
-}
+  "frames": [
+    {
+      "filename": "key_ll.png",
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 89,
+        "h": 122
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 89,
+        "h": 122
+      },
+      "sourceSize": {
+        "w": 89,
+        "h": 122
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "filename": "key_bl.png",
+      "frame": {
+        "x": 93,
+        "y": 2,
+        "w": 122,
+        "h": 122
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 122,
+        "h": 122
+      },
+      "sourceSize": {
+        "w": 122,
+        "h": 122
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "filename": "key_tl.png",
+      "frame": {
+        "x": 217,
+        "y": 2,
+        "w": 122,
+        "h": 122
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 122,
+        "h": 122
+      },
+      "sourceSize": {
+        "w": 122,
+        "h": 122
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "filename": "key_cc.png",
+      "frame": {
+        "x": 341,
+        "y": 2,
+        "w": 122,
+        "h": 122
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 122,
+        "h": 122
+      },
+      "sourceSize": {
+        "w": 122,
+        "h": 122
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "filename": "key_tr.png",
+      "frame": {
+        "x": 465,
+        "y": 2,
+        "w": 122,
+        "h": 122
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 122,
+        "h": 122
+      },
+      "sourceSize": {
+        "w": 122,
+        "h": 122
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "filename": "key_br.png",
+      "frame": {
+        "x": 589,
+        "y": 2,
+        "w": 122,
+        "h": 122
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 122,
+        "h": 122
+      },
+      "sourceSize": {
+        "w": 122,
+        "h": 122
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "filename": "key_rr.png",
+      "frame": {
+        "x": 713,
+        "y": 2,
+        "w": 87,
+        "h": 122
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 87,
+        "h": 122
+      },
+      "sourceSize": {
+        "w": 87,
+        "h": 122
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    }
+  ],
+  "meta": {
+    "app": "多页签皮肤打包器",
+    "version": "2.0",
+    "image": "skin.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 802,
+      "h": 126
+    },
+    "scale": "1"
+  }
 }

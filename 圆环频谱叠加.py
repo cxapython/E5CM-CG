@@ -6,11 +6,129 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pygame
-from core.常量与路径 import 取项目根目录 as _公共取项目根目录
 
 
 def _取项目根目录() -> str:
-    return _公共取项目根目录()
+    try:
+        已缓存路径 = getattr(_取项目根目录, "_缓存路径", "")
+        if isinstance(已缓存路径, str) and 已缓存路径 and os.path.isdir(已缓存路径):
+            return 已缓存路径
+    except Exception:
+        pass
+
+    try:
+        import sys
+    except Exception:
+        sys = None
+
+    def _规范路径(路径: str) -> str:
+        try:
+            return os.path.abspath(str(路径 or "").strip())
+        except Exception:
+            return ""
+
+    def _目录评分(目录: str) -> int:
+        try:
+            if (not 目录) or (not os.path.isdir(目录)):
+                return -1
+
+            分数 = 0
+
+            if os.path.isdir(os.path.join(目录, "UI-img")):
+                分数 += 4
+            if os.path.isdir(os.path.join(目录, "json")):
+                分数 += 3
+            if os.path.isdir(os.path.join(目录, "冷资源")):
+                分数 += 2
+            if os.path.isdir(os.path.join(目录, "core")):
+                分数 += 1
+            if os.path.isdir(os.path.join(目录, "ui")):
+                分数 += 1
+
+            return 分数
+        except Exception:
+            return -1
+
+    候选起点列表 = []
+
+    try:
+        if sys and getattr(sys, "frozen", False):
+            临时资源目录 = _规范路径(getattr(sys, "_MEIPASS", ""))
+            if 临时资源目录:
+                候选起点列表.append(临时资源目录)
+
+            可执行目录 = _规范路径(os.path.dirname(os.path.abspath(sys.executable)))
+            if 可执行目录:
+                候选起点列表.append(可执行目录)
+    except Exception:
+        pass
+
+    try:
+        脚本目录 = _规范路径(os.path.dirname(os.path.abspath(__file__)))
+        if 脚本目录:
+            候选起点列表.append(脚本目录)
+    except Exception:
+        pass
+
+    try:
+        工作目录 = _规范路径(os.getcwd())
+        if 工作目录:
+            候选起点列表.append(工作目录)
+    except Exception:
+        pass
+
+    去重后候选 = []
+    已见路径 = set()
+    for 路径 in 候选起点列表:
+        规范后 = _规范路径(路径)
+        if (not 规范后) or (规范后 in 已见路径):
+            continue
+        已见路径.add(规范后)
+        去重后候选.append(规范后)
+
+    最佳目录 = ""
+    最佳分数 = -1
+    已检查目录 = set()
+
+    for 起点 in 去重后候选:
+        当前目录 = 起点
+        for _ in range(12):
+            当前目录 = _规范路径(当前目录)
+            if (not 当前目录) or (当前目录 in 已检查目录):
+                break
+
+            已检查目录.add(当前目录)
+            当前分数 = _目录评分(当前目录)
+
+            if 当前分数 > 最佳分数:
+                最佳分数 = 当前分数
+                最佳目录 = 当前目录
+
+            if 当前分数 >= 7:
+                setattr(_取项目根目录, "_缓存路径", 当前目录)
+                return 当前目录
+
+            上级目录 = os.path.dirname(当前目录)
+            if 上级目录 == 当前目录:
+                break
+            当前目录 = 上级目录
+
+    if 最佳目录:
+        setattr(_取项目根目录, "_缓存路径", 最佳目录)
+        return 最佳目录
+
+    for 路径 in 去重后候选:
+        if 路径 and os.path.isdir(路径):
+            setattr(_取项目根目录, "_缓存路径", 路径)
+            return 路径
+
+    try:
+        回退目录 = _规范路径(os.getcwd())
+    except Exception:
+        回退目录 = "."
+
+    setattr(_取项目根目录, "_缓存路径", 回退目录)
+    return 回退目录
 
 
 @dataclass

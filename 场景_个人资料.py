@@ -5,10 +5,6 @@ from typing import Optional, Tuple, List, Dict
 
 import pygame
 
-from core.常量与路径 import (
-    取项目根目录 as _公共取项目根目录,
-    取运行根目录 as _公共取运行根目录,
-)
 from core.踏板控制 import 踏板动作_确认
 from ui.按钮特效 import 公用按钮点击特效, 公用按钮音效
 from ui.场景过渡 import 公用放大过渡器
@@ -24,11 +20,36 @@ class 场景_个人资料:
     # _bbox_离开按钮 = (1740, 835, 1965, 1080)
 
     def _取程序根目录(self) -> str:
-        return _公共取运行根目录()
+        try:
+            import sys as 系统
+
+            if getattr(系统, "frozen", False):
+                return os.path.abspath(os.path.dirname(系统.executable))
+        except Exception:
+            pass
+
+        try:
+            return os.path.abspath(os.getcwd())
+        except Exception:
+            return "."
 
     def _取资源根目录(self) -> str:
         资源 = self.上下文.get("资源", {}) or {}
-        return _公共取项目根目录(资源)
+        显式根 = str(资源.get("根", "") or "").strip()
+        if 显式根:
+            return os.path.abspath(显式根)
+
+        try:
+            import sys as 系统
+
+            if getattr(系统, "frozen", False):
+                临时目录 = str(getattr(系统, "_MEIPASS", "") or "").strip()
+                if 临时目录:
+                    return os.path.abspath(临时目录)
+        except Exception:
+            pass
+
+        return self._取程序根目录()
 
     def _取数据根目录(self) -> str:
         return self._取程序根目录()
@@ -2151,18 +2172,57 @@ class 场景_个人资料:
             return 文本
 
         文本 = 文本.replace("/", os.sep).replace("\\", os.sep)
-        运行根 = str(getattr(self, "_运行根", _公共取运行根目录()) or _公共取运行根目录())
-        资源根 = str(getattr(self, "_资源根", _公共取项目根目录()) or _公共取项目根目录())
+
+        候选路径列表: List[str] = []
 
         if 文本.startswith(f"json{os.sep}"):
-            return os.path.join(运行根, 文本)
-        if 文本.startswith(f"UI-img{os.sep}"):
-            return os.path.join(资源根, 文本)
+            候选路径列表.append(
+                os.path.join(
+                    str(getattr(self, "_运行根", os.getcwd()) or os.getcwd()), 文本
+                )
+            )
+            候选路径列表.append(
+                os.path.join(
+                    str(getattr(self, "_资源根", os.getcwd()) or os.getcwd()), 文本
+                )
+            )
+        elif 文本.startswith(f"UI-img{os.sep}"):
+            候选路径列表.append(
+                os.path.join(
+                    str(getattr(self, "_资源根", os.getcwd()) or os.getcwd()), 文本
+                )
+            )
+            候选路径列表.append(
+                os.path.join(
+                    str(getattr(self, "_运行根", os.getcwd()) or os.getcwd()), 文本
+                )
+            )
+        else:
+            候选路径列表.append(
+                os.path.join(
+                    str(getattr(self, "_运行根", os.getcwd()) or os.getcwd()),
+                    "json",
+                    "个人资料",
+                    os.path.basename(文本),
+                )
+            )
+            候选路径列表.append(
+                os.path.join(
+                    str(getattr(self, "_资源根", os.getcwd()) or os.getcwd()),
+                    "UI-img",
+                    "个人中心-个人资料",
+                    os.path.basename(文本),
+                )
+            )
 
-        文件名 = os.path.basename(文本)
-        if 文件名.lower().startswith("头像_"):
-            return os.path.join(运行根, "json", "个人资料", 文件名)
-        return os.path.join(资源根, "UI-img", "个人中心-个人资料", 文件名)
+        for 候选路径 in 候选路径列表:
+            try:
+                if 候选路径 and os.path.isfile(候选路径):
+                    return 候选路径
+            except Exception:
+                continue
+
+        return str(候选路径列表[0] if 候选路径列表 else "")
 
     def _个人资料_计算段位(self, 等级: int) -> int:
         try:
@@ -2741,7 +2801,7 @@ class 场景_个人资料:
         资源 = self.上下文.get("资源", {})
         状态 = self.上下文.get("状态", {})
 
-        根目录 = _公共取项目根目录(资源)
+        根目录 = str(资源.get("根", "") or os.getcwd())
         排行榜BGM路径 = os.path.join(根目录, "冷资源", "backsound", "排行榜.mp3")
 
         已经在播排行榜 = False

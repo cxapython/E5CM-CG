@@ -6,10 +6,6 @@ from typing import Dict, List, Optional, Tuple
 
 import pygame
 
-from core.常量与路径 import (
-    取项目根目录 as _公共取项目根目录,
-    取运行根目录 as _公共取运行根目录,
-)
 from core.对局状态 import (
     初始化对局流程,
     取信用数,
@@ -76,13 +72,6 @@ def _安全载图(路径: str, 透明: bool = True) -> Optional[pygame.Surface]:
     except Exception:
         pass
     return None
-
-
-def _取资源根目录(上下文: dict | None = None) -> str:
-    资源 = {}
-    if isinstance(上下文, dict):
-        资源 = 上下文.get("资源", {}) or {}
-    return _公共取项目根目录(资源 if isinstance(资源, dict) else {})
 
 
 class 场景_结算(场景基类):
@@ -354,7 +343,7 @@ class 场景_结算(场景基类):
         return None
 
     def _布局文件路径(self) -> str:
-        根目录 = _取资源根目录(self.上下文)
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
         return os.path.join(根目录, "json", "结算场景布局.json")
 
     def _刷新布局存储(self) -> SettlementLayoutStore:
@@ -1356,7 +1345,7 @@ class 场景_结算(场景基类):
         except Exception:
             return
 
-        根目录 = _取资源根目录(self.上下文)
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
         音效路径 = os.path.join(根目录, "冷资源", "backsound", "结算音效.mp3")
         try:
             if os.path.isfile(音效路径):
@@ -1383,7 +1372,7 @@ class 场景_结算(场景基类):
             except Exception:
                 pass
             return
-        根目录 = _取资源根目录(self.上下文)
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
         音乐路径 = os.path.join(根目录, "冷资源", "backsound", "back_music_ui.mp3")
         try:
             if pygame.mixer.get_init() and os.path.isfile(音乐路径):
@@ -1399,7 +1388,7 @@ class 场景_结算(场景基类):
                 return
         except Exception:
             return
-        根目录 = _取资源根目录(self.上下文)
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
         音效路径 = os.path.join(根目录, "冷资源", "backsound", "gameover.mp3")
         try:
             if os.path.isfile(音效路径):
@@ -1410,7 +1399,32 @@ class 场景_结算(场景基类):
             pass
 
     def _个人资料路径(self) -> str:
-        候选路径列表 = [os.path.join(_公共取运行根目录(), "json", "个人资料.json")]
+        资源根目录 = str(
+            (self.上下文.get("资源", {}) or {}).get("根", "") or ""
+        ).strip()
+        if not 资源根目录:
+            资源根目录 = os.getcwd()
+
+        运行根目录 = ""
+        try:
+            import sys as 系统
+
+            if getattr(系统, "frozen", False):
+                运行根目录 = os.path.dirname(os.path.abspath(系统.executable))
+        except Exception:
+            运行根目录 = ""
+
+        if not 运行根目录:
+            try:
+                运行根目录 = os.getcwd()
+            except Exception:
+                运行根目录 = 资源根目录
+
+        候选路径列表 = [
+            os.path.join(运行根目录, "json", "个人资料.json"),
+            os.path.join(资源根目录, "json", "个人资料.json"),
+            os.path.join(资源根目录, "UI-img", "个人中心-个人资料", "个人资料.json"),
+        ]
 
         for 候选路径 in 候选路径列表:
             try:
@@ -1528,7 +1542,7 @@ class 场景_结算(场景基类):
         数据["进度"] = 进度
         self._写入个人资料(数据)
 
-        根目录 = _取资源根目录(self.上下文)
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
         self._歌曲记录结果 = 更新歌曲最高分(根目录, sm路径, 曲目名, 本局分数)
 
         段位相对路径 = str((进度.get("段位", "") or self._段位路径(最高等级))).replace(
@@ -2026,7 +2040,7 @@ class 场景_结算(场景基类):
 
         self._流程3倒计时音效已尝试加载 = True
 
-        根目录 = _取资源根目录(self.上下文)
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
         音效路径 = os.path.join(根目录, "冷资源", "Buttonsound", "倒计时音效.mp3")
 
         try:
@@ -2951,7 +2965,7 @@ class 场景_结算(场景基类):
         self._背景视频路径 = ""
 
     def _加载资源(self):
-        根目录 = _取资源根目录(self.上下文)
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
 
         背景路径 = os.path.join(根目录, "冷资源", "backimages", "选歌界面.png")
         self._背景图 = _安全载图(背景路径, 透明=False)

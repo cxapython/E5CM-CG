@@ -238,102 +238,6 @@ def 主函数():
 
         _同步屏幕引用()
 
-    # def _播放开场动画_cv2(视频路径: str):
-    #     if (not 视频路径) or (not os.path.isfile(视频路径)):
-    #         return
-    #     if cv2 is None:
-    #         return
-
-    #     try:
-    #         捕获 = cv2.VideoCapture(视频路径)
-    #     except Exception:
-    #         return
-
-    #     if not 捕获 or (not 捕获.isOpened()):
-    #         try:
-    #             捕获.release()
-    #         except Exception:
-    #             pass
-    #         return
-
-    #     try:
-    #         fps = 捕获.get(getattr(cv2, "CAP_PROP_FPS", 5))
-    #         fps = float(fps) if fps and fps > 1 else 30.0
-    #     except Exception:
-    #         fps = 30.0
-
-    #     每帧秒 = 1.0 / max(1.0, fps)
-    #     上次帧系统秒 = time.perf_counter()
-
-    #     while True:
-    #         for 事件 in pygame.event.get():
-    #             if 事件.type == pygame.QUIT:
-    #                 try:
-    #                     捕获.release()
-    #                 except Exception:
-    #                     pass
-    #                 pygame.quit()
-    #                 sys.exit(0)
-
-    #             if 事件.type == pygame.KEYDOWN:
-    #                 if 事件.key == pygame.K_ESCAPE:
-    #                     try:
-    #                         捕获.release()
-    #                     except Exception:
-    #                         pass
-    #                     pygame.quit()
-    #                     sys.exit(0)
-
-    #                 if 事件.key == pygame.K_F11:
-    #                     _切换全屏()
-
-    #         现在 = time.perf_counter()
-    #         if 现在 - 上次帧系统秒 < 每帧秒:
-    #             time.sleep(0.001)
-    #             continue
-    #         上次帧系统秒 = 现在
-
-    #         ok, 帧 = 捕获.read()
-    #         if (not ok) or (帧 is None):
-    #             break
-
-    #         try:
-    #             帧 = cv2.cvtColor(帧, cv2.COLOR_BGR2RGB)
-    #         except Exception:
-    #             pass
-
-    #         try:
-    #             帧高, 帧宽 = 帧.shape[0], 帧.shape[1]
-    #         except Exception:
-    #             continue
-
-    #         try:
-    #             帧面 = pygame.image.frombuffer(帧.tobytes(), (帧宽, 帧高), "RGB")
-    #         except Exception:
-    #             continue
-
-    #         屏幕w, 屏幕h = 上下文["屏幕"].get_size()
-    #         比例 = min(屏幕w / max(1, 帧宽), 屏幕h / max(1, 帧高))
-    #         新宽 = max(1, int(帧宽 * 比例))
-    #         新高 = max(1, int(帧高 * 比例))
-
-    #         try:
-    #             帧面缩放 = pygame.transform.smoothscale(帧面, (新宽, 新高))
-    #         except Exception:
-    #             帧面缩放 = 帧面
-
-    #         x = (屏幕w - 新宽) // 2
-    #         y = (屏幕h - 新高) // 2
-
-    #         上下文["屏幕"].fill((0, 0, 0))
-    #         上下文["屏幕"].blit(帧面缩放, (x, y))
-    #         pygame.display.flip()
-
-    #     try:
-    #         捕获.release()
-    #     except Exception:
-    #         pass
-
     def _播放开场幻灯片(图片目录: str):
         if (not 图片目录) or (not os.path.isdir(图片目录)):
             return
@@ -607,7 +511,12 @@ def 主函数():
             "默认渲染后端": "gpu",
             "默认GPU谱面管线": True,
             "显示性能调试信息": False,
+            "显示启动幻灯片": True,
             "显示谱面开场动画": True,
+            "全局静音": False,
+            "开发默认选歌载荷启用": True,
+            "开发默认选歌类型": "竞速",
+            "开发默认选歌模式": "混音",
         }
         设置路径 = os.path.join(_取运行根目录(), "json", "全局设置.json")
         数据 = {}
@@ -631,9 +540,27 @@ def 主函数():
         结果["显示性能调试信息"] = bool(
             数据.get("显示性能调试信息", 默认设置["显示性能调试信息"])
         )
+        结果["显示启动幻灯片"] = bool(
+            数据.get("显示启动幻灯片", 默认设置["显示启动幻灯片"])
+        )
         结果["显示谱面开场动画"] = bool(
             数据.get("显示谱面开场动画", 默认设置["显示谱面开场动画"])
         )
+        结果["全局静音"] = bool(
+            数据.get("全局静音", 默认设置["全局静音"])
+        )
+        结果["开发默认选歌载荷启用"] = bool(
+            数据.get(
+                "开发默认选歌载荷启用",
+                默认设置["开发默认选歌载荷启用"],
+            )
+        )
+        结果["开发默认选歌类型"] = str(
+            数据.get("开发默认选歌类型", 默认设置["开发默认选歌类型"]) or "竞速"
+        ).strip() or "竞速"
+        结果["开发默认选歌模式"] = str(
+            数据.get("开发默认选歌模式", 默认设置["开发默认选歌模式"]) or "混音"
+        ).strip() or "混音"
         return 结果
 
     # _切换英文输入法()
@@ -647,6 +574,23 @@ def 主函数():
     pygame.init()
     窗口标题 = "e舞成名重构版"
 
+    def _取渲染模式文本(后端对象) -> str:
+        return "GPU" if bool(getattr(后端对象, "是否GPU", False)) else "CPU"
+
+    def _取渲染后端偏好值(后端对象) -> str:
+        return "gpu" if bool(getattr(后端对象, "是否GPU", False)) else "software"
+
+    def _刷新窗口标题(后端对象):
+        try:
+            后端对象.设置标题(f"{窗口标题} ---{_取渲染模式文本(后端对象)}")
+        except Exception:
+            pass
+
+    def _取当前实际渲染后端偏好() -> str:
+        if 显示后端 is None:
+            return str(状态.get("默认渲染后端", "gpu") or "gpu")
+        return _取渲染后端偏好值(显示后端)
+
     默认窗口w, 默认窗口h = 1280, 720
     桌面w, 桌面h = 取桌面尺寸((默认窗口w, 默认窗口h))
     初始w = min(默认窗口w, int(桌面w or 默认窗口w))
@@ -657,6 +601,7 @@ def 主函数():
         窗口标题,
         偏好=str(启动调试设置.get("默认渲染后端", "gpu") or "gpu"),
     )
+    _刷新窗口标题(显示后端)
     屏幕 = 显示后端.取绘制屏幕()
 
     # time.sleep(0.15)
@@ -708,8 +653,33 @@ def 主函数():
         "默认渲染后端": str(启动调试设置.get("默认渲染后端", "gpu") or "gpu"),
         "默认GPU谱面管线": bool(启动调试设置.get("默认GPU谱面管线", True)),
         "显示性能调试信息": bool(启动调试设置.get("显示性能调试信息", False)),
+        "显示启动幻灯片": bool(启动调试设置.get("显示启动幻灯片", False)),
         "显示谱面开场动画": bool(启动调试设置.get("显示谱面开场动画", True)),
+        "全局静音": bool(启动调试设置.get("全局静音", False)),
+        "开发默认选歌载荷启用": bool(
+            启动调试设置.get("开发默认选歌载荷启用", True)
+        ),
+        "开发默认选歌类型": str(
+            启动调试设置.get("开发默认选歌类型", "竞速") or "竞速"
+        ),
+        "开发默认选歌模式": str(
+            启动调试设置.get("开发默认选歌模式", "混音") or "混音"
+        ),
     }
+
+    def _同步渲染后端状态(后端对象, 当前载荷=None):
+        实际后端 = _取渲染后端偏好值(后端对象)
+        实际启用GPU谱面管线 = bool(getattr(后端对象, "是否GPU", False))
+        状态["默认渲染后端"] = str(实际后端)
+        状态["默认GPU谱面管线"] = 实际启用GPU谱面管线
+        os.environ["E5CM_RENDER_BACKEND"] = str(实际后端)
+        os.environ["E5CM_GPU_PIPELINE"] = "1" if 实际启用GPU谱面管线 else "0"
+        if isinstance(当前载荷, dict):
+            当前载荷["启用GPU谱面管线"] = 实际启用GPU谱面管线
+        _刷新窗口标题(后端对象)
+        return 实际后端
+
+    _同步渲染后端状态(显示后端)
 
     点击特效目录 = os.path.join(资源["根"], "UI-img", "点击特效")
     特效资源 = 序列帧特效资源(目录=点击特效目录, 扩展名=".png")
@@ -739,17 +709,12 @@ def 主函数():
         "显示性能调试信息": bool(启动调试设置.get("显示性能调试信息", False)),
     }
 
-    # backmovies目录 = 资源.get(
-    #     "backmovies目录", os.path.join(资源.get("根", os.getcwd()), "backmovies")
-    # )
-    # 开场视频 = os.path.join(backmovies目录, "002.开场动画.mp4")
-    # _播放开场动画_cv2(开场视频)
-
     backmovies目录 = 资源.get(
         "backmovies目录", os.path.join(资源.get("根", os.getcwd()), "backmovies")
     )
     开场动画目录 = os.path.join(backmovies目录, "开场动画")
-    _播放开场幻灯片(开场动画目录)
+    if bool(启动调试设置.get("显示启动幻灯片", True)):
+        _播放开场幻灯片(开场动画目录)
     
     强制视频 = os.path.join(backmovies目录, "003.mp4")
     if os.path.isfile(强制视频):
@@ -850,8 +815,23 @@ def 主函数():
                 "显示性能调试信息": bool(
                     状态.get("显示性能调试信息", False)
                 ),
+                "显示启动幻灯片": bool(
+                    状态.get("显示启动幻灯片", True)
+                ),
                 "显示谱面开场动画": bool(
                     状态.get("显示谱面开场动画", True)
+                ),
+                "全局静音": bool(
+                    状态.get("全局静音", False)
+                ),
+                "开发默认选歌载荷启用": bool(
+                    状态.get("开发默认选歌载荷启用", True)
+                ),
+                "开发默认选歌类型": str(
+                    状态.get("开发默认选歌类型", "竞速") or "竞速"
+                ),
+                "开发默认选歌模式": str(
+                    状态.get("开发默认选歌模式", "混音") or "混音"
                 ),
             }
         )
@@ -906,15 +886,63 @@ def 主函数():
         状态["显示性能调试信息"] = bool(
             数据.get("显示性能调试信息", 状态.get("显示性能调试信息", False))
         )
+        状态["显示启动幻灯片"] = bool(
+            数据.get("显示启动幻灯片", 状态.get("显示启动幻灯片", True))
+        )
         状态["显示谱面开场动画"] = bool(
             数据.get("显示谱面开场动画", 状态.get("显示谱面开场动画", True))
         )
+        状态["全局静音"] = bool(
+            数据.get("全局静音", 状态.get("全局静音", False))
+        )
+        状态["开发默认选歌载荷启用"] = bool(
+            数据.get(
+                "开发默认选歌载荷启用",
+                状态.get("开发默认选歌载荷启用", True),
+            )
+        )
+        状态["开发默认选歌类型"] = str(
+            数据.get(
+                "开发默认选歌类型",
+                状态.get("开发默认选歌类型", "竞速"),
+            )
+            or "竞速"
+        ).strip() or "竞速"
+        状态["开发默认选歌模式"] = str(
+            数据.get(
+                "开发默认选歌模式",
+                状态.get("开发默认选歌模式", "混音"),
+            )
+            or "混音"
+        ).strip() or "混音"
         上下文["显示性能调试信息"] = bool(
             状态.get("显示性能调试信息", False)
         )
         os.environ["E5CM_GPU_PIPELINE"] = (
             "1" if bool(状态.get("默认GPU谱面管线", True)) else "0"
         )
+
+    def _应用全局静音状态():
+        静音 = bool(状态.get("全局静音", False))
+        try:
+            if pygame.mixer.get_init():
+                音量 = 0.0 if 静音 else 1.0
+                try:
+                    pygame.mixer.music.set_volume(float(音量))
+                except Exception:
+                    pass
+                try:
+                    for i in range(int(pygame.mixer.get_num_channels())):
+                        pygame.mixer.Channel(int(i)).set_volume(float(音量))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            if 投币音效对象 is not None:
+                投币音效对象.set_volume(0.0 if 静音 else 1.0)
+        except Exception:
+            pass
         
 
     def _显示调试提示(文本: str, 秒: float = 1.2):
@@ -934,6 +962,8 @@ def 主函数():
         _保存全局设置()
         
     _加载全局设置()
+    _同步渲染后端状态(显示后端)
+    _应用全局静音状态()
     _同步投币显示()
 
     状态["非游戏菜单背景音乐关闭"] = bool(非游戏菜单背景音乐关闭)
@@ -941,39 +971,16 @@ def 主函数():
     开发调试菜单索引 = 0
     开发调试菜单项矩形: list[pygame.Rect] = []
     开发调试目标场景列表 = [
+        "选歌",
         "投币",
         "登陆磁卡",
         "个人资料",
-        "选歌",
         "加载页",
         "谱面播放器",
     ]
     开发调试目标场景索引 = int(
-        max(0, min(len(开发调试目标场景列表) - 1, 开发调试目标场景列表.index("谱面播放器")))
+        max(0, min(len(开发调试目标场景列表) - 1, 开发调试目标场景列表.index("选歌")))
     )
-    开发调试载荷预设列表 = [
-        "当前状态载荷",
-        "磁盘选歌设置",
-        "当前场景载荷",
-        "空载荷",
-    ]
-    开发调试载荷预设索引 = 0
-
-    def _读取开发磁盘载荷预设() -> dict:
-        候选路径列表 = [
-            os.path.join(_取运行根目录(), "json", "选歌设置.json"),
-            os.path.join(str(资源.get("根", "") or ""), "json", "选歌设置.json"),
-        ]
-        for 路径 in 候选路径列表:
-            try:
-                if 路径 and os.path.isfile(路径):
-                    with open(路径, "r", encoding="utf-8") as 文件:
-                        数据 = json.load(文件)
-                    if isinstance(数据, dict):
-                        return dict(数据)
-            except Exception:
-                continue
-        return {}
 
     def _取当前场景载荷() -> dict:
         try:
@@ -990,20 +997,7 @@ def 主函数():
         except Exception:
             return "投币"
 
-    def _取当前开发载荷预设名() -> str:
-        try:
-            return str(开发调试载荷预设列表[int(开发调试载荷预设索引)] or "当前状态载荷")
-        except Exception:
-            return "当前状态载荷"
-
     def _解析开发载荷预设() -> dict:
-        预设名 = _取当前开发载荷预设名()
-        if 预设名 == "空载荷":
-            return {}
-        if 预设名 == "当前场景载荷":
-            return _取当前场景载荷()
-        if 预设名 == "磁盘选歌设置":
-            return _读取开发磁盘载荷预设()
         try:
             值 = 状态.get("加载页_载荷", {})
             if isinstance(值, dict):
@@ -1011,6 +1005,27 @@ def 主函数():
         except Exception:
             pass
         return {}
+
+    def _取开发默认选歌载荷() -> dict:
+        if not bool(状态.get("开发默认选歌载荷启用", True)):
+            return {}
+        类型 = str(状态.get("开发默认选歌类型", "竞速") or "竞速").strip() or "竞速"
+        模式 = str(状态.get("开发默认选歌模式", "混音") or "混音").strip() or "混音"
+        return {
+            "选歌类型": str(类型),
+            "选歌模式": str(模式),
+            "类型": str(类型),
+            "模式": str(模式),
+            "大模式": str(类型),
+            "子模式": str(模式),
+            "songs子文件夹": str(类型),
+        }
+
+    def _合并开发默认选歌载荷(载荷: Optional[dict]) -> dict:
+        结果 = dict(载荷 or {}) if isinstance(载荷, dict) else {}
+        for 键, 值 in _取开发默认选歌载荷().items():
+            结果.setdefault(str(键), 值)
+        return 结果
 
     def _构建开发跳转载荷(目标场景名: str):
         目标场景名 = str(目标场景名 or "").strip()
@@ -1021,7 +1036,8 @@ def 主函数():
             载荷["启用GPU谱面管线"] = bool(状态.get("默认GPU谱面管线", True))
             return 载荷
         if 目标场景名 == "选歌":
-            return {"加载页_载荷": dict(预设载荷)} if bool(预设载荷) else None
+            选歌载荷 = _合并开发默认选歌载荷(预设载荷)
+            return {"加载页_载荷": dict(选歌载荷)} if bool(选歌载荷) else None
         return None
 
     def _重建当前场景并切换后端(目标后端: str):
@@ -1044,27 +1060,19 @@ def 主函数():
         except Exception:
             pass
 
-        状态["默认渲染后端"] = str(目标后端)
-        状态["默认GPU谱面管线"] = bool(目标后端 == "gpu")
-        os.environ["E5CM_RENDER_BACKEND"] = str(目标后端)
-        os.environ["E5CM_GPU_PIPELINE"] = (
-            "1" if bool(状态.get("默认GPU谱面管线", True)) else "0"
-        )
-        if isinstance(当前载荷, dict):
-            当前载荷["启用GPU谱面管线"] = bool(
-                状态.get("默认GPU谱面管线", True)
-            )
-
         显示后端 = 创建显示后端(
             目标尺寸,
             int(目标flags),
             窗口标题,
             偏好=str(目标后端),
         )
+        实际后端 = _同步渲染后端状态(显示后端, 当前载荷)
         屏幕 = 显示后端.取绘制屏幕()
         上下文["屏幕"] = 屏幕
         上下文["显示后端"] = 显示后端
-        上下文["渲染后端名称"] = str(getattr(显示后端, "名称", 目标后端) or 目标后端)
+        上下文["渲染后端名称"] = str(
+            getattr(显示后端, "名称", 实际后端) or 实际后端
+        )
         上下文["显示性能调试信息"] = bool(状态.get("显示性能调试信息", False))
         try:
             当前场景 = 场景表[当前场景名](上下文)
@@ -1074,7 +1082,7 @@ def 主函数():
             _安全进入场景(当前场景, None)
         _保存全局设置()
         _显示调试提示(
-            f"渲染后端已切换为：{'GPU' if 目标后端 == 'gpu' else 'CPU'}",
+            f"渲染后端已切换为：{_取渲染模式文本(显示后端)}",
             1.2,
         )
 
@@ -1087,13 +1095,33 @@ def 主函数():
             1.0,
         )
 
-    def _切换谱面开场动画():
-        状态["显示谱面开场动画"] = not bool(状态.get("显示谱面开场动画", True))
+    def _切换全局静音():
+        状态["全局静音"] = not bool(状态.get("全局静音", False))
+        _应用全局静音状态()
         _保存全局设置()
         _显示调试提示(
-            f"谱面开场动画已{'开启' if bool(状态['显示谱面开场动画']) else '关闭'}",
+            f"全局静音已{'开启' if bool(状态['全局静音']) else '关闭'}",
             1.0,
         )
+
+    def _切换开发默认选歌载荷():
+        当前启用 = bool(状态.get("开发默认选歌载荷启用", True))
+        状态["开发默认选歌载荷启用"] = not 当前启用
+        if bool(状态["开发默认选歌载荷启用"]):
+            状态["开发默认选歌类型"] = str(
+                状态.get("开发默认选歌类型", "竞速") or "竞速"
+            ).strip() or "竞速"
+            状态["开发默认选歌模式"] = str(
+                状态.get("开发默认选歌模式", "混音") or "混音"
+            ).strip() or "混音"
+        _保存全局设置()
+        if bool(状态["开发默认选歌载荷启用"]):
+            _显示调试提示(
+                f"选歌默认载荷：{状态['开发默认选歌类型']} / {状态['开发默认选歌模式']}",
+                1.0,
+            )
+        else:
+            _显示调试提示("选歌默认载荷已关闭", 1.0)
 
     def _执行开发场景跳转():
         nonlocal 当前场景名, 当前场景, 开发调试菜单开启
@@ -1110,22 +1138,27 @@ def 主函数():
         _显示调试提示(f"已切换到场景：{当前场景名}", 1.0)
 
     def _取开发调试菜单项() -> list[str]:
-        渲染文本 = "GPU" if str(状态.get("默认渲染后端", "gpu")) == "gpu" else "CPU"
+        渲染文本 = _取渲染模式文本(显示后端)
+        默认选歌文本 = (
+            f"{str(状态.get('开发默认选歌类型', '竞速') or '竞速')} / "
+            f"{str(状态.get('开发默认选歌模式', '混音') or '混音')}"
+            if bool(状态.get("开发默认选歌载荷启用", True))
+            else "关闭"
+        )
         return [
             f"渲染模式：{渲染文本}",
             f"性能调试信息：{'显示' if bool(状态.get('显示性能调试信息', False)) else '隐藏'}",
-            f"谱面开场动画：{'开启' if bool(状态.get('显示谱面开场动画', True)) else '关闭'}",
+            f"全局静音：{'开启' if bool(状态.get('全局静音', False)) else '关闭'}",
+            f"选歌默认载荷：{默认选歌文本}",
             f"跳转场景：{_取当前开发目标场景()}",
-            f"载荷预设：{_取当前开发载荷预设名()}",
             "立即切换场景",
-            "关闭菜单",
         ]
 
     def _执行开发调试菜单选项(索引: int, 方向: int = 0):
-        nonlocal 开发调试目标场景索引, 开发调试载荷预设索引, 开发调试菜单开启
+        nonlocal 开发调试目标场景索引
         索引 = int(max(0, min(len(_取开发调试菜单项()) - 1, int(索引))))
         if 索引 == 0:
-            当前模式 = str(状态.get("默认渲染后端", "gpu") or "gpu")
+            当前模式 = _取当前实际渲染后端偏好()
             目标模式 = "software" if 当前模式 == "gpu" else "gpu"
             _重建当前场景并切换后端(目标模式)
             return
@@ -1133,25 +1166,19 @@ def 主函数():
             _切换性能调试信息显示()
             return
         if 索引 == 2:
-            _切换谱面开场动画()
+            _切换全局静音()
             return
         if 索引 == 3:
+            _切换开发默认选歌载荷()
+            return
+        if 索引 == 4:
             步进 = int(方向) if int(方向) != 0 else 1
             开发调试目标场景索引 = (
                 int(开发调试目标场景索引) + 步进
             ) % len(开发调试目标场景列表)
             return
-        if 索引 == 4:
-            步进 = int(方向) if int(方向) != 0 else 1
-            开发调试载荷预设索引 = (
-                int(开发调试载荷预设索引) + 步进
-            ) % len(开发调试载荷预设列表)
-            return
         if 索引 == 5:
             _执行开发场景跳转()
-            return
-        if 索引 == 6:
-            开发调试菜单开启 = False
             return
 
     def _全局投币一次():
@@ -1364,7 +1391,7 @@ def 主函数():
             小字 = 上下文["字体"]["小字"]
             标题面 = 标题字.render("开发调试菜单", True, (245, 248, 255))
             屏幕面.blit(标题面, (面板.x + 24, 面板.y + 2))
-            副标题面 = 小字.render("F10 / DEV MENU", True, (120, 220, 255))
+            副标题面 = 小字.render("CTRL+F10 / DEV MENU", True, (120, 220, 255))
             try:
                 副标题面.set_alpha(170)
             except Exception:
@@ -1430,8 +1457,8 @@ def 主函数():
                 开发调试菜单项矩形.append(行rect)
 
             提示行 = [
-                "左右切换选项值 / 回车执行 / ESC或F10关闭",
-                "场景跳转使用当前预设载荷；谱面开场动画作用于加载页和谱面播放器",
+                "左右切换选项值 / 回车执行 / ESC或Ctrl+F10关闭",
+                "选歌跳转会给空载荷补默认模式；加载页和谱面播放器沿用当前状态载荷",
             ]
             提示y = int(选项起y + len(菜单项) * (按钮高 + 按钮间距) + 12)
             for 文本 in 提示行:
@@ -1516,7 +1543,11 @@ def 主函数():
 
         菜单项 = _取开发调试菜单项()
         if 事件.type == pygame.KEYDOWN:
-            if 事件.key in (pygame.K_ESCAPE, pygame.K_F10):
+            mod = int(getattr(事件, "mod", 0) or 0)
+            ctrl_f10 = bool(
+                事件.key == pygame.K_F10 and (mod & pygame.KMOD_CTRL)
+            )
+            if 事件.key == pygame.K_ESCAPE or ctrl_f10:
                 开发调试菜单开启 = False
                 return True
             if 事件.key in (pygame.K_UP, pygame.K_KP7, pygame.K_LEFT, pygame.K_KP1):
@@ -1643,13 +1674,15 @@ def 主函数():
                 if 事件.type == pygame.QUIT:
                     _退出程序()
 
-                if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F10:
-                    开发调试菜单开启 = not bool(开发调试菜单开启)
-                    if bool(开发调试菜单开启):
-                        非游戏菜单开启 = False
-                        非游戏菜单索引 = 0
-                        投币快捷键录入中 = False
-                    continue
+                if 事件.type == pygame.KEYDOWN:
+                    mod = int(getattr(事件, "mod", 0) or 0)
+                    if 事件.key == pygame.K_F10 and (mod & pygame.KMOD_CTRL):
+                        开发调试菜单开启 = not bool(开发调试菜单开启)
+                        if bool(开发调试菜单开启):
+                            非游戏菜单开启 = False
+                            非游戏菜单索引 = 0
+                            投币快捷键录入中 = False
+                        continue
 
                 if _处理开发调试菜单按键(事件):
                     continue

@@ -105,6 +105,7 @@ class _皮肤包:
         self.key: Optional[_贴图集] = None
         self.key_effect: Optional[_贴图集] = None
         self.number: Optional[_贴图集] = None
+        self.arrow_hold设置: Dict[str, Any] = {}
 
         self.缺失分包: List[str] = []
         self.加载告警: List[str] = []
@@ -120,6 +121,7 @@ class _皮肤包:
         self.key = None
         self.key_effect = None
         self.number = None
+        self.arrow_hold设置 = {}
         self.缺失分包 = []
         self.加载告警 = []
 
@@ -130,6 +132,10 @@ class _皮肤包:
 
         if self.源类型 == "dir":
             self.arrow = self._尝试读贴图集_目录(self.根路径, "arrow")
+            self.arrow_hold设置 = self._尝试读可选json_路径(
+                os.path.join(self.根路径, "arrow", "hold.json"),
+                "arrow/hold.json",
+            )
             self.key = self._尝试读贴图集_目录(self.根路径, "key")
             self.key_effect = self._尝试读贴图集_目录(self.根路径, "key_effect")
             self.blood_bar = self._尝试读固定贴图集(
@@ -154,6 +160,11 @@ class _皮肤包:
         with zipfile.ZipFile(self.压缩包路径, "r") as 压缩包:
             名单 = set(压缩包.namelist())
             self.arrow = self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "arrow")
+            self.arrow_hold设置 = self._尝试读可选json_zip(
+                压缩包,
+                f"{self.压缩包前缀}arrow/hold.json",
+                "arrow/hold.json",
+            )
             self.key = self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "key")
             self.key_effect = self._尝试读贴图集_zip(
                 压缩包, self.压缩包前缀, "key_effect"
@@ -329,6 +340,33 @@ class _皮肤包:
     def _尝试读贴图集_目录(self, 根: str, 子夹: str) -> Optional[_贴图集]:
         return self._尝试读贴图集_路径(os.path.join(根, 子夹), 子夹)
 
+    def _尝试读可选json_路径(self, 文件路径: str, 标识: str) -> Dict[str, Any]:
+        if not os.path.isfile(文件路径):
+            return {}
+        try:
+            with open(文件路径, "rb") as f:
+                数据 = self._安全读json(f.read())
+            return 数据 if isinstance(数据, dict) else {}
+        except Exception as 异常:
+            self.加载告警.append(f"{标识}加载失败：{type(异常).__name__} {异常}")
+            return {}
+
+    def _尝试读可选json_zip(
+        self,
+        压缩包: zipfile.ZipFile,
+        文件路径: str,
+        标识: str,
+    ) -> Dict[str, Any]:
+        try:
+            with 压缩包.open(文件路径, "r") as f:
+                数据 = self._安全读json(f.read())
+            return 数据 if isinstance(数据, dict) else {}
+        except KeyError:
+            return {}
+        except Exception as 异常:
+            self.加载告警.append(f"{标识}加载失败：{type(异常).__name__} {异常}")
+            return {}
+
     def _查找固定贴图集目录(self, 子夹: str) -> str:
         相对子路径 = os.path.join("UI-img", "游戏界面", "血条", 子夹)
         起点 = str(self.根路径 or "").strip()
@@ -436,7 +474,6 @@ class 谱面渲染器:
         self._上次显示分数: Optional[int] = None
 
         self._缩放缓存: Dict[Tuple[str, int, int], pygame.Surface] = {}
-        self._中心带边界缓存: Dict[Tuple[str, int, int], Tuple[int, int]] = {}
 
         # ✅ 固定资源缓存（board.png / 段位等独立文件）
         self._固定图缓存: Dict[str, Tuple[str, float, Optional[pygame.Surface]]] = {}
@@ -1211,6 +1248,59 @@ class 谱面渲染器:
         )
         return 结果矩形.clip(屏幕矩形)
 
+    def _应用濒死灰化效果(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+        灰化矩形 = self._取濒死灰化矩形(屏幕, 输入)
+        if (
+            (not isinstance(灰化矩形, pygame.Rect))
+            or 灰化矩形.w <= 1
+            or 灰化矩形.h <= 1
+        ):
+            return
+
+        需要重建缓存 = False
+
+        if (not hasattr(self, "_濒死灰化乘算层缓存")) or (
+            not isinstance(getattr(self, "_濒死灰化乘算层缓存"), pygame.Surface)
+        ):
+            需要重建缓存 = True
+        elif self._濒死灰化乘算层缓存.get_size() != (
+            int(灰化矩形.w),
+            int(灰化矩形.h),
+        ):
+            需要重建缓存 = True
+
+        if (not hasattr(self, "_濒死灰化雾层缓存")) or (
+            not isinstance(getattr(self, "_濒死灰化雾层缓存"), pygame.Surface)
+        ):
+            需要重建缓存 = True
+        elif self._濒死灰化雾层缓存.get_size() != (
+            int(灰化矩形.w),
+            int(灰化矩形.h),
+        ):
+            需要重建缓存 = True
+
+        if 需要重建缓存:
+            self._濒死灰化乘算层缓存 = pygame.Surface(
+                (int(灰化矩形.w), int(灰化矩形.h))
+            ).convert()
+            self._濒死灰化雾层缓存 = pygame.Surface(
+                (int(灰化矩形.w), int(灰化矩形.h)),
+                pygame.SRCALPHA,
+            )
+
+        self._濒死灰化乘算层缓存.fill((150, 150, 150))
+        屏幕.blit(
+            self._濒死灰化乘算层缓存,
+            灰化矩形.topleft,
+            special_flags=pygame.BLEND_RGB_MULT,
+        )
+
+        self._濒死灰化雾层缓存.fill((78, 78, 78, 42))
+        屏幕.blit(
+            self._濒死灰化雾层缓存,
+            灰化矩形.topleft,
+        )
+
     def 渲染(
         self,
         屏幕: pygame.Surface,
@@ -1246,64 +1336,10 @@ class 谱面渲染器:
 
                 灰化开始秒 = time.perf_counter()
                 # 只对音符活动区域做“伪灰化”，不要整屏 grayscale
-                灰化矩形 = self._取濒死灰化矩形(屏幕, 输入)
-                if (
-                    isinstance(灰化矩形, pygame.Rect)
-                    and 灰化矩形.w > 1
-                    and 灰化矩形.h > 1
-                ):
-                    try:
-                        需要重建缓存 = False
-
-                        if (not hasattr(self, "_濒死灰化乘算层缓存")) or (
-                            not isinstance(
-                                getattr(self, "_濒死灰化乘算层缓存"), pygame.Surface
-                            )
-                        ):
-                            需要重建缓存 = True
-                        else:
-                            if self._濒死灰化乘算层缓存.get_size() != (
-                                int(灰化矩形.w),
-                                int(灰化矩形.h),
-                            ):
-                                需要重建缓存 = True
-
-                        if (not hasattr(self, "_濒死灰化雾层缓存")) or (
-                            not isinstance(
-                                getattr(self, "_濒死灰化雾层缓存"), pygame.Surface
-                            )
-                        ):
-                            需要重建缓存 = True
-                        else:
-                            if self._濒死灰化雾层缓存.get_size() != (
-                                int(灰化矩形.w),
-                                int(灰化矩形.h),
-                            ):
-                                需要重建缓存 = True
-
-                        if 需要重建缓存:
-                            self._濒死灰化乘算层缓存 = pygame.Surface(
-                                (int(灰化矩形.w), int(灰化矩形.h))
-                            ).convert()
-                            self._濒死灰化雾层缓存 = pygame.Surface(
-                                (int(灰化矩形.w), int(灰化矩形.h)),
-                                pygame.SRCALPHA,
-                            )
-
-                        self._濒死灰化乘算层缓存.fill((150, 150, 150))
-                        屏幕.blit(
-                            self._濒死灰化乘算层缓存,
-                            灰化矩形.topleft,
-                            special_flags=pygame.BLEND_RGB_MULT,
-                        )
-
-                        self._濒死灰化雾层缓存.fill((78, 78, 78, 42))
-                        屏幕.blit(
-                            self._濒死灰化雾层缓存,
-                            灰化矩形.topleft,
-                        )
-                    except Exception:
-                        pass
+                try:
+                    self._应用濒死灰化效果(屏幕, 输入)
+                except Exception:
+                    pass
                 软件分项统计["renderer_other_ms"] += (
                     time.perf_counter() - 灰化开始秒
                 ) * 1000.0
@@ -1903,6 +1939,71 @@ class 谱面渲染器:
     def 取GPU判定区数据(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
     ) -> List[Dict[str, Any]]:
+        布局 = self._确保布局管理器()
+        if 布局 is not None:
+            try:
+                if 布局.是否存在控件("判定区组"):
+                    上下文 = self._构建notes装饰上下文(屏幕, 输入)
+                    构建清单 = getattr(布局, "_构建渲染清单", None)
+                    if isinstance(上下文, dict) and callable(构建清单):
+                        项列表 = 构建清单(
+                            屏幕.get_size(), 上下文, 仅绘制根id="判定区组"
+                        )
+                        if isinstance(项列表, list):
+                            结果: List[Dict[str, Any]] = []
+                            for 序号, 项 in enumerate(项列表):
+                                if not isinstance(项, dict):
+                                    continue
+                                项id = str(项.get("id") or "").strip()
+                                矩形 = 项.get("rect")
+                                if not isinstance(矩形, pygame.Rect):
+                                    continue
+
+                                文件名 = ""
+                                轨道 = -1
+                                按高缩放 = False
+                                if 项id == "判定手左":
+                                    文件名 = "key_ll.png"
+                                    轨道 = 0
+                                    按高缩放 = True
+                                elif 项id == "判定手右":
+                                    文件名 = "key_rr.png"
+                                    轨道 = 4
+                                    按高缩放 = True
+                                elif 项id.startswith("判定区_"):
+                                    try:
+                                        轨道 = int(项id.rsplit("_", 1)[1])
+                                    except Exception:
+                                        轨道 = -1
+                                    if 0 <= int(轨道) < 5:
+                                        文件名 = (
+                                            f"key_{self._轨道到key方位码(int(轨道))}.png"
+                                        )
+                                if not 文件名:
+                                    continue
+
+                                结果.append(
+                                    {
+                                        "id": str(项id),
+                                        "轨道": int(轨道),
+                                        "rect": 矩形.copy(),
+                                        "x": int(矩形.centerx),
+                                        "y": int(矩形.centery),
+                                        "w": int(max(2, 矩形.w)),
+                                        "h": int(max(2, 矩形.h)),
+                                        "基础宽": int(max(2, 矩形.w)),
+                                        "基础高": int(max(2, 矩形.h)),
+                                        "文件名": str(文件名),
+                                        "按高缩放": bool(按高缩放),
+                                        "z": int(_取数(项.get("z"), 0)),
+                                        "_序号": int(序号),
+                                    }
+                                )
+                            if 结果:
+                                return 结果
+            except Exception:
+                pass
+
         参数 = self._取游戏区参数()
         游戏缩放 = float(参数.get("缩放", 1.0))
         y偏移 = float(参数.get("y偏移", -12.0))
@@ -1963,12 +2064,47 @@ class 谱面渲染器:
             判定区高度列表.append(int(max(12, round(float(基础宽度) * 0.54))))
 
         结果: List[Dict[str, Any]] = []
+        if len(轨道中心列表) >= 5 and len(判定线y列表) >= 5:
+            左x = int(轨道中心列表[0])
+            右x = int(轨道中心列表[4])
+            参考x = int(轨道中心列表[1] if len(轨道中心列表) >= 2 else 左x)
+            间距 = int(max(8, abs(int(参考x) - int(左x))))
+            手宽 = int(
+                max(
+                    16,
+                    int(判定区宽度列表[0]),
+                    int(判定区宽度列表[4]),
+                )
+            )
+            for 序号, (项id, 文件名, x中心, y中心, 轨道, z值) in enumerate(
+                (
+                    ("判定手左", "key_ll.png", 左x - 间距, 判定线y列表[0], 0, 9),
+                    ("判定手右", "key_rr.png", 右x + 间距, 判定线y列表[4], 4, 9),
+                )
+            ):
+                结果.append(
+                    {
+                        "id": str(项id),
+                        "轨道": int(轨道),
+                        "x": int(x中心),
+                        "y": int(y中心),
+                        "w": int(手宽),
+                        "h": int(手宽),
+                        "基础宽": int(手宽),
+                        "基础高": int(手宽),
+                        "文件名": str(文件名),
+                        "按高缩放": True,
+                        "z": int(z值),
+                        "_序号": int(序号),
+                    }
+                )
         for i in range(5):
             基宽 = int(max(12, 判定区宽度列表[i]))
             基高 = int(max(10, 判定区高度列表[i]))
             缩放值 = float(max(0.7, min(1.15, float(缩放表[i]))))
             结果.append(
                 {
+                    "id": f"判定区_{int(i)}",
                     "轨道": int(i),
                     "x": int(轨道中心列表[i]),
                     "y": int(判定线y列表[i]),
@@ -1977,6 +2113,10 @@ class 谱面渲染器:
                     "基础宽": int(基宽),
                     "基础高": int(基高),
                     "缩放": float(缩放值),
+                    "文件名": f"key_{self._轨道到key方位码(int(i))}.png",
+                    "按高缩放": False,
+                    "z": 9999 if int(i) == 2 else (999 if int(i) in (1, 3) else 99),
+                    "_序号": int(10 + i),
                 }
             )
         return 结果
@@ -2275,6 +2415,154 @@ class 谱面渲染器:
         比例 = float(目标高) / float(max(1, 原图.get_height()))
         目标宽 = int(max(2, int(原图.get_width() * 比例)))
         return self._取缩放图(f"{分组键}_按高", 原图, 目标宽)
+
+    def _取指定尺寸缩放图(
+        self,
+        分组键: str,
+        原图: pygame.Surface,
+        目标宽: int,
+        目标高: int,
+    ) -> pygame.Surface:
+        目标宽 = int(max(2, 目标宽))
+        目标高 = int(max(2, 目标高))
+        缓存键 = (str(分组键), int(目标宽), int(目标高))
+        if 缓存键 in self._缩放缓存:
+            return self._缩放缓存[缓存键]
+        图2 = pygame.transform.smoothscale(原图, (目标宽, 目标高))
+        if len(self._缩放缓存) >= 2048:
+            self._缩放缓存.clear()
+        self._缩放缓存[缓存键] = 图2
+        return 图2
+
+    def _取hold身体模式(self) -> str:
+        皮肤包 = getattr(self, "_皮肤包", None)
+        设置 = getattr(皮肤包, "arrow_hold设置", {}) if 皮肤包 is not None else {}
+        if not isinstance(设置, dict):
+            设置 = {}
+        模式 = str(设置.get("body_mode", "repeat") or "repeat").strip().lower()
+        if 模式 in ("stretch", "scale", "拉伸"):
+            return "stretch"
+        return "repeat"
+
+    @staticmethod
+    def _取图块字节(图: pygame.Surface, y: int, 高: int = 1) -> bytes:
+        if 图 is None or int(图.get_width()) <= 0 or int(图.get_height()) <= 0:
+            return b""
+        高 = int(max(1, 高))
+        y = int(max(0, min(int(y), int(图.get_height()) - 高)))
+        try:
+            return pygame.image.tostring(
+                图.subsurface((0, y, int(图.get_width()), 高)),
+                "RGBA",
+            )
+        except Exception:
+            return b""
+
+    def _计算hold接缝补丁高(
+        self,
+        上图: Optional[pygame.Surface],
+        下图: Optional[pygame.Surface],
+        *,
+        上边: str = "bottom",
+        下边: str = "top",
+        最大像素: int = 1,
+    ) -> int:
+        if 上图 is None or 下图 is None:
+            return 0
+        可用高 = min(
+            int(max(0, 上图.get_height())),
+            int(max(0, 下图.get_height())),
+            int(max(1, 最大像素)),
+        )
+        需要补丁高 = 0
+        for 偏移 in range(可用高):
+            上y = (
+                int(上图.get_height()) - 1 - 偏移
+                if str(上边) == "bottom"
+                else 偏移
+            )
+            下y = 0 if str(下边) == "top" else int(下图.get_height()) - 1 - 偏移
+            if self._取图块字节(上图, 上y, 1) != self._取图块字节(下图, 下y, 1):
+                需要补丁高 = 偏移 + 1
+        return int(max(0, 需要补丁高))
+
+    @staticmethod
+    def _覆盖图块行(
+        目标图: Optional[pygame.Surface],
+        源图: Optional[pygame.Surface],
+        目标y: int,
+        源y: int,
+        行数: int,
+    ):
+        if 目标图 is None or 源图 is None:
+            return
+        行数 = int(max(0, 行数))
+        if 行数 <= 0:
+            return
+        宽 = int(min(目标图.get_width(), 源图.get_width()))
+        if 宽 <= 0:
+            return
+        目标y = int(max(0, min(int(目标y), int(目标图.get_height()) - 行数)))
+        源y = int(max(0, min(int(源y), int(源图.get_height()) - 行数)))
+        try:
+            补丁 = 源图.subsurface((0, 源y, 宽, 行数)).copy()
+            目标图.blit(补丁, (0, 目标y))
+        except Exception:
+            return
+
+    def _取hold接缝优化图(
+        self,
+        图集: Optional[_贴图集],
+        文件名: str,
+        目标宽: int,
+    ) -> Optional[pygame.Surface]:
+        if 图集 is None:
+            return None
+        原图 = 图集.取(str(文件名))
+        if 原图 is None:
+            return None
+
+        目标宽 = int(max(2, 目标宽))
+        if not str(文件名).startswith(("arrow_repeat_", "arrow_mask_", "arrow_tail_")):
+            return self._取缩放图(f"hold:{文件名}", 原图, 目标宽)
+
+        缓存键 = (f"hold_seam_fix:v3:{文件名}", int(目标宽), 0)
+        if 缓存键 in self._缩放缓存:
+            return self._缩放缓存[缓存键]
+
+        结果图 = self._取缩放图(f"hold:{文件名}", 原图, 目标宽).copy()
+        后缀 = str(文件名).split("_", 2)[-1]
+        repeat名 = f"arrow_repeat_{后缀}"
+
+        if str(文件名).startswith("arrow_repeat_"):
+            补丁高 = self._计算hold接缝补丁高(结果图, 结果图)
+            self._覆盖图块行(结果图, 结果图, int(结果图.get_height()) - 补丁高, 0, 补丁高)
+        else:
+            repeat图 = self._取hold接缝优化图(图集, repeat名, 目标宽)
+            if repeat图 is not None:
+                if str(文件名).startswith("arrow_mask_"):
+                    补丁高 = self._计算hold接缝补丁高(结果图, repeat图)
+                    self._覆盖图块行(
+                        结果图,
+                        repeat图,
+                        int(结果图.get_height()) - 补丁高,
+                        0,
+                        补丁高,
+                    )
+                elif str(文件名).startswith("arrow_tail_"):
+                    补丁高 = self._计算hold接缝补丁高(repeat图, 结果图)
+                    self._覆盖图块行(
+                        结果图,
+                        repeat图,
+                        0,
+                        int(repeat图.get_height()) - 补丁高,
+                        补丁高,
+                    )
+
+        if len(self._缩放缓存) >= 2048:
+            self._缩放缓存.clear()
+        self._缩放缓存[缓存键] = 结果图
+        return 结果图
 
     @staticmethod
     def _上下文签名值(值: Any) -> Any:
@@ -2707,37 +2995,6 @@ class 谱面渲染器:
                 向右=bool(int(getattr(输入, "玩家序号", 1) or 1) != 2),
                 缓存键=f"血条暴走条纹_{动画名}",
             )
-
-    def _取中心带不透明y边界(self, 缓存键: str, 图: pygame.Surface) -> Tuple[int, int]:
-        宽 = int(max(1, 图.get_width()))
-        高 = int(max(1, 图.get_height()))
-        key = (str(缓存键), 宽, 高)
-        if key in self._中心带边界缓存:
-            return self._中心带边界缓存[key]
-
-        try:
-            alpha = pygame.surfarray.array_alpha(图)
-        except Exception:
-            结果 = (0, max(0, 高 - 1))
-            self._中心带边界缓存[key] = 结果
-            return 结果
-
-        起列 = int(max(0, min(宽 - 1, int(宽 * 0.48))))
-        止列 = int(max(起列 + 1, min(宽, int(宽 * 0.52))))
-        顶列表: List[int] = []
-        底列表: List[int] = []
-        for x in range(起列, 止列):
-            命中行 = [y for y in range(高) if int(alpha[x, y]) > 10]
-            if 命中行:
-                顶列表.append(int(命中行[0]))
-                底列表.append(int(命中行[-1]))
-
-        if (not 顶列表) or (not 底列表):
-            结果 = (0, max(0, 高 - 1))
-        else:
-            结果 = (int(sum(顶列表) / len(顶列表)), int(sum(底列表) / len(底列表)))
-        self._中心带边界缓存[key] = 结果
-        return 结果
 
     # ---------------- blood_bar ----------------
 
@@ -3424,6 +3681,14 @@ class 谱面渲染器:
             return None, 计数动画矩形.copy()
 
     def _取渲染平滑谱面秒(self, 目标谱面秒: float) -> float:
+        if not bool(getattr(self, "_启用渲染平滑谱面秒", False)):
+            try:
+                self._渲染平滑谱面秒 = float(目标谱面秒)
+                self._渲染平滑上次系统秒 = float(pygame.time.get_ticks()) / 1000.0
+            except Exception:
+                pass
+            return float(目标谱面秒)
+
         try:
             当前系统秒 = float(pygame.time.get_ticks()) / 1000.0
         except Exception:
@@ -4235,167 +4500,10 @@ class 谱面渲染器:
         身图 = 图集.取(身名)
         尾图 = 图集.取(尾名)
 
-        头2 = (
-            self._取缩放图(f"arrow:{头名}:{箭头宽}", 头图, 箭头宽)
-            if 头图 is not None
-            else None
-        )
-        罩2 = (
-            self._取缩放图(f"arrow:{罩名}:{箭头宽}", 罩图, 箭头宽)
-            if 罩图 is not None
-            else None
-        )
-        身2 = (
-            self._取缩放图(f"arrow:{身名}:{箭头宽}", 身图, 箭头宽)
-            if 身图 is not None
-            else None
-        )
-        尾2 = (
-            self._取缩放图(f"arrow:{尾名}:{箭头宽}", 尾图, 箭头宽)
-            if 尾图 is not None
-            else None
-        )
-        def _取部件度量(缓存键: str, 图: Optional[pygame.Surface]) -> Optional[Dict[str, float]]:
-            if 图 is None:
-                return None
-            顶像素, 底像素 = self._取中心带不透明y边界(str(缓存键), 图)
-            图高 = int(max(1, 图.get_height()))
-            return {
-                "top_px": float(int(max(0, min(图高 - 1, 顶像素)))),
-                "bottom_px": float(int(max(0, min(图高 - 1, 底像素)))),
-                "top_rel": float(-图高 * 0.5 + int(max(0, min(图高 - 1, 顶像素)))),
-                "bottom_rel": float(-图高 * 0.5 + int(max(0, min(图高 - 1, 底像素)))),
-                "opaque_h": float(
-                    max(
-                        1,
-                        int(max(0, min(图高 - 1, 底像素)))
-                        - int(max(0, min(图高 - 1, 顶像素)))
-                        + 1,
-                    )
-                ),
-            }
-
-        def _绘制拼接片段(
-            图: Optional[pygame.Surface],
-            目标顶y: float,
-            源顶px: float,
-            高度px: float,
-        ):
-            if 图 is None or float(高度px) <= 0.0:
-                return
-            片段顶 = float(目标顶y)
-            片段底 = float(目标顶y) + float(高度px)
-            if 片段底 <= float(上边界) or 片段顶 >= float(下边界):
-                return
-            可见顶 = float(max(float(片段顶), float(上边界)))
-            可见底 = float(min(float(片段底), float(下边界)))
-            if 可见底 <= 可见顶:
-                return
-            源起点 = float(源顶px) + float(max(0.0, 可见顶 - 片段顶))
-            源y = int(max(0, min(int(图.get_height()) - 1, int(math.floor(源起点)))))
-            源高 = int(
-                max(
-                    1,
-                    min(
-                        int(图.get_height()) - 源y,
-                        int(math.ceil(float(可见底 - 可见顶))),
-                    ),
-                )
-            )
-            屏幕.blit(
-                图,
-                (int(x中心 - 图.get_width() // 2), int(round(可见顶))),
-                area=pygame.Rect(0, int(源y), int(图.get_width()), int(源高)),
-            )
-
-        def _绘制平铺片段(
-            图: Optional[pygame.Surface],
-            目标顶y: float,
-            高度px: float,
-            源顶px: float,
-            源高px: float,
-            缓存键: str,
-        ):
-            if 图 is None or float(高度px) <= 0.0 or float(源高px) <= 0.0:
-                return
-
-            目标顶 = float(目标顶y)
-            目标高 = int(max(1, round(float(高度px))))
-            目标矩形 = pygame.Rect(
-                int(x中心 - 图.get_width() // 2),
-                int(round(目标顶)),
-                int(图.get_width()),
-                int(目标高),
-            )
-            可见矩形 = 目标矩形.clip(
-                pygame.Rect(
-                    0,
-                    int(上边界),
-                    int(屏幕.get_width()),
-                    int(max(0, 下边界 - 上边界)),
-                )
-            )
-            if 可见矩形.w <= 0 or 可见矩形.h <= 0:
-                return
-
-            源顶 = int(max(0, min(int(图.get_height()) - 1, round(float(源顶px)))))
-            源高 = int(
-                max(
-                    1,
-                    min(
-                        int(图.get_height()) - int(源顶),
-                        round(float(源高px)),
-                    ),
-                )
-            )
-            if 源高 <= 0:
-                return
-
-            条图缓存键 = (
-                f"hold_repeat_strip:{缓存键}:{int(图.get_width())}:{int(图.get_height())}:"
-                f"{int(源顶)}:{int(源高)}"
-            )
-            条图 = self._缩放缓存.get(条图缓存键)
-            if 条图 is None or not isinstance(条图, pygame.Surface):
-                条图 = 图.subsurface(
-                    pygame.Rect(0, int(源顶), int(图.get_width()), int(源高))
-                ).copy()
-                self._缩放缓存[条图缓存键] = 条图
-
-            当前顶 = float(目标顶)
-            目标底 = float(目标矩形.bottom)
-            可见顶 = float(可见矩形.top)
-            可见底 = float(可见矩形.bottom)
-            while 当前顶 < 目标底 - 0.01:
-                当前片段高 = float(min(float(源高), 目标底 - 当前顶))
-                当前底 = float(当前顶 + 当前片段高)
-                if 当前底 > 可见顶 and 当前顶 < 可见底:
-                    绘制顶 = float(max(当前顶, 可见顶))
-                    绘制底 = float(min(当前底, 可见底))
-                    源偏移 = int(max(0, math.floor(float(绘制顶 - 当前顶))))
-                    绘制高 = int(
-                        max(
-                            1,
-                            min(
-                                int(条图.get_height()) - 源偏移,
-                                int(math.ceil(float(绘制底 - 绘制顶))),
-                            ),
-                        )
-                    )
-                    屏幕.blit(
-                        条图,
-                        (int(x中心 - 条图.get_width() // 2), int(round(绘制顶))),
-                        area=pygame.Rect(
-                            0, int(源偏移), int(条图.get_width()), int(绘制高)
-                        ),
-                    )
-                当前顶 += float(源高)
-
-        头度量 = _取部件度量(f"hold:{头名}:{箭头宽}", 头2)
-        脖子度量 = _取部件度量(f"hold:{罩名}:{箭头宽}", 罩2)
-        身体度量 = _取部件度量(f"hold:{身名}:{箭头宽}", 身2)
-        尾巴度量 = _取部件度量(f"hold:{尾名}:{箭头宽}", 尾2)
-
+        头2 = self._取hold接缝优化图(图集, 头名, 箭头宽) if 头图 is not None else None
+        罩2 = self._取hold接缝优化图(图集, 罩名, 箭头宽) if 罩图 is not None else None
+        身2 = self._取hold接缝优化图(图集, 身名, 箭头宽) if 身图 is not None else None
+        尾2 = self._取hold接缝优化图(图集, 尾名, 箭头宽) if 尾图 is not None else None
         头中心y = float(y开始)
         尾巴中心y = float(y结束)
         目标判定y = float(int(判定线y))
@@ -4406,75 +4514,106 @@ class 谱面渲染器:
             if 头中心y < 目标判定y:
                 头中心y = float(目标判定y)
 
-        箭头脖子重叠偏移量 = 0.0
-        if 头度量 is not None and 脖子度量 is not None:
-            箭头脖子重叠偏移量 = float(
-                max(0.0, float(头度量["bottom_rel"]) - float(脖子度量["top_rel"]))
-            )
-        拼接偏移量 = 0.0
+        首块图 = (罩2 if bool(是否绘制头) else 身2) or 身2 or 尾2
+        中块图 = 身2 or 罩2 or 尾2
+        末块图 = 尾2 or 身2 or 罩2
+        参考图 = 中块图 or 首块图 or 末块图
+        身体模式 = self._取hold身体模式()
 
-        脖子中心y = float(头中心y)
-        if 头度量 is not None and 脖子度量 is not None:
-            头下边缘y = float(头中心y) + float(头度量["bottom_rel"])
-            脖子中心y = float(
-                头下边缘y
-                - float(脖子度量["top_rel"])
-                - float(箭头脖子重叠偏移量)
-            )
+        if (
+            参考图 is not None
+            and float(尾巴中心y) > float(头中心y)
+            and int(参考图.get_height()) > 0
+        ):
+            块步进 = float(max(1, int(参考图.get_height())))
+            首块中心y = float(头中心y) + float(块步进) * 0.5
+            首块顶y = int(float(首块中心y) - float(首块图.get_height()) * 0.5) if 首块图 is not None else int(头中心y)
+            if bool(是否绘制头) and 首块图 is 罩2 and 头2 is not None:
+                首块顶y = int(float(头中心y) - float(首块图.get_height()) * 0.5)
+            if (
+                身体模式 == "stretch"
+                and 首块图 is not None
+                and 中块图 is not None
+                and 末块图 is not None
+                and float(尾巴中心y) > float(首块顶y + 首块图.get_height()) + 0.01
+            ):
+                if (
+                    float(首块顶y + 首块图.get_height()) >= float(上边界)
+                    and float(首块顶y) <= float(下边界)
+                ):
+                    屏幕.blit(
+                        首块图,
+                        (int(x中心 - 首块图.get_width() // 2), int(首块顶y)),
+                    )
 
-        if 脖子度量 is not None:
-            脖子下拼接y = float(脖子中心y) + float(脖子度量["bottom_rel"])
-        elif 头度量 is not None:
-            脖子下拼接y = float(头中心y) + float(头度量["bottom_rel"])
-        else:
-            脖子下拼接y = float(头中心y)
+                身体顶y = float(首块顶y + 首块图.get_height())
+                身体底y = float(尾巴中心y)
+                if float(身体底y) > float(身体顶y) + 0.01:
+                    身体高 = int(max(1, round(float(身体底y - 身体顶y))))
+                    拉伸身图 = self._取指定尺寸缩放图(
+                        f"hold_stretch:{身名}:{箭头宽}",
+                        中块图,
+                        int(中块图.get_width()),
+                        int(身体高),
+                    )
+                    if (
+                        float(身体顶y) < float(下边界)
+                        and float(身体顶y + 身体高) > float(上边界)
+                    ):
+                        屏幕.blit(
+                            拉伸身图,
+                            (
+                                int(x中心 - 拉伸身图.get_width() // 2),
+                                int(身体顶y),
+                            ),
+                        )
 
-        if 尾巴度量 is not None:
-            尾巴上拼接y = float(尾巴中心y) + float(尾巴度量["top_rel"])
-        else:
-            尾巴上拼接y = float(尾巴中心y)
-
-        最小尾巴上拼接y = float(脖子下拼接y) + float(拼接偏移量)
-        if (not bool(是否命中hold)) and 尾巴上拼接y < 最小尾巴上拼接y:
-            if 尾巴度量 is not None:
-                尾巴中心y = float(最小尾巴上拼接y) - float(尾巴度量["top_rel"])
-                尾巴上拼接y = float(最小尾巴上拼接y)
+                末块顶y = int(float(尾巴中心y))
+                if (
+                    float(末块顶y + 末块图.get_height()) >= float(上边界)
+                    and float(末块顶y) <= float(下边界)
+                ):
+                    屏幕.blit(
+                        末块图,
+                        (int(x中心 - 末块图.get_width() // 2), int(末块顶y)),
+                    )
             else:
-                尾巴上拼接y = float(最小尾巴上拼接y)
-                尾巴中心y = float(尾巴上拼接y)
+                块列表: List[Tuple[pygame.Surface, int]] = []
+                if 首块图 is not None:
+                    块列表.append((首块图, int(首块顶y)))
 
-        身体起始拼接y = float(脖子下拼接y) + float(拼接偏移量)
-        身体结束拼接y = float(尾巴上拼接y) - float(拼接偏移量)
+                当前顶y = int(首块顶y + (首块图.get_height() if 首块图 is not None else 0))
+                中块高 = int(max(1, 中块图.get_height())) if 中块图 is not None else 0
+                while 中块图 is not None and int(当前顶y + 中块高) <= int(float(尾巴中心y)):
+                    块列表.append((中块图, int(当前顶y)))
+                    当前顶y += int(中块高)
 
-        if 身2 is not None and 身体度量 is not None and 身体结束拼接y > 身体起始拼接y:
-            身体顶部像素 = float(身体度量["top_px"])
-            身体平铺高 = float(max(1.0, float(身体度量["opaque_h"])))
-            _绘制平铺片段(
-                身2,
-                目标顶y=float(身体起始拼接y),
-                高度px=float(身体结束拼接y - 身体起始拼接y),
-                源顶px=float(身体顶部像素),
-                源高px=float(身体平铺高),
-                缓存键=f"{身名}:{箭头宽}",
-            )
+                if 中块图 is not None and int(当前顶y) < int(float(尾巴中心y)):
+                    剩余高 = int(max(1, int(float(尾巴中心y)) - int(当前顶y)))
+                    剩余高 = int(min(剩余高, int(中块图.get_height())))
+                    if 剩余高 > 0:
+                        try:
+                            末段图 = 中块图.subsurface((0, 0, int(中块图.get_width()), int(剩余高))).copy()
+                            块列表.append((末段图, int(当前顶y)))
+                        except Exception:
+                            pass
 
-        if 尾2 is not None and float(上边界) <= float(尾巴中心y) <= float(下边界):
-            屏幕.blit(
-                尾2,
-                (
-                    int(x中心 - 尾2.get_width() // 2),
-                    int(尾巴中心y - 尾2.get_height() // 2),
-                ),
-            )
+                if 末块图 is not None:
+                    块列表.append((末块图, int(float(尾巴中心y))))
 
-        if 是否绘制头 and 罩2 is not None and float(上边界) <= float(脖子中心y) <= float(下边界):
-            屏幕.blit(
-                罩2,
-                (
-                    int(x中心 - 罩2.get_width() // 2),
-                    int(脖子中心y - 罩2.get_height() // 2),
-                ),
-            )
+                for 块图, 块顶y in 块列表:
+                    if (
+                        float(块顶y + 块图.get_height()) < float(上边界)
+                        or float(块顶y) > float(下边界)
+                    ):
+                        continue
+                    屏幕.blit(
+                        块图,
+                        (
+                            int(x中心 - 块图.get_width() // 2),
+                            int(块顶y),
+                        ),
+                    )
 
         if 是否绘制头 and 头2 is not None and float(上边界) <= float(头中心y) <= float(下边界):
             屏幕.blit(

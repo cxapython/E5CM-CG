@@ -7,10 +7,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import pygame
-from core.常量与路径 import (
-    取项目根目录 as _公共取项目根目录,
-    取运行根目录 as _公共取运行根目录,
-)
 from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四把, 设置对局流程
 from core.工具 import 绘制底部联网与信用
 from scenes.场景基类 import 场景基类
@@ -28,11 +24,118 @@ _项目根目录_缓存: str | None = None
 
 
 def _取项目根目录() -> str:
-    return _公共取项目根目录()
+    global _项目根目录_缓存
+    if _项目根目录_缓存:
+        return _项目根目录_缓存
+
+    候选起点列表: List[str] = []
+
+    try:
+        if getattr(sys, "frozen", False):
+            临时资源目录 = str(getattr(sys, "_MEIPASS", "") or "").strip()
+            if 临时资源目录:
+                候选起点列表.append(os.path.abspath(临时资源目录))
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    已检查路径 = set()
+
+    for 起点 in 候选起点列表:
+        当前 = os.path.abspath(str(起点 or ""))
+        if (not 当前) or (当前 in 已检查路径):
+            continue
+        已检查路径.add(当前)
+
+        for _ in range(10):
+            if os.path.isdir(os.path.join(当前, "UI-img")) and os.path.isdir(
+                os.path.join(当前, "json")
+            ):
+                _项目根目录_缓存 = 当前
+                return 当前
+
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    for 起点 in 候选起点列表:
+        if 起点:
+            _项目根目录_缓存 = os.path.abspath(起点)
+            return _项目根目录_缓存
+
+    _项目根目录_缓存 = os.getcwd()
+    return _项目根目录_缓存
 
 
 def _取运行根目录() -> str:
-    return _公共取运行根目录()
+    try:
+        已缓存路径 = getattr(_取运行根目录, "_缓存路径", "")
+        if isinstance(已缓存路径, str) and 已缓存路径 and os.path.isdir(已缓存路径):
+            return 已缓存路径
+    except Exception:
+        pass
+
+    候选起点列表: List[str] = []
+
+    try:
+        if getattr(sys, "frozen", False):
+            候选起点列表.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.getcwd())
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+
+    已检查路径 = set()
+    for 起点 in 候选起点列表:
+        当前 = os.path.abspath(str(起点 or ""))
+        if (not 当前) or (当前 in 已检查路径):
+            continue
+        已检查路径.add(当前)
+
+        for _ in range(10):
+            if (
+                os.path.isdir(os.path.join(当前, "songs"))
+                or os.path.isdir(os.path.join(当前, "json"))
+                or os.path.isfile(os.path.join(当前, "main.py"))
+            ):
+                setattr(_取运行根目录, "_缓存路径", 当前)
+                return 当前
+
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    try:
+        if getattr(sys, "frozen", False):
+            回退目录 = os.path.dirname(os.path.abspath(sys.executable))
+            setattr(_取运行根目录, "_缓存路径", 回退目录)
+            return 回退目录
+    except Exception:
+        pass
+
+    回退目录 = os.getcwd()
+    setattr(_取运行根目录, "_缓存路径", 回退目录)
+    return 回退目录
 
 
 def _安全读文本(路径: str) -> str:
@@ -69,7 +172,10 @@ def _安全读json(路径: str):
 
 def _读取加载页载荷json() -> dict:
     try:
-        候选路径列表 = [os.path.join(_取运行根目录(), "json", "选歌设置.json")]
+        候选路径列表 = [
+            os.path.join(_取运行根目录(), "json", "选歌设置.json"),
+            os.path.join(_取项目根目录(), "json", "选歌设置.json"),
+        ]
         for 路径 in 候选路径列表:
             数据 = _安全读json(路径)
             if isinstance(数据, dict):
@@ -171,7 +277,10 @@ def _解析背景模式(设置参数: dict, 参数文本: str) -> str:
 
 def _读取选歌设置json() -> dict:
     try:
-        候选路径列表 = [os.path.join(_取运行根目录(), "json", "选歌设置.json")]
+        候选路径列表 = [
+            os.path.join(_取运行根目录(), "json", "选歌设置.json"),
+            os.path.join(_取项目根目录(), "json", "选歌设置.json"),
+        ]
         for 路径 in 候选路径列表:
             数据 = _安全读json(路径)
             if isinstance(数据, dict):
@@ -1961,7 +2070,7 @@ class 场景_谱面播放器(场景基类):
             pass
 
         try:
-            路径 = os.path.join(_取运行根目录(), "json", "选歌设置.json")
+            路径 = os.path.join(_取项目根目录(), "json", "选歌设置.json")
             数据 = _读取选歌设置json()
             if not isinstance(数据, dict):
                 数据 = {}
@@ -1993,7 +2102,7 @@ class 场景_谱面播放器(场景基类):
 
     def _保存游戏视觉设置到选歌json(self):
         try:
-            路径 = os.path.join(_取运行根目录(), "json", "选歌设置.json")
+            路径 = os.path.join(_取项目根目录(), "json", "选歌设置.json")
             数据 = _读取选歌设置json()
             if not isinstance(数据, dict):
                 数据 = {}
@@ -2029,7 +2138,10 @@ class 场景_谱面播放器(场景基类):
             pass
 
     def _取电视跟跳设置路径(self) -> str:
-        候选路径列表 = [os.path.join(_取运行根目录(), "json", "电视跟跳设置.json")]
+        候选路径列表 = [
+            os.path.join(_取运行根目录(), "json", "电视跟跳设置.json"),
+            os.path.join(_取项目根目录(), "json", "电视跟跳设置.json"),
+        ]
 
         for 路径 in 候选路径列表:
             try:
@@ -4845,7 +4957,10 @@ class 场景_谱面播放器(场景基类):
 
     def _取个人资料json_懒加载(self) -> dict:
         """
-        只读取运行根\\json\\个人资料.json
+        优先读取：
+        1) 运行根\\json\\个人资料.json
+        2) 资源根\\json\\个人资料.json
+        3) 旧路径：资源根\\UI-img\\个人中心-个人资料\\个人资料.json
         缓存策略：按“实际命中的 json 路径 + mtime”缓存
         """
         try:
@@ -4854,7 +4969,45 @@ class 场景_谱面播放器(场景基类):
                 self._个人资料json_缓存key = ""
             if not hasattr(self, "_个人资料json_实际路径"):
                 self._个人资料json_实际路径 = ""
-            实际路径 = os.path.join(_取运行根目录(), "json", "个人资料.json")
+
+            资源根目录 = ""
+            try:
+                资源 = self.上下文.get("资源", {}) or {}
+                资源根目录 = str(资源.get("根", "") or "")
+            except Exception:
+                资源根目录 = ""
+
+            if not 资源根目录:
+                try:
+                    资源根目录 = _取项目根目录()
+                except Exception:
+                    资源根目录 = ""
+
+            运行根目录 = ""
+            try:
+                运行根目录 = _取运行根目录()
+            except Exception:
+                运行根目录 = ""
+
+            候选路径列表 = []
+            if 运行根目录:
+                候选路径列表.append(os.path.join(运行根目录, "json", "个人资料.json"))
+            if 资源根目录:
+                候选路径列表.append(os.path.join(资源根目录, "json", "个人资料.json"))
+                候选路径列表.append(
+                    os.path.join(
+                        资源根目录,
+                        "UI-img",
+                        "个人中心-个人资料",
+                        "个人资料.json",
+                    )
+                )
+
+            实际路径 = ""
+            for 候选路径 in 候选路径列表:
+                if 候选路径 and os.path.isfile(候选路径):
+                    实际路径 = 候选路径
+                    break
 
             if not 实际路径:
                 self._个人资料json_缓存 = {}

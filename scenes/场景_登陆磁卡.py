@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import pygame
 
+from core.常量与路径 import 取项目根目录 as _公共取项目根目录
 from core.踏板控制 import 踏板动作_左, 踏板动作_右, 踏板动作_确认
 from ui.按钮特效 import 公用按钮点击特效, 公用按钮音效
 from ui.场景过渡 import 公用放大过渡器
@@ -105,7 +106,7 @@ class 场景_登陆磁卡:
     def __init__(self, 上下文: dict):
         self.上下文 = 上下文
         资源 = 上下文["资源"]
-        根目录 = str(资源.get("根", "") or os.getcwd())
+        根目录 = _公共取项目根目录(资源)
 
         self._背景视频 = 上下文.get("背景视频")
         self._缓存尺寸 = (0, 0)
@@ -402,7 +403,7 @@ class 场景_登陆磁卡:
     def 进入(self):
         资源 = self.上下文.get("资源", {})
         状态 = self._取状态()
-        根目录 = str(资源.get("根", "") or os.getcwd())
+        根目录 = _公共取项目根目录(资源)
         排行榜路径 = os.path.join(根目录, "冷资源", "backsound", "排行榜.mp3")
 
         if (not bool(状态.get("bgm_排行榜_已播放", False))) and os.path.isfile(

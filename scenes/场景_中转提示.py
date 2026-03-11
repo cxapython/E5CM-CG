@@ -4,6 +4,7 @@ from typing import Dict, Optional
 
 import pygame
 
+from core.常量与路径 import 取项目根目录 as _公共取项目根目录
 from core.对局状态 import (
     初始化对局流程,
     取信用数,
@@ -246,7 +247,7 @@ class 场景_中转提示(场景基类):
         self._绘制底部币值(屏幕)
 
     def _加载资源(self):
-        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
+        根目录 = _公共取项目根目录(self.上下文.get("资源", {}) or {})
         提示目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "提示")
         for 名称 in ("下一把", "继续挑战", "是否续币", "游戏结束", "赠送一把"):
             图 = _安全载图(os.path.join(提示目录, f"{名称}.png"))
@@ -495,7 +496,7 @@ class 场景_中转提示(场景基类):
         except Exception:
             return
 
-        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
+        根目录 = _公共取项目根目录(self.上下文.get("资源", {}) or {})
         音效路径 = os.path.join(根目录, "冷资源", "backsound", "gameover.mp3")
         try:
             if os.path.isfile(音效路径):

@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import pygame
-from core.常量与路径 import 取运行根目录
 
 try:
     from pygame._sdl2 import video as _sdl2_video
@@ -43,8 +42,19 @@ def _确保显示模块已初始化():
 
 
 def _取应用图标路径列表() -> List[Path]:
-    运行根目录 = Path(取运行根目录())
-    return [(运行根目录 / "UI-img" / "app.ico").resolve()]
+    项目根目录 = Path(__file__).resolve().parent.parent
+    候选目录 = [Path.cwd(), 项目根目录]
+    相对路径列表 = [
+        Path("ui-img") / "app.ico",
+        Path("UI-img") / "app.ico",
+    ]
+    结果: List[Path] = []
+    for 根目录 in 候选目录:
+        for 相对路径 in 相对路径列表:
+            路径 = (根目录 / 相对路径).resolve()
+            if 路径 not in 结果:
+                结果.append(路径)
+    return 结果
 
 
 def _读取应用图标() -> Optional[pygame.Surface]:
