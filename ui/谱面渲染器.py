@@ -3,7 +3,6 @@ import io
 import json
 import math
 import os
-import re
 import time
 import zipfile
 from dataclasses import dataclass
@@ -136,15 +135,24 @@ class _皮肤包:
             self.blood_bar = self._尝试读固定贴图集(
                 "blood_bar"
             ) or self._尝试读贴图集_目录(self.根路径, "blood_bar")
-            self.judge = self._尝试读固定贴图集("judge") or self._尝试读贴图集_目录(
-                self.根路径, "judge"
-            )
-            self.number = self._尝试读固定贴图集("number") or self._尝试读贴图集_目录(
-                self.根路径, "number"
-            )
+            judge目录 = os.path.join(self.根路径, "judge")
+            number目录 = os.path.join(self.根路径, "number")
+            self.judge = (
+                self._尝试读贴图集_目录(self.根路径, "judge")
+                if os.path.isfile(os.path.join(judge目录, "skin.json"))
+                and os.path.isfile(os.path.join(judge目录, "skin.png"))
+                else None
+            ) or self._尝试读固定贴图集("judge")
+            self.number = (
+                self._尝试读贴图集_目录(self.根路径, "number")
+                if os.path.isfile(os.path.join(number目录, "skin.json"))
+                and os.path.isfile(os.path.join(number目录, "skin.png"))
+                else None
+            ) or self._尝试读固定贴图集("number")
             return
 
         with zipfile.ZipFile(self.压缩包路径, "r") as 压缩包:
+            名单 = set(压缩包.namelist())
             self.arrow = self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "arrow")
             self.key = self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "key")
             self.key_effect = self._尝试读贴图集_zip(
@@ -153,12 +161,18 @@ class _皮肤包:
             self.blood_bar = self._尝试读固定贴图集(
                 "blood_bar"
             ) or self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "blood_bar")
-            self.judge = self._尝试读固定贴图集("judge") or self._尝试读贴图集_zip(
-                压缩包, self.压缩包前缀, "judge"
-            )
-            self.number = self._尝试读固定贴图集("number") or self._尝试读贴图集_zip(
-                压缩包, self.压缩包前缀, "number"
-            )
+            self.judge = (
+                self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "judge")
+                if f"{self.压缩包前缀}judge/skin.json" in 名单
+                and f"{self.压缩包前缀}judge/skin.png" in 名单
+                else None
+            ) or self._尝试读固定贴图集("judge")
+            self.number = (
+                self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "number")
+                if f"{self.压缩包前缀}number/skin.json" in 名单
+                and f"{self.压缩包前缀}number/skin.png" in 名单
+                else None
+            ) or self._尝试读固定贴图集("number")
 
     @staticmethod
     def _解析皮肤源(皮肤根路径: str) -> Tuple[str, str, str]:
@@ -367,10 +381,6 @@ class 谱面渲染器:
     def __init__(self):
         self._皮肤包 = _皮肤包()
         self._当前皮肤路径: str = ""
-        self._兜底击中特效方案: str = "击中特效1"
-        self._兜底击中特效图集缓存: Dict[str, Optional[_贴图集]] = {}
-        self._兜底击中特效帧名缓存: Dict[str, List[str]] = {}
-        self._击中特效可见宽系数缓存: Dict[str, float] = {}
 
         self._按下反馈剩余秒: List[float] = [0.0] * 5
         self._按下反馈总时长秒: float = 0.12
@@ -747,7 +757,6 @@ class 谱面渲染器:
         self._皮肤包.加载(皮肤根路径)
         self._当前皮肤路径 = 皮肤根路径
         self._缩放缓存.clear()
-        self._击中特效可见宽系数缓存.clear()
         self._顶部HUD静态层缓存 = None
         self._顶部HUD静态层签名 = None
         self._顶部HUD半静态层缓存 = None
@@ -765,233 +774,6 @@ class 谱面渲染器:
         self._GPUStage动态项缓存 = []
         self._GPUStage前景项缓存 = []
         self._GPUStage缓存屏幕尺寸 = None
-
-    @staticmethod
-    def _规范兜底击中特效方案(方案: str) -> str:
-        文本 = str(方案 or "").strip()
-        if ("2" in 文本) or ("特效2" in 文本):
-            return "击中特效2"
-        return "击中特效1"
-
-    @staticmethod
-    def _解析帧文件序列与序号(文件名: str) -> Tuple[str, int]:
-        基名 = os.path.basename(str(文件名 or ""))
-        小写 = 基名.lower()
-        if not (
-            小写.endswith(".png")
-            or 小写.endswith(".jpg")
-            or 小写.endswith(".jpeg")
-            or 小写.endswith(".webp")
-        ):
-            return os.path.splitext(基名)[0], 0
-
-        m = re.match(
-            r"^(?P<序列>.+?)(?:_|-)(?P<序号>\d{1,6})\.(png|jpg|jpeg|webp)$",
-            基名,
-            re.IGNORECASE,
-        )
-        if m:
-            序列名 = str(m.group("序列")).rstrip(" _-")
-            return (序列名 if 序列名 else os.path.splitext(基名)[0]), int(
-                m.group("序号")
-            )
-
-        m2 = re.match(
-            r"^(?P<序列>.*?)(?P<序号>\d{1,6})\.(png|jpg|jpeg|webp)$",
-            基名,
-            re.IGNORECASE,
-        )
-        if m2:
-            序列名 = str(m2.group("序列")).rstrip(" _-")
-            if 序列名.strip():
-                return 序列名, int(m2.group("序号"))
-
-        return os.path.splitext(基名)[0], 0
-
-    def _排序并筛选兜底帧名(self, 帧名列表: List[str]) -> List[str]:
-        if not 帧名列表:
-            return []
-        分组: Dict[str, List[Tuple[int, str]]] = {}
-        for 名 in 帧名列表:
-            try:
-                序列, 序号 = self._解析帧文件序列与序号(str(名 or ""))
-                分组.setdefault(str(序列), []).append((int(序号), str(名)))
-            except Exception:
-                continue
-        if not 分组:
-            return []
-        主序列 = max(分组.keys(), key=lambda k: len(分组.get(k, [])))
-        列表 = list(分组.get(主序列, []))
-        列表.sort(key=lambda it: (int(it[0]), str(it[1])))
-        return [str(名) for _, 名 in 列表]
-
-    def _构建击中特效序列映射(self, 帧名列表: List[str]) -> Dict[str, List[str]]:
-        映射: Dict[str, List[Tuple[int, str]]] = {}
-        for 名 in 帧名列表:
-            try:
-                序列, 序号 = self._解析帧文件序列与序号(str(名 or ""))
-                if not 序列:
-                    continue
-                映射.setdefault(str(序列), []).append((int(序号), str(名)))
-            except Exception:
-                continue
-
-        输出: Dict[str, List[str]] = {}
-        for 序列名, 序列帧 in 映射.items():
-            try:
-                序列帧.sort(key=lambda it: (int(it[0]), str(it[1])))
-                输出[str(序列名)] = [str(名) for _, 名 in 序列帧]
-            except Exception:
-                continue
-        return 输出
-
-    @staticmethod
-    def _从序列映射选序列(序列映射: Dict[str, List[str]], 候选列表: List[str]) -> str:
-        for 候选 in 候选列表:
-            序列帧 = 序列映射.get(str(候选), [])
-            if 序列帧:
-                return str(候选)
-        if not 序列映射:
-            return ""
-        # 最后兜底：取帧数最多的序列，避免 key_effect 命名不一致时完全不显示。
-        return max(序列映射.keys(), key=lambda k: len(序列映射.get(k, [])))
-
-    def _估算击中特效可见宽系数(
-        self, 图集: Optional[_贴图集], 序列名: str, 帧名列表: List[str]
-    ) -> float:
-        if 图集 is None or (not 序列名) or (not 帧名列表):
-            return 1.0
-
-        缓存键 = str(序列名)
-        已缓存 = self._击中特效可见宽系数缓存.get(缓存键, None)
-        if 已缓存 is not None:
-            return float(已缓存)
-
-        样本索引: List[int] = [
-            0,
-            len(帧名列表) // 3,
-            (len(帧名列表) * 2) // 3,
-            len(帧名列表) - 1,
-        ]
-        样本索引 = sorted(
-            set([int(max(0, min(len(帧名列表) - 1, i))) for i in 样本索引])
-        )
-
-        可见宽样本: List[int] = []
-        原图宽 = 0
-        for idx in 样本索引:
-            try:
-                名 = str(帧名列表[idx])
-                图 = 图集.取(名)
-                if 图 is None:
-                    continue
-                原图宽 = max(int(原图宽), int(图.get_width()))
-
-                可见宽 = 0
-                try:
-                    # 不能只看 alpha：很多素材黑底也带 alpha，需结合亮度阈值提取真正发光主体。
-                    import numpy as _np
-
-                    rgb = pygame.surfarray.array3d(图)
-                    a = pygame.surfarray.array_alpha(图)
-                    亮度 = (
-                        rgb[:, :, 0].astype(_np.int32)
-                        + rgb[:, :, 1].astype(_np.int32)
-                        + rgb[:, :, 2].astype(_np.int32)
-                    )
-                    亮度阈值 = int(max(140, int(_np.max(亮度) * 0.52)))
-                    掩码 = (a >= 20) & (亮度 >= 亮度阈值)
-                    列命中 = _np.any(掩码, axis=1)
-                    命中索引 = _np.flatnonzero(列命中)
-                    if 命中索引.size > 0:
-                        可见宽 = int(命中索引[-1] - 命中索引[0] + 1)
-                except Exception:
-                    可见宽 = 0
-
-                if 可见宽 > 0:
-                    可见宽样本.append(int(可见宽))
-            except Exception:
-                continue
-
-        系数 = 1.0
-        if 原图宽 > 0 and 可见宽样本:
-            # 用样本中的最大可见宽，避免末帧淡出把尺寸误判得过大或过小。
-            最大可见宽 = int(max(可见宽样本))
-            if 最大可见宽 > 0:
-                系数 = float(原图宽) / float(最大可见宽)
-        elif 原图宽 > 0:
-            # 样本都淡出时回退 1.0，避免异常放大。
-            系数 = 1.0
-        系数 = float(max(1.0, min(5.0, 系数)))
-        self._击中特效可见宽系数缓存[缓存键] = float(系数)
-        return float(系数)
-
-    def 设置兜底击中特效方案(self, 方案: str):
-        self._兜底击中特效方案 = self._规范兜底击中特效方案(方案)
-
-    def _查找通用击中特效目录(self, 方案: str) -> str:
-        方案目录名 = self._规范兜底击中特效方案(方案)
-        相对子路径 = os.path.join("UI-img", "游戏界面", "通用特效", 方案目录名)
-
-        起点列表: List[str] = []
-        for 值 in (
-            str(self._当前皮肤路径 or "").strip(),
-            str(getattr(self._皮肤包, "根路径", "") or "").strip(),
-            os.path.dirname(os.path.abspath(__file__)),
-            os.getcwd(),
-        ):
-            if not 值:
-                continue
-            起点列表.append(值)
-
-        for 起点 in 起点列表:
-            try:
-                当前 = os.path.abspath(
-                    起点 if os.path.isdir(起点) else os.path.dirname(起点)
-                )
-            except Exception:
-                continue
-            for _ in range(12):
-                候选 = os.path.join(当前, 相对子路径)
-                if os.path.isfile(os.path.join(候选, "skin.json")) and os.path.isfile(
-                    os.path.join(候选, "skin.png")
-                ):
-                    return 候选
-                上级 = os.path.dirname(当前)
-                if 上级 == 当前:
-                    break
-                当前 = 上级
-        return ""
-
-    def _取兜底击中特效图集(self) -> Optional[_贴图集]:
-        方案 = self._规范兜底击中特效方案(getattr(self, "_兜底击中特效方案", ""))
-        if 方案 in self._兜底击中特效图集缓存:
-            return self._兜底击中特效图集缓存.get(方案, None)
-
-        目录 = self._查找通用击中特效目录(方案)
-        if not 目录:
-            self._兜底击中特效图集缓存[方案] = None
-            self._兜底击中特效帧名缓存[方案] = []
-            return None
-
-        读取器 = _皮肤包()
-        图集 = 读取器._尝试读贴图集_路径(目录, f"通用击中特效:{方案}")
-        self._兜底击中特效图集缓存[方案] = 图集
-        if 图集 is not None:
-            try:
-                全部帧名 = [str(k) for k in list(getattr(图集, "帧表", {}).keys())]
-                self._兜底击中特效帧名缓存[方案] = self._排序并筛选兜底帧名(全部帧名)
-            except Exception:
-                self._兜底击中特效帧名缓存[方案] = []
-        else:
-            self._兜底击中特效帧名缓存[方案] = []
-        return 图集
-
-    def _取兜底击中特效帧名列表(self) -> List[str]:
-        方案 = self._规范兜底击中特效方案(getattr(self, "_兜底击中特效方案", ""))
-        if 方案 not in self._兜底击中特效帧名缓存:
-            self._取兜底击中特效图集()
-        return list(self._兜底击中特效帧名缓存.get(方案, []))
 
     def 取加载诊断(self) -> str:
         诊断 = []
@@ -2795,8 +2577,6 @@ class 谱面渲染器:
         key图集 = getattr(self._皮肤包, "key", None)
         if key图集 is not None and hasattr(key图集, "取"):
             for 名 in (
-                "key_ll.png",
-                "key_rr.png",
                 "key_bl.png",
                 "key_tl.png",
                 "key_cc.png",
@@ -2806,6 +2586,10 @@ class 谱面渲染器:
                 图 = key图集.取(名)
                 if 图 is not None:
                     self._取缩放图(f"key:{名}:{判定区宽}", 图, 判定区宽)
+            for 名 in ("key_ll.png", "key_rr.png"):
+                图 = key图集.取(名)
+                if 图 is not None:
+                    self._取按高缩放图(f"key:{名}:{判定区宽}", 图, 判定区宽)
 
         特效图集 = getattr(self._皮肤包, "key_effect", None)
         if 特效图集 is not None and hasattr(特效图集, "取"):
@@ -3747,12 +3531,12 @@ class 谱面渲染器:
         左手图 = 图集.取("key_ll.png")
         右手图 = 图集.取("key_rr.png")
         if 左手图 is not None:
-            图2 = self._取缩放图("key:ll", 左手图, receptor宽)
+            图2 = self._取按高缩放图("key:ll", 左手图, receptor宽)
             屏幕.blit(
                 图2, (左手x - 图2.get_width() // 2, y判定 - 图2.get_height() // 2)
             )
         if 右手图 is not None:
-            图2 = self._取缩放图("key:rr", 右手图, receptor宽)
+            图2 = self._取按高缩放图("key:rr", 右手图, receptor宽)
             屏幕.blit(
                 图2, (右手x - 图2.get_width() // 2, y判定 - 图2.get_height() // 2)
             )
@@ -4524,7 +4308,7 @@ class 谱面渲染器:
                 area=pygame.Rect(0, int(源y), int(图.get_width()), int(源高)),
             )
 
-        def _绘制拉伸片段(
+        def _绘制平铺片段(
             图: Optional[pygame.Surface],
             目标顶y: float,
             高度px: float,
@@ -4568,7 +4352,7 @@ class 谱面渲染器:
                 return
 
             条图缓存键 = (
-                f"hold_stretch_strip:{缓存键}:{int(图.get_width())}:{int(图.get_height())}:"
+                f"hold_repeat_strip:{缓存键}:{int(图.get_width())}:{int(图.get_height())}:"
                 f"{int(源顶)}:{int(源高)}"
             )
             条图 = self._缩放缓存.get(条图缓存键)
@@ -4578,17 +4362,34 @@ class 谱面渲染器:
                 ).copy()
                 self._缩放缓存[条图缓存键] = 条图
 
-            拉伸图 = pygame.transform.scale(
-                条图,
-                (int(图.get_width()), int(max(1, 目标矩形.h))),
-            )
-            局部区域 = pygame.Rect(
-                int(可见矩形.x - 目标矩形.x),
-                int(可见矩形.y - 目标矩形.y),
-                int(可见矩形.w),
-                int(可见矩形.h),
-            )
-            屏幕.blit(拉伸图, 可见矩形.topleft, area=局部区域)
+            当前顶 = float(目标顶)
+            目标底 = float(目标矩形.bottom)
+            可见顶 = float(可见矩形.top)
+            可见底 = float(可见矩形.bottom)
+            while 当前顶 < 目标底 - 0.01:
+                当前片段高 = float(min(float(源高), 目标底 - 当前顶))
+                当前底 = float(当前顶 + 当前片段高)
+                if 当前底 > 可见顶 and 当前顶 < 可见底:
+                    绘制顶 = float(max(当前顶, 可见顶))
+                    绘制底 = float(min(当前底, 可见底))
+                    源偏移 = int(max(0, math.floor(float(绘制顶 - 当前顶))))
+                    绘制高 = int(
+                        max(
+                            1,
+                            min(
+                                int(条图.get_height()) - 源偏移,
+                                int(math.ceil(float(绘制底 - 绘制顶))),
+                            ),
+                        )
+                    )
+                    屏幕.blit(
+                        条图,
+                        (int(x中心 - 条图.get_width() // 2), int(round(绘制顶))),
+                        area=pygame.Rect(
+                            0, int(源偏移), int(条图.get_width()), int(绘制高)
+                        ),
+                    )
+                当前顶 += float(源高)
 
         头度量 = _取部件度量(f"hold:{头名}:{箭头宽}", 头2)
         脖子度量 = _取部件度量(f"hold:{罩名}:{箭头宽}", 罩2)
@@ -4647,16 +4448,13 @@ class 谱面渲染器:
 
         if 身2 is not None and 身体度量 is not None and 身体结束拼接y > 身体起始拼接y:
             身体顶部像素 = float(身体度量["top_px"])
-            身体底部像素 = float(身体度量["bottom_px"])
-            身体中心像素 = float(
-                round((float(身体顶部像素) + float(身体底部像素)) * 0.5)
-            )
-            _绘制拉伸片段(
+            身体平铺高 = float(max(1.0, float(身体度量["opaque_h"])))
+            _绘制平铺片段(
                 身2,
                 目标顶y=float(身体起始拼接y),
                 高度px=float(身体结束拼接y - 身体起始拼接y),
-                源顶px=float(身体中心像素),
-                源高px=1.0,
+                源顶px=float(身体顶部像素),
+                源高px=float(身体平铺高),
                 缓存键=f"{身名}:{箭头宽}",
             )
 

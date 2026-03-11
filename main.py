@@ -4,6 +4,7 @@ import time
 import json
 import inspect
 import pygame
+from typing import Optional
 
 try:
     import cv2

@@ -275,14 +275,6 @@ def _解析背景模式(设置参数: dict, 参数文本: str) -> str:
         return "视频"
     return "图片"
 
-
-def _规范击中特效方案(方案: str) -> str:
-    文本 = str(方案 or "").strip()
-    if ("2" in 文本) or ("特效2" in 文本):
-        return "击中特效2"
-    return "击中特效1"
-
-
 def _读取选歌设置json() -> dict:
     try:
         候选路径列表 = [
@@ -1091,7 +1083,6 @@ class 场景_谱面播放器(场景基类):
         self._方向模式: str = "关闭"
         self._背景模式: str = "图片"
         self._谱面设置: str = "正常"
-        self._击中特效方案: str = "击中特效1"
 
         # 血条/HP
         self._总血量上限HP: int = 1200
@@ -1620,10 +1611,6 @@ class 场景_谱面播放器(场景基类):
                 self._谱面渲染器_右.设置皮肤(self._皮肤目录)
         except Exception:
             pass
-        try:
-            self._应用击中特效方案到渲染器()
-        except Exception:
-            pass
         self._同步渲染器按键反馈映射()
 
     def _触发轨道按下反馈(self, 轨道: int):
@@ -2068,20 +2055,6 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
 
-    def _应用击中特效方案到渲染器(self):
-        self._击中特效方案 = _规范击中特效方案(
-            getattr(self, "_击中特效方案", "击中特效1")
-        )
-        for 渲染器 in (
-            getattr(self, "_谱面渲染器", None),
-            getattr(self, "_谱面渲染器_右", None),
-        ):
-            try:
-                if 渲染器 is not None and hasattr(渲染器, "设置兜底击中特效方案"):
-                    渲染器.设置兜底击中特效方案(str(self._击中特效方案))
-            except Exception:
-                pass
-
     @staticmethod
     def _循环选项值(当前值: str, 候选项: List[str]) -> str:
         候选 = [str(v) for v in list(候选项 or []) if str(v or "").strip()]
@@ -2115,11 +2088,9 @@ class 场景_谱面播放器(场景基类):
             参数["轨迹"] = str(getattr(self, "_轨迹模式", "正常") or "正常")
             参数["方向"] = str(getattr(self, "_方向模式", "关闭") or "关闭")
             参数["大小"] = self._取当前大小选项文本()
-            参数["击中特效"] = _规范击中特效方案(
-                str(getattr(self, "_击中特效方案", "击中特效1") or "击中特效1")
-            )
+            参数.pop("击中特效", None)
             数据["设置参数"] = dict(参数)
-            数据["击中特效方案"] = str(参数.get("击中特效", "击中特效1"))
+            数据.pop("击中特效方案", None)
 
             背景文件名 = str(数据.get("背景文件名", "") or "")
             箭头文件名 = str(数据.get("箭头文件名", "") or "")
@@ -2349,13 +2320,6 @@ class 场景_谱面播放器(场景基类):
         当前 = self._取当前大小选项文本()
         新值 = self._循环选项值(当前, ["正常", "放大"])
         self._尺寸倍率 = 0.8 if str(新值) == "正常" else 1.0
-        self._保存游戏视觉设置到选歌json()
-
-    def _菜单切换击中特效(self):
-        当前 = _规范击中特效方案(str(getattr(self, "_击中特效方案", "") or ""))
-        新值 = "击中特效2" if 当前 == "击中特效1" else "击中特效1"
-        self._击中特效方案 = str(新值)
-        self._应用击中特效方案到渲染器()
         self._保存游戏视觉设置到选歌json()
 
     def _切换背景亮度档位(self):
@@ -2673,20 +2637,6 @@ class 场景_谱面播放器(场景基类):
             ).strip()
             or "正常"
         )
-        self._击中特效方案 = _规范击中特效方案(
-            str(
-                设置参数.get(
-                    "击中特效",
-                    (
-                        选歌设置.get("击中特效方案", "")
-                        if isinstance(选歌设置, dict)
-                        else ""
-                    ),
-                )
-                or _从设置参数文本提取(参数文本, "击中特效")
-                or "击中特效1"
-            )
-        )
         self._背景模式 = _解析背景模式(设置参数, 参数文本)
 
         默认关闭视频 = bool(self._背景模式 != "视频")
@@ -2739,7 +2689,6 @@ class 场景_谱面播放器(场景基类):
         if self._谱面渲染器 is not None:
             try:
                 self._谱面渲染器.设置皮肤(self._皮肤目录)
-                self._应用击中特效方案到渲染器()
             except Exception as 异常:
                 self._错误提示 = (
                     self._错误提示 + " | " if self._错误提示 else ""

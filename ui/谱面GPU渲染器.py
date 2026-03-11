@@ -550,6 +550,29 @@ class 谱面GPU管线渲染器:
         except Exception:
             return 原图
 
+    def _取按高缩放图(
+        self,
+        软件渲染器,
+        缓存键: str,
+        原图: Optional[pygame.Surface],
+        目标高: int,
+    ) -> Optional[pygame.Surface]:
+        if 原图 is None:
+            return None
+        目标高 = int(max(2, 目标高))
+        取图 = getattr(软件渲染器, "_取按高缩放图", None)
+        if callable(取图):
+            try:
+                return 取图(str(缓存键), 原图, int(目标高))
+            except Exception:
+                pass
+        try:
+            比例 = float(目标高) / float(max(1, 原图.get_height()))
+            目标宽 = int(max(2, round(float(原图.get_width()) * 比例)))
+            return pygame.transform.smoothscale(原图, (int(目标宽), int(目标高))).convert_alpha()
+        except Exception:
+            return 原图
+
     def _取灰度图(self, 图: pygame.Surface) -> pygame.Surface:
         键 = (int(id(图)), int(图.get_width()), int(图.get_height()))
         旧图 = self._灰度图缓存表.get(键)
@@ -1297,7 +1320,7 @@ class 谱面GPU管线渲染器:
                 "bottom_rel": float(-图高 * 0.5 + int(max(0, min(图高 - 1, 底像素)))),
             }
 
-        def _绘制拉伸片段(
+        def _绘制平铺片段(
             纹理,
             图: Optional[pygame.Surface],
             目标顶y: float,
@@ -1327,7 +1350,46 @@ class 谱面GPU管线渲染器:
                 int(图.get_width()),
                 int(max(1, min(int(图.get_height()), round(float(源高px))))),
             )
-            return bool(self._绘制纹理矩形(纹理, 图, 目标矩形, 源矩形))
+            已绘制 = False
+            当前顶 = float(片段顶)
+            片段高 = float(max(1, 源矩形.h))
+            while 当前顶 < float(片段底) - 0.01:
+                当前片段高 = float(min(片段高, float(片段底) - 当前顶))
+                当前底 = float(当前顶 + 当前片段高)
+                if 当前底 > 可见顶 and 当前顶 < 可见底:
+                    绘制顶 = float(max(当前顶, 可见顶))
+                    绘制底 = float(min(当前底, 可见底))
+                    源偏移 = int(max(0, math.floor(float(绘制顶 - 当前顶))))
+                    绘制高 = int(
+                        max(
+                            1,
+                            min(
+                                int(源矩形.h) - 源偏移,
+                                int(math.ceil(float(绘制底 - 绘制顶))),
+                            ),
+                        )
+                    )
+                    已绘制 = bool(
+                        self._绘制纹理矩形(
+                            纹理,
+                            图,
+                            pygame.Rect(
+                                int(x中心 - 图.get_width() // 2),
+                                int(round(绘制顶)),
+                                int(图.get_width()),
+                                int(绘制高),
+                            ),
+                            pygame.Rect(
+                                int(源矩形.x),
+                                int(源矩形.y + 源偏移),
+                                int(源矩形.w),
+                                int(绘制高),
+                            ),
+                        )
+                        or 已绘制
+                    )
+                当前顶 += 片段高
+            return bool(已绘制)
 
         头度量 = _取部件度量(f"gpu:hold:body:{方位}:{int(箭头宽)}", 头图)
         脖子度量 = _取部件度量(f"gpu:hold:mask:{方位}:{int(箭头宽)}", 罩图)
@@ -1392,18 +1454,20 @@ class 谱面GPU管线渲染器:
             and 身体结束拼接y > 身体起始拼接y
         ):
             身体顶部像素 = float(身体度量["top_px"])
-            身体底部像素 = float(身体度量["bottom_px"])
-            身体中心像素 = float(
-                round((float(身体顶部像素) + float(身体底部像素)) * 0.5)
+            身体平铺高 = float(
+                max(
+                    1.0,
+                    float(身体度量["bottom_px"]) - float(身体顶部像素) + 1.0,
+                )
             )
             已绘制 = bool(
-                _绘制拉伸片段(
+                _绘制平铺片段(
                     身纹理,
                     身图,
                     目标顶y=float(身体起始拼接y),
                     高度px=float(身体结束拼接y - 身体起始拼接y),
-                    源顶px=float(身体中心像素),
-                    源高px=1.0,
+                    源顶px=float(身体顶部像素),
+                    源高px=float(身体平铺高),
                 )
                 or 已绘制
             )
@@ -1573,14 +1637,17 @@ class 谱面GPU管线渲染器:
             ("key_rr.png", 右手x, 右手y),
         ):
             原图 = self._取皮肤帧(软件渲染器, "key", 文件名)
-            纹理, 图 = self._取贴图条目(
-                渲染器,
+            图 = self._取按高缩放图(
                 软件渲染器,
-                f"key:{文件名}:{int(receptor宽)}",
+                f"key:{文件名}:h:{int(receptor宽)}",
                 原图,
                 int(receptor宽),
-                bool(使用灰度),
             )
+            if 图 is None:
+                continue
+            if bool(使用灰度):
+                图 = self._取灰度图(图)
+            纹理 = self._取纹理(渲染器, 图)
             if 纹理 is not None and 图 is not None:
                 self._绘制纹理中心(纹理, 图, int(x中心), int(y中心))
 
