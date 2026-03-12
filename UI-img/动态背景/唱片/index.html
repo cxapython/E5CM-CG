@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>动态游戏场景原型</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+
+<body>
+  <main class="app">
+    <section class="preview">
+      <div class="scene" id="scene" data-state="1" aria-label="动态游戏场景预览">
+        <img class="layer background" src="./素材/背景.png" alt="" draggable="false">
+        <canvas class="layer particles" id="particles"></canvas>
+        <div class="layer particle-burst" aria-hidden="true">
+          <span class="burst burst-a"></span>
+          <span class="burst burst-b"></span>
+          <span class="burst burst-c"></span>
+        </div>
+
+          <div class="layer flames" aria-hidden="true">
+            <div class="flame flame-left"></div>
+            <div class="flame flame-right"></div>
+          </div>
+
+        <div class="layer side-lines" aria-hidden="true">
+          <div class="side-group side-group-left">
+            <img class="tech-line line-long" src="./素材/矩形长.png" alt="" draggable="false">
+            <img class="tech-line line-short" src="./素材/矩形短.png" alt="" draggable="false">
+            <img class="tech-line line-mini" src="./素材/矩形最短.png" alt="" draggable="false">
+            <img class="tech-line line-short" src="./素材/矩形短.png" alt="" draggable="false">
+            <img class="tech-line line-mini" src="./素材/矩形最短.png" alt="" draggable="false">
+          </div>
+          <div class="side-group side-group-right">
+            <img class="tech-line line-long" src="./素材/矩形长.png" alt="" draggable="false">
+            <img class="tech-line line-short" src="./素材/矩形短.png" alt="" draggable="false">
+            <img class="tech-line line-mini" src="./素材/矩形最短.png" alt="" draggable="false">
+            <img class="tech-line line-short" src="./素材/矩形短.png" alt="" draggable="false">
+            <img class="tech-line line-mini" src="./素材/矩形最短.png" alt="" draggable="false">
+          </div>
+        </div>
+
+        <div class="layer rig" aria-hidden="true">
+          <div class="center-bar center-bar-left">
+            <img src="./素材/矩形长.png" alt="" draggable="false">
+          </div>
+          <div class="center-bar center-bar-right">
+            <img src="./素材/矩形长.png" alt="" draggable="false">
+          </div>
+          <img class="machine machine-bottom" src="./素材/唱片机-下.png" alt="" draggable="false">
+          <img class="record" src="./素材/唱片.png" alt="" draggable="false">
+          <img class="machine machine-top" src="./素材/唱片机-上.png" alt="" draggable="false">
+        </div>
+
+        <div class="layer astronauts" aria-hidden="true">
+          <div class="astronaut astronaut-left">
+            <img src="./素材/宇航员左侧.png" alt="" draggable="false">
+          </div>
+          <div class="astronaut astronaut-right">
+            <img src="./素材/宇航员右侧.png" alt="" draggable="false">
+          </div>
+        </div>
+
+        <div class="layer frame-layer" aria-hidden="true">
+          <img class="edge-frame" src="./素材/框线.png" alt="" draggable="false">
+        </div>
+
+        <img class="layer foot" src="./素材/foot.png" alt="" draggable="false">
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="panel-card">
+        <p class="panel-label">预览控制</p>
+        <h1>动态背景状态机</h1>
+        <p class="panel-copy">
+          后续接入跳舞机项目时，直接调用
+          <code>window.dynamicGameScene.setCombo(combo)</code>
+          即可切状态。
+        </p>
+
+        <label class="panel-row" for="comboRange">
+          <span>Combo</span>
+          <strong id="comboValue">0</strong>
+        </label>
+        <input id="comboRange" type="range" min="0" max="220" step="1" value="0">
+
+        <div class="state-readout">
+          <span>当前状态</span>
+          <strong id="stateValue">1</strong>
+        </div>
+
+        <div class="button-row" id="stateButtons">
+          <button type="button" data-state-target="1">状态 1</button>
+          <button type="button" data-state-target="2">状态 2</button>
+          <button type="button" data-state-target="3">状态 3</button>
+          <button type="button" data-state-target="4">状态 4</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="./main.js"></script>
+</body>
+
+</html>

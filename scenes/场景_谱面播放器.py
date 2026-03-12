@@ -7,10 +7,16 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import pygame
+try:
+    from pygame._sdl2 import video as _sdl2_video
+except Exception:
+    _sdl2_video = None
+
 from core.常量与路径 import (
     取项目根目录 as _公共取项目根目录,
     取运行根目录 as _公共取运行根目录,
 )
+from core.动态背景 import DynamicBackgroundContext, DynamicBackgroundManager
 from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四把, 设置对局流程
 from core.工具 import 绘制底部联网与信用
 from scenes.场景基类 import 场景基类
@@ -943,6 +949,10 @@ class 场景_谱面播放器(场景基类):
         self._背景视频播放器 = None
         self._背景暗层缓存: Optional[pygame.Surface] = None
         self._背景暗层尺寸: Tuple[int, int] = (0, 0)
+        self._GPU背景静态纹理 = None
+        self._GPU背景静态纹理键: Tuple[Any, ...] = ()
+        self._GPU背景遮罩纹理缓存: Dict[int, Any] = {}
+        self._GPU背景纹理渲染器id: int = 0
 
         # 字体
         self._字体: Optional[pygame.font.Font] = None
@@ -973,6 +983,7 @@ class 场景_谱面播放器(场景基类):
         self._隐藏模式: str = "关闭"
         self._方向模式: str = "关闭"
         self._背景模式: str = "图片"
+        self._动态背景模式: str = "关闭"
         self._谱面设置: str = "正常"
 
         # 血条/HP
@@ -1056,6 +1067,8 @@ class 场景_谱面播放器(场景基类):
         self._准备音效 = None
         self._准备音效通道 = None
         self._准备音效已播放 = False
+        self._准备动画动态背景预展示秒: float = 3.0
+        self._准备动画动态背景预展示完成: bool = True
         self._默认背景视频目录: str = os.path.join(
             _取项目根目录(), "backmovies", "游戏中"
         )
@@ -1070,6 +1083,11 @@ class 场景_谱面播放器(场景基类):
         self._暂停菜单打开前播放中: bool = False
         self._暂停菜单项矩形: List[pygame.Rect] = []
         self._暂停菜单关闭按钮: pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._动态背景管理器 = DynamicBackgroundManager()
+        self._动态背景预览开启: bool = False
+        self._动态背景预览索引: int = 0
+        self._动态背景预览原模式: str = "关闭"
+        self._动态背景预览项矩形: List[pygame.Rect] = []
         self._退场黑屏开启: bool = False
         self._退场黑屏开始秒: float = 0.0
         self._退场黑屏时长秒: float = 1.0
@@ -1156,6 +1174,221 @@ class 场景_谱面播放器(场景基类):
                 self._GPU谱面渲染器.清空()
             except Exception:
                 pass
+
+    def _应使用GPU背景层(self) -> bool:
+        if _sdl2_video is None:
+            return False
+        显示后端 = self.上下文.get("显示后端", None)
+        if not bool(getattr(显示后端, "是否GPU", False)):
+            return False
+        if bool(getattr(self, "_显示准备动画", False)) and (
+            not bool(getattr(self, "_准备动画已完成", True))
+        ):
+            return False
+        return True
+
+    def _同步GPU背景纹理缓存(self, 渲染器):
+        当前渲染器id = int(id(渲染器))
+        if 当前渲染器id == int(getattr(self, "_GPU背景纹理渲染器id", 0) or 0):
+            return
+        self._GPU背景纹理渲染器id = 当前渲染器id
+        self._GPU背景静态纹理 = None
+        self._GPU背景静态纹理键 = ()
+        self._GPU背景遮罩纹理缓存 = {}
+
+    def _取GPU背景静态纹理(self, 渲染器, 图: Optional[pygame.Surface]):
+        if _sdl2_video is None or 渲染器 is None or not isinstance(图, pygame.Surface):
+            return None
+        缓存键 = (
+            int(id(渲染器)),
+            int(id(图)),
+            int(图.get_width()),
+            int(图.get_height()),
+        )
+        if self._GPU背景静态纹理 is not None and self._GPU背景静态纹理键 == 缓存键:
+            return self._GPU背景静态纹理
+        try:
+            纹理 = _sdl2_video.Texture.from_surface(渲染器, 图)
+        except Exception:
+            return None
+        self._GPU背景静态纹理 = 纹理
+        self._GPU背景静态纹理键 = 缓存键
+        return 纹理
+
+    def _取GPU背景遮罩纹理(self, 渲染器, alpha: int):
+        if _sdl2_video is None or 渲染器 is None:
+            return None
+        alpha = int(max(0, min(255, alpha)))
+        旧 = getattr(self, "_GPU背景遮罩纹理缓存", {}).get(alpha, None)
+        if 旧 is not None:
+            return 旧
+        try:
+            图 = pygame.Surface((1, 1), pygame.SRCALPHA, 32)
+            图.fill((0, 0, 0, alpha))
+            纹理 = _sdl2_video.Texture.from_surface(渲染器, 图)
+        except Exception:
+            return None
+        self._GPU背景遮罩纹理缓存[alpha] = 纹理
+        return 纹理
+
+    @staticmethod
+    def _设置GPU画笔(renderer, 颜色: Tuple[int, int, int], alpha: int = 255):
+        if renderer is None:
+            return
+        try:
+            renderer.draw_color = (
+                int(max(0, min(255, 颜色[0]))),
+                int(max(0, min(255, 颜色[1]))),
+                int(max(0, min(255, 颜色[2]))),
+                int(max(0, min(255, alpha))),
+            )
+        except Exception:
+            pass
+        try:
+            renderer.draw_blend_mode = 1
+        except Exception:
+            pass
+
+    def _绘制GPU封面背景图(self, 渲染器, 图: Optional[pygame.Surface], 屏宽: int, 屏高: int):
+        if _sdl2_video is None or 渲染器 is None or not isinstance(图, pygame.Surface):
+            return
+        if 图 is getattr(self, "_背景原图", None):
+            纹理 = self._取GPU背景静态纹理(渲染器, 图)
+        else:
+            try:
+                纹理 = _sdl2_video.Texture.from_surface(渲染器, 图)
+            except Exception:
+                纹理 = None
+        if 纹理 is None:
+            return
+
+        原宽 = int(max(1, 图.get_width()))
+        原高 = int(max(1, 图.get_height()))
+        比例 = max(float(屏宽) / float(原宽), float(屏高) / float(原高))
+        新宽 = int(max(1, round(float(原宽) * 比例)))
+        新高 = int(max(1, round(float(原高) * 比例)))
+        x = int((屏宽 - 新宽) // 2)
+        y = int((屏高 - 新高) // 2)
+        try:
+            纹理.draw(dstrect=(int(x), int(y), int(新宽), int(新高)))
+        except Exception:
+            pass
+
+    def _同步动态背景管理器(self, 重置: bool = False):
+        管理器 = getattr(self, "_动态背景管理器", None)
+        if 管理器 is None:
+            return
+        资源根目录 = ""
+        try:
+            资源 = self.上下文.get("资源", {}) or {}
+            资源根目录 = str(资源.get("根", "") or "").strip()
+        except Exception:
+            资源根目录 = ""
+        if not 资源根目录:
+            资源根目录 = _取项目根目录()
+        try:
+            管理器.configure_paths(
+                resource_root=资源根目录,
+                runtime_root=_取运行根目录(),
+                project_root=_取项目根目录(),
+            )
+            if bool(重置):
+                管理器.reset()
+        except Exception:
+            return
+
+    def _更新动态背景模块(self, 时间差: float, 现在系统秒: float):
+        管理器 = getattr(self, "_动态背景管理器", None)
+        if 管理器 is None:
+            return
+        self._同步动态背景管理器(False)
+        try:
+            连击 = int(getattr(getattr(self, "_计分系统", None), "当前连击", 0) or 0)
+        except Exception:
+            连击 = 0
+        try:
+            管理器.update(
+                self._取动态背景生效模式(),
+                DynamicBackgroundContext(
+                    renderer=None,
+                    screen_size=tuple(int(v) for v in self.上下文["屏幕"].get_size()),
+                    combo=int(max(0, 连击)),
+                    now=float(现在系统秒),
+                    delta_time=float(max(0.0, 时间差)),
+                    resource_root=str(getattr(管理器, "resource_root", "") or ""),
+                    runtime_root=str(getattr(管理器, "runtime_root", "") or ""),
+                    project_root=str(getattr(管理器, "project_root", "") or ""),
+                    preview=bool(getattr(self, "_动态背景预览开启", False)),
+                    paused=bool(getattr(self, "_暂停菜单开启", False)),
+                ),
+            )
+        except Exception:
+            return
+
+    def _绘制GPU动态背景模块(self, 渲染器, 屏宽: int, 屏高: int):
+        管理器 = getattr(self, "_动态背景管理器", None)
+        if 管理器 is None or 渲染器 is None:
+            return
+        self._同步动态背景管理器(False)
+        try:
+            连击 = int(getattr(getattr(self, "_计分系统", None), "当前连击", 0) or 0)
+        except Exception:
+            连击 = 0
+        try:
+            管理器.render(
+                self._取动态背景生效模式(),
+                DynamicBackgroundContext(
+                    renderer=渲染器,
+                    screen_size=(int(屏宽), int(屏高)),
+                    combo=int(max(0, 连击)),
+                    now=float(time.perf_counter()),
+                    delta_time=0.0,
+                    resource_root=str(getattr(管理器, "resource_root", "") or ""),
+                    runtime_root=str(getattr(管理器, "runtime_root", "") or ""),
+                    project_root=str(getattr(管理器, "project_root", "") or ""),
+                    preview=bool(getattr(self, "_动态背景预览开启", False)),
+                    paused=bool(getattr(self, "_暂停菜单开启", False)),
+                ),
+            )
+        except Exception:
+            return
+
+    def 绘制GPU背景(self, 显示后端):
+        if not self._应使用GPU背景层():
+            return
+        if _sdl2_video is None:
+            return
+        取渲染器 = getattr(显示后端, "取GPU渲染器", None)
+        if not callable(取渲染器):
+            return
+        渲染器 = 取渲染器()
+        if 渲染器 is None:
+            return
+        try:
+            屏宽, 屏高 = tuple(int(v) for v in 显示后端.取绘制屏幕().get_size())
+        except Exception:
+            return
+
+        self._同步GPU背景纹理缓存(渲染器)
+        try:
+            背景图 = self._读取背景视频帧()
+        except Exception:
+            背景图 = None
+        if not isinstance(背景图, pygame.Surface):
+            背景图 = getattr(self, "_背景原图", None)
+        if isinstance(背景图, pygame.Surface):
+            self._绘制GPU封面背景图(渲染器, 背景图, 屏宽, 屏高)
+
+        遮罩纹理 = self._取GPU背景遮罩纹理(
+            渲染器, int(getattr(self, "_背景暗层alpha", 0) or 0)
+        )
+        if 遮罩纹理 is not None:
+            try:
+                遮罩纹理.draw(dstrect=(0, 0, int(屏宽), int(屏高)))
+            except Exception:
+                pass
+
+        self._绘制GPU动态背景模块(渲染器, 屏宽, 屏高)
 
     def _更新GPU诊断行列表(self):
         if not bool(getattr(self, "_启用GPU谱面管线", False)):
@@ -2002,6 +2235,11 @@ class 场景_谱面播放器(场景基类):
             参数["背景模式"] = (
                 "视频" if (not bool(getattr(self, "_视频背景关闭", True))) else "图片"
             )
+            参数["动态背景"] = str(
+                self._规范动态背景模式(
+                    getattr(self, "_动态背景模式", "关闭") or "关闭"
+                )
+            )
             参数["谱面"] = str(getattr(self, "_谱面设置", "正常") or "正常")
             参数["隐藏"] = str(getattr(self, "_隐藏模式", "关闭") or "关闭")
             参数["轨迹"] = str(getattr(self, "_轨迹模式", "正常") or "正常")
@@ -2179,6 +2417,183 @@ class 场景_谱面播放器(场景基类):
 
         self._保存电视跟跳开关(bool(self._电视跟跳开启))
         self._同步电视跟跳状态()
+
+    @staticmethod
+    def _规范动态背景模式(值: Any) -> str:
+        return DynamicBackgroundManager.normalize_mode(值)
+
+    def _取动态背景候选列表(self) -> List[str]:
+        return DynamicBackgroundManager.get_candidate_modes()
+
+    def _取动态背景生效模式(self) -> str:
+        if bool(getattr(self, "_动态背景预览开启", False)):
+            候选列表 = self._取动态背景候选列表()
+            try:
+                索引 = int(max(0, min(len(候选列表) - 1, int(self._动态背景预览索引))))
+            except Exception:
+                索引 = 0
+            return self._规范动态背景模式(候选列表[索引])
+        return self._规范动态背景模式(getattr(self, "_动态背景模式", "关闭"))
+
+    def _打开动态背景预览(self):
+        候选列表 = self._取动态背景候选列表()
+        当前模式 = self._规范动态背景模式(getattr(self, "_动态背景模式", "关闭"))
+        self._动态背景预览开启 = True
+        self._动态背景预览原模式 = str(当前模式)
+        self._动态背景预览项矩形 = []
+        try:
+            getattr(self, "_动态背景管理器", None).reset()
+        except Exception:
+            pass
+        try:
+            self._动态背景预览索引 = 候选列表.index(当前模式)
+        except Exception:
+            self._动态背景预览索引 = 0
+
+    def _关闭动态背景预览(self, 应用当前预览: bool = False):
+        新模式 = self._规范动态背景模式(getattr(self, "_动态背景预览原模式", "关闭"))
+        if bool(应用当前预览):
+            新模式 = self._取动态背景生效模式()
+        self._动态背景模式 = str(新模式)
+        self._动态背景预览开启 = False
+        self._动态背景预览项矩形 = []
+        try:
+            getattr(self, "_动态背景管理器", None).reset()
+        except Exception:
+            pass
+        if bool(应用当前预览):
+            self._保存游戏视觉设置到选歌json()
+
+    def _取动态背景菜单文本(self) -> str:
+        已开启 = self._规范动态背景模式(getattr(self, "_动态背景模式", "关闭")) != "关闭"
+        模式 = "开启" if 已开启 else "关闭"
+        显示后端 = self.上下文.get("显示后端", None)
+        if not bool(getattr(显示后端, "是否GPU", False)):
+            return f"动态背景（{模式} / 仅GPU）"
+        return f"动态背景（{模式}）"
+
+    def _动态背景已启用(self) -> bool:
+        return self._规范动态背景模式(getattr(self, "_动态背景模式", "关闭")) != "关闭"
+
+    def _菜单切换动态背景(self):
+        if self._动态背景已启用():
+            self._动态背景模式 = "关闭"
+        else:
+            self._动态背景模式 = "唱片"
+        try:
+            getattr(self, "_动态背景管理器", None).reset()
+        except Exception:
+            pass
+        self._保存游戏视觉设置到选歌json()
+
+    def _取准备动画动态背景预展示秒(self) -> float:
+        if not bool(self._动态背景已启用()):
+            return 0.0
+        return float(max(0.0, float(getattr(self, "_准备动画动态背景预展示秒", 3.0) or 0.0)))
+
+    def _准备动画处于动态预展示(self) -> bool:
+        if not bool(getattr(self, "_显示准备动画", False)):
+            return False
+        if bool(getattr(self, "_准备动画已完成", True)):
+            return False
+        if bool(getattr(self, "_准备动画动态背景预展示完成", True)):
+            return False
+        return self._取准备动画动态背景预展示秒() > 0.0
+
+    def _绘制动态背景预览画面(
+        self,
+        屏幕: pygame.Surface,
+        目标区域: Optional[pygame.Rect] = None,
+        现在系统秒: Optional[float] = None,
+    ) -> bool:
+        if not isinstance(屏幕, pygame.Surface):
+            return False
+        模式 = self._规范动态背景模式(getattr(self, "_动态背景模式", "关闭"))
+        if 模式 == "关闭":
+            return False
+        self._同步动态背景管理器(False)
+        管理器 = getattr(self, "_动态背景管理器", None)
+        if 管理器 is None:
+            return False
+        if 现在系统秒 is None:
+            try:
+                现在系统秒 = float(time.perf_counter())
+            except Exception:
+                现在系统秒 = 0.0
+        return bool(
+            管理器.render_preview_surface(
+                模式,
+                屏幕,
+                目标区域,
+                now=float(现在系统秒),
+            )
+        )
+
+    def _刷新准备动画动态背景截图(
+        self,
+        尺寸: Tuple[int, int],
+        现在系统秒: Optional[float] = None,
+    ) -> Optional[pygame.Surface]:
+        if not bool(self._动态背景已启用()):
+            return None
+        try:
+            宽 = max(1, int(尺寸[0]))
+            高 = max(1, int(尺寸[1]))
+        except Exception:
+            return None
+        旧图 = getattr(self, "_准备动画背景无蒙版", None)
+        临时图 = getattr(self, "_准备动画动态背景临时图", None)
+        if (not isinstance(临时图, pygame.Surface)) or 临时图.get_size() != (宽, 高):
+            if isinstance(旧图, pygame.Surface) and 旧图.get_size() == (宽, 高):
+                try:
+                    临时图 = pygame.Surface((宽, 高), pygame.SRCALPHA).convert_alpha()
+                except Exception:
+                    try:
+                        临时图 = pygame.Surface((宽, 高), pygame.SRCALPHA)
+                    except Exception:
+                        临时图 = None
+            else:
+                try:
+                    临时图 = pygame.Surface((宽, 高), pygame.SRCALPHA).convert_alpha()
+                except Exception:
+                    try:
+                        临时图 = pygame.Surface((宽, 高), pygame.SRCALPHA)
+                    except Exception:
+                        临时图 = None
+            self._准备动画动态背景临时图 = 临时图
+        if not isinstance(临时图, pygame.Surface):
+            if isinstance(旧图, pygame.Surface) and 旧图.get_size() == (宽, 高):
+                return 旧图
+            return None
+        try:
+            临时图.fill((0, 0, 0, 255))
+        except Exception:
+            pass
+        if 现在系统秒 is None:
+            try:
+                现在系统秒 = float(time.perf_counter())
+            except Exception:
+                现在系统秒 = 0.0
+        if not bool(self._绘制动态背景预览画面(临时图, 临时图.get_rect(), float(现在系统秒))):
+            if isinstance(旧图, pygame.Surface) and 旧图.get_size() == (宽, 高):
+                return 旧图
+            return None
+        if (not isinstance(旧图, pygame.Surface)) or 旧图.get_size() != (宽, 高):
+            try:
+                旧图 = pygame.Surface((宽, 高), pygame.SRCALPHA).convert_alpha()
+            except Exception:
+                try:
+                    旧图 = pygame.Surface((宽, 高), pygame.SRCALPHA)
+                except Exception:
+                    旧图 = None
+        if not isinstance(旧图, pygame.Surface):
+            return None
+        try:
+            旧图.blit(临时图, (0, 0))
+        except Exception:
+            return None
+        self._准备动画背景无蒙版 = 旧图
+        return 旧图
 
     def _菜单切换调速(self):
         选项 = ["3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0"]
@@ -2436,6 +2851,9 @@ class 场景_谱面播放器(场景基类):
             pass
         self._准备动画总时长 = 计算准备动画总时长(self._准备动画设置)
         self._准备动画已完成 = not self._显示准备动画
+        self._准备动画动态背景预展示完成 = not bool(
+            self._显示准备动画 and self._取准备动画动态背景预展示秒() > 0.0
+        )
         self._准备动画背景无蒙版 = None
         self._准备动画基础场景图 = None
         self._准备动画判定区图层 = None
@@ -2557,7 +2975,22 @@ class 场景_谱面播放器(场景基类):
             ).strip()
             or "正常"
         )
+        原始背景模式文本 = str(
+            设置参数.get("背景模式", _从设置参数文本提取(参数文本, "背景模式"))
+            or 设置参数.get("变速", "")
+            or ""
+        ).strip()
         self._背景模式 = _解析背景模式(设置参数, 参数文本)
+        动态背景原值 = (
+            设置参数.get("动态背景", _从设置参数文本提取(参数文本, "动态背景"))
+            or ""
+        )
+        if (not str(动态背景原值 or "").strip()) and ("动态" in 原始背景模式文本):
+            动态背景原值 = "唱片"
+        self._动态背景模式 = self._规范动态背景模式(
+            动态背景原值 or "关闭"
+        )
+        self._同步动态背景管理器(True)
 
         默认关闭视频 = bool(self._背景模式 != "视频")
         if "关闭视频背景" in self._载荷:
@@ -2836,6 +3269,18 @@ class 场景_谱面播放器(场景基类):
 
         if self._显示准备动画 and (not self._准备动画已完成):
             准备经过秒 = float(现在系统秒 - float(self._准备动画开始秒 or 0.0))
+            self._更新动态背景模块(float(时间差), float(现在系统秒))
+            if bool(self._准备动画处于动态预展示()):
+                if 准备经过秒 >= float(self._取准备动画动态背景预展示秒()):
+                    self._准备动画动态背景预展示完成 = True
+                    self._准备动画开始秒 = float(现在系统秒)
+                    self._准备音效已播放 = False
+                    self._准备动画基础场景图 = None
+                    self._准备动画背景无蒙版 = None
+                    self._准备动画判定区图层 = None
+                    self._准备动画判定区矩形 = None
+                    self._准备动画绘制缓存 = {}
+                return None
             if not bool(self._准备音效已播放):
                 try:
                     时间轴 = 计算准备动画时间轴(dict(self._准备动画设置 or {}))
@@ -2928,6 +3373,8 @@ class 场景_谱面播放器(场景基类):
                     pass
                 if self._应用血量回报(回报列表):
                     return self._立即失败结束()
+
+        self._更新动态背景模块(float(时间差), float(现在系统秒))
 
         if self._操作反馈剩余秒 > 0.0:
             self._操作反馈剩余秒 = max(0.0, self._操作反馈剩余秒 - 时间差)
@@ -3063,7 +3510,13 @@ class 场景_谱面播放器(场景基类):
             self._重算布局(强制=True)
 
         背景开始秒 = time.perf_counter()
-        self._绘制背景(屏幕)
+        if self._应使用GPU背景层():
+            try:
+                屏幕.fill((0, 0, 0, 0))
+            except Exception:
+                屏幕.fill((0, 0, 0))
+        else:
+            self._绘制背景(屏幕)
         背景耗时毫秒 = (time.perf_counter() - 背景开始秒) * 1000.0
 
         if self._字体 is None or self._小字体 is None:
@@ -3442,7 +3895,7 @@ class 场景_谱面播放器(场景基类):
             self._绘制底部币值(屏幕)
             if bool(getattr(self, "_显示准备动画", False)) and (
                 not bool(getattr(self, "_准备动画已完成", True))
-            ):
+            ) and (not bool(self._准备动画处于动态预展示())):
                 需刷新基础场景图 = False
                 try:
                     if (self._准备动画基础场景图 is None) or (
@@ -3570,6 +4023,8 @@ class 场景_谱面播放器(场景基类):
         应恢复 = bool(恢复播放 and self._暂停菜单打开前播放中)
         self._暂停菜单开启 = False
         self._暂停菜单打开前播放中 = False
+        if bool(getattr(self, "_动态背景预览开启", False)):
+            self._关闭动态背景预览(False)
         if 应恢复 and (not bool(self._播放中)):
             self.播放()
             self._设置操作反馈("ESC:继续游戏")
@@ -3586,6 +4041,7 @@ class 场景_谱面播放器(场景基类):
         return [
             f"调速（{调速文本}）",
             f"背景（{背景状态}）",
+            self._取动态背景菜单文本(),
             f"隐藏（{str(getattr(self, '_隐藏模式', '关闭') or '关闭')}）",
             f"轨迹（{str(getattr(self, '_轨迹模式', '正常') or '正常')}）",
             f"方向（{str(getattr(self, '_方向模式', '关闭') or '关闭')}）",
@@ -3600,6 +4056,60 @@ class 场景_谱面播放器(场景基类):
     def _处理暂停菜单按键(self, 事件):
         菜单项 = self._取暂停菜单项文本()
         if not 菜单项:
+            return None
+
+        if bool(getattr(self, "_动态背景预览开启", False)):
+            候选列表 = self._取动态背景候选列表()
+            if 事件.type == pygame.KEYDOWN:
+                if 事件.key == pygame.K_ESCAPE:
+                    self._关闭动态背景预览(False)
+                    self._设置操作反馈("动态背景预览已取消")
+                    return None
+                if 事件.key in (
+                    pygame.K_LEFT,
+                    pygame.K_UP,
+                    pygame.K_KP1,
+                    pygame.K_KP7,
+                ):
+                    self._动态背景预览索引 = (
+                        int(self._动态背景预览索引) - 1
+                    ) % len(候选列表)
+                    return None
+                if 事件.key in (
+                    pygame.K_RIGHT,
+                    pygame.K_DOWN,
+                    pygame.K_KP3,
+                    pygame.K_KP9,
+                ):
+                    self._动态背景预览索引 = (
+                        int(self._动态背景预览索引) + 1
+                    ) % len(候选列表)
+                    return None
+                if 事件.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_KP5):
+                    新模式 = self._取动态背景生效模式()
+                    self._关闭动态背景预览(True)
+                    self._设置操作反馈(f"动态背景：{新模式}")
+                    return None
+                return None
+
+            if 事件.type == pygame.MOUSEMOTION:
+                for idx, rect in enumerate(getattr(self, "_动态背景预览项矩形", []) or []):
+                    if rect.collidepoint(事件.pos):
+                        self._动态背景预览索引 = int(idx)
+                        break
+                return None
+
+            if 事件.type == pygame.MOUSEBUTTONDOWN and int(getattr(事件, "button", 0)) == 1:
+                for idx, rect in enumerate(getattr(self, "_动态背景预览项矩形", []) or []):
+                    if rect.collidepoint(事件.pos):
+                        self._动态背景预览索引 = int(idx)
+                        新模式 = self._取动态背景生效模式()
+                        self._关闭动态背景预览(True)
+                        self._设置操作反馈(f"动态背景：{新模式}")
+                        return None
+                self._关闭动态背景预览(False)
+                self._设置操作反馈("动态背景预览已取消")
+                return None
             return None
 
         if 事件.type == pygame.KEYDOWN:
@@ -3663,31 +4173,38 @@ class 场景_谱面播放器(场景基类):
             return None
 
         if 选项索引 == 2:
+            self._菜单切换动态背景()
+            self._设置操作反馈(
+                f"动态背景：{'开启' if self._动态背景已启用() else '关闭'}"
+            )
+            return None
+
+        if 选项索引 == 3:
             self._菜单切换隐藏()
             self._设置操作反馈(f"隐藏模式：{self._隐藏模式}")
             return None
 
-        if 选项索引 == 3:
+        if 选项索引 == 4:
             self._菜单切换轨迹()
             self._设置操作反馈(f"轨迹模式：{self._轨迹模式}")
             return None
 
-        if 选项索引 == 4:
+        if 选项索引 == 5:
             self._菜单切换方向()
             self._设置操作反馈(f"方向模式：{self._方向模式}")
             return None
 
-        if 选项索引 == 5:
+        if 选项索引 == 6:
             self._菜单切换大小()
             self._设置操作反馈(f"大小模式：{self._取当前大小选项文本()}")
             return None
 
-        if 选项索引 == 6:
+        if 选项索引 == 7:
             self._切换背景亮度档位()
             self._设置操作反馈(f"背景亮度：{self._取背景亮度菜单文本()}")
             return None
 
-        if 选项索引 == 7:
+        if 选项索引 == 8:
             self._性能模式 = not bool(self._性能模式)
             self._载荷["性能模式"] = bool(self._性能模式)
             self._保存电视跟跳开关(性能模式=bool(self._性能模式))
@@ -3707,14 +4224,14 @@ class 场景_谱面播放器(场景基类):
             self._设置操作反馈(f"极简性能模式已{'开启' if self._性能模式 else '关闭'}")
             return None
 
-        if 选项索引 == 8:
+        if 选项索引 == 9:
             self._菜单切换电视跟跳()
             self._设置操作反馈(
                 f"电视跟跳已{'开启' if bool(getattr(self, '_电视跟跳开启', False)) else '关闭'}"
             )
             return None
 
-        if 选项索引 == 9:
+        if 选项索引 == 10:
             self._暂停菜单开启 = False
             return {"切换到": "选歌", "禁用黑屏过渡": True}
 
@@ -3986,6 +4503,7 @@ class 场景_谱面播放器(场景基类):
     def _绘制暂停菜单(self, 屏幕: pygame.Surface):
         self._暂停菜单项矩形 = []
         self._暂停菜单关闭按钮 = pygame.Rect(0, 0, 0, 0)
+        self._动态背景预览项矩形 = []
         if not bool(self._暂停菜单开启):
             return
         if self._小字体 is None:
@@ -4124,6 +4642,21 @@ class 场景_谱面播放器(场景基类):
                     pass
                 屏幕.blit(行面, (面板.x + 24, 提示y))
                 提示y += int(行面.get_height()) + 2
+
+            if bool(self._动态背景已启用()):
+                预览框 = pygame.Rect(
+                    int(面板.right - 272),
+                    int(面板.bottom - 188),
+                    236,
+                    132,
+                )
+                标题面 = self._小字体.render("动态背景预览", True, (236, 244, 255)).convert_alpha()
+                屏幕.blit(标题面, (预览框.x, 预览框.y - 24))
+                pygame.draw.rect(屏幕, (12, 18, 30), 预览框, border_radius=14)
+                pygame.draw.rect(屏幕, (82, 132, 204), 预览框, width=2, border_radius=14)
+                内框 = 预览框.inflate(-12, -12)
+                if not bool(self._绘制动态背景预览画面(屏幕, 内框, time.perf_counter())):
+                    pygame.draw.rect(屏幕, (6, 10, 18), 内框, border_radius=12)
         except Exception:
             pass
 
@@ -4496,6 +5029,20 @@ class 场景_谱面播放器(场景基类):
         经过秒 = max(
             0.0, float(time.perf_counter() - float(self._准备动画开始秒 or 0.0))
         )
+        if bool(self._准备动画处于动态预展示()):
+            屏幕.fill((0, 0, 0))
+            现在系统秒 = float(time.perf_counter())
+            if not bool(self._绘制动态背景预览画面(屏幕, None, 现在系统秒)):
+                try:
+                    截图面 = self._刷新准备动画动态背景截图(
+                        屏幕.get_size(), 现在系统秒
+                    )
+                    if isinstance(截图面, pygame.Surface):
+                        屏幕.blit(截图面, (0, 0))
+                except Exception:
+                    pass
+            return
+        动画经过秒 = float(经过秒)
         区域 = 计算准备动画区域(
             屏幕.get_size(),
             int(self._轨道起x),
@@ -4563,13 +5110,23 @@ class 场景_谱面播放器(场景基类):
             )
         except Exception:
             动画设置 = dict(getattr(self, "_准备动画设置", {}) or {})
+
+        if bool(self._动态背景已启用()):
+            try:
+                时间轴 = 计算准备动画时间轴(dict(动画设置 or {}))
+                if 动画经过秒 <= float(时间轴.get("背景结束", 0.0)):
+                    self._刷新准备动画动态背景截图(
+                        屏幕.get_size(), time.perf_counter()
+                    )
+            except Exception:
+                pass
         绘制准备就绪动画(
             屏幕=屏幕,
             基础场景图=getattr(self, "_准备动画基础场景图", None),
             背景无蒙版图=getattr(self, "_准备动画背景无蒙版", None),
             准备图片=dict(getattr(self, "_准备动画图", {}) or {}),
             设置=动画设置,
-            经过秒=float(经过秒),
+            经过秒=float(动画经过秒),
             判定区矩形=区域["判定区"],
             顶部HUD矩形=区域["顶部HUD"],
             判定区图层=(
@@ -5136,21 +5693,26 @@ class 场景_谱面播放器(场景基类):
         if bool(getattr(self, "_显示准备动画", False)) and (
             not bool(getattr(self, "_准备动画已完成", True))
         ):
-            需刷新无蒙版 = False
-            try:
-                if (
-                    self._准备动画背景无蒙版 is None
-                    or self._准备动画背景无蒙版.get_size() != (w, h)
-                ):
-                    需刷新无蒙版 = True
-            except Exception:
-                需刷新无蒙版 = True
-
-            if 需刷新无蒙版:
+            if bool(self._准备动画处于动态预展示()):
+                self._刷新准备动画动态背景截图((w, h), time.perf_counter())
+            elif bool(self._动态背景已启用()):
+                self._刷新准备动画动态背景截图((w, h), time.perf_counter())
+            else:
+                需刷新无蒙版 = False
                 try:
-                    self._准备动画背景无蒙版 = 屏幕.copy()
+                    if (
+                        self._准备动画背景无蒙版 is None
+                        or self._准备动画背景无蒙版.get_size() != (w, h)
+                    ):
+                        需刷新无蒙版 = True
                 except Exception:
-                    self._准备动画背景无蒙版 = None
+                    需刷新无蒙版 = True
+
+                if 需刷新无蒙版:
+                    try:
+                        self._准备动画背景无蒙版 = 屏幕.copy()
+                    except Exception:
+                        self._准备动画背景无蒙版 = None
 
         try:
             if int(getattr(self, "_背景暗层alpha", 0) or 0) > 0:
