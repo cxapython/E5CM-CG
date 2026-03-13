@@ -8,9 +8,12 @@ def 获取字体(
     """
     统一字体入口：
     - 默认使用：<运行根目录>/冷资源/字体/方正黑体简体.TTF
-    - 若不存在：降级用 pygame 默认字体
+    - 若不存在：尝试 Mac 系统中文字体
+    - 最后降级用 pygame 默认字体
     - 带缓存：避免重复创建 Font 对象
     """
+    import platform as _platform
+
     try:
         字号 = int(字号)
     except Exception:
@@ -22,27 +25,51 @@ def 获取字体(
         获取字体._缓存 = {}
     if not hasattr(获取字体, "_已提示缺字体"):
         获取字体._已提示缺字体 = False
+    if not hasattr(获取字体, "_已加载字体路径"):
+        获取字体._已加载字体路径 = {}
 
     默认字体 = 拼路径("冷资源", "字体", "方正黑体简体.TTF")
     目标字体 = str(字体文件路径 or 默认字体)
 
-    键 = (目标字体, 字号, 是否粗体)
+    # 缓存键使用字号和是否粗体（不包含字体路径，因为会尝试多个备用字体）
+    键 = (字号, 是否粗体)
     已有字体对象 = 获取字体._缓存.get(键)
     if isinstance(已有字体对象, pygame.font.Font):
         return 已有字体对象
 
     字体对象 = None
+    成功字体路径 = None
 
-    if os.path.isfile(目标字体):
-        try:
-            字体对象 = pygame.font.Font(目标字体, 字号)
-        except Exception:
-            字体对象 = None
-    else:
+    # Mac 系统优先使用思源字体
+    候选字体列表 = []
+    if _platform.system() == "Darwin":
+        候选字体列表 = [
+            "/Library/Fonts/SourceHanSansSC-Normal.otf",  # 思源黑体 SC
+            "/Library/Fonts/SourceHanSansCN-Regular.otf",  # 思源黑体 CN
+            "/Library/Fonts/SourceHanSansCN-Normal.otf",  # 思源黑体 CN Normal
+            "/Library/Fonts/msyh.ttf",  # 微软雅黑
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",  # 冬青黑体
+        ]
+    # 最后尝试项目字体
+    候选字体列表.append(目标字体)
+
+    for 字体路径 in 候选字体列表:
+        if os.path.isfile(字体路径):
+            try:
+                字体对象 = pygame.font.Font(字体路径, 字号)
+                成功字体路径 = 字体路径
+                print(f"[字体] 成功加载: {字体路径}")
+                break
+            except Exception as e:
+                print(f"[字体] 加载失败 {字体路径}: {e}")
+                字体对象 = None
+                continue
+
+    if 字体对象 is None:
         if not 获取字体._已提示缺字体:
             获取字体._已提示缺字体 = True
             try:
-                print(f"[字体] 未找到：{目标字体}，将降级为 pygame 默认字体")
+                print(f"[字体] 未找到可用中文字体，将降级为 pygame 默认字体（中文可能显示为方块）")
             except Exception:
                 pass
 
@@ -59,6 +86,8 @@ def 获取字体(
         pass
 
     获取字体._缓存[键] = 字体对象
+    if 成功字体路径:
+        获取字体._已加载字体路径[键] = 成功字体路径
     return 字体对象
 
 def 绘制文本(屏幕, 文本, 字体, 颜色, 位置, 对齐="center"):

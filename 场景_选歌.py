@@ -2616,18 +2616,49 @@ def 获取字体(字号: int, 是否粗体: bool = False) -> pygame.font.Font:
 
     # ✅ 只探测一次可用字体路径
     if 是否粗体 not in _字体默认路径缓存:
-        普通候选 = [
-            r"C:\Windows\Fonts\msyh.ttc",
-            r"C:\Windows\Fonts\simhei.ttf",
-            r"C:\Windows\Fonts\simsun.ttc",
-            r"C:\Windows\Fonts\arial.ttf",
-        ]
-        粗体候选 = [
-            r"C:\Windows\Fonts\msyhbd.ttc",
-            r"C:\Windows\Fonts\simhei.ttf",
-            r"C:\Windows\Fonts\arialbd.ttf",
-            r"C:\Windows\Fonts\arial.ttf",
-        ]
+        import platform as _platform
+
+        # 项目自带字体（优先）
+        项目字体 = os.path.join(_取项目根目录(), "冷资源", "字体", "方正黑体简体.TTF")
+
+        普通候选 = []
+        粗体候选 = []
+
+        if _platform.system() == "Darwin":
+            # Mac 系统字体候选
+            普通候选 = [
+                项目字体,
+                "/Library/Fonts/SourceHanSansSC-Normal.otf",
+                "/Library/Fonts/SourceHanSansCN-Regular.otf",
+                "/Library/Fonts/SourceHanSansCN-Normal.otf",
+                "/System/Library/Fonts/Hiragino Sans GB.ttc",
+                "/System/Library/Fonts/PingFang.ttc",
+                "/System/Library/Fonts/STHeiti Light.ttc",
+            ]
+            粗体候选 = [
+                项目字体,
+                "/Library/Fonts/SourceHanSansSC-Bold.otf",
+                "/Library/Fonts/SourceHanSansCN-Bold.otf",
+                "/System/Library/Fonts/Hiragino Sans GB.ttc",
+                "/System/Library/Fonts/PingFang.ttc",
+                "/System/Library/Fonts/STHeiti Medium.ttc",
+            ]
+        else:
+            # Windows 系统字体候选
+            普通候选 = [
+                项目字体,
+                r"C:\Windows\Fonts\msyh.ttc",
+                r"C:\Windows\Fonts\simhei.ttf",
+                r"C:\Windows\Fonts\simsun.ttc",
+                r"C:\Windows\Fonts\arial.ttf",
+            ]
+            粗体候选 = [
+                项目字体,
+                r"C:\Windows\Fonts\msyhbd.ttc",
+                r"C:\Windows\Fonts\simhei.ttf",
+                r"C:\Windows\Fonts\arialbd.ttf",
+                r"C:\Windows\Fonts\arial.ttf",
+            ]
 
         for 标记, 候选 in [(False, 普通候选), (True, 粗体候选)]:
             路径 = ""
