@@ -1,11 +1,13 @@
+import inspect
 import os
+import platform
 import sys
 import time
-import json
-import inspect
-import platform
-import pygame
 from typing import Optional
+
+import pygame
+
+import json
 
 try:
     import cv2
@@ -30,7 +32,10 @@ from scenes.场景_结算 import 场景_结算
 from scenes.场景_中转提示 import 场景_中转提示
 from scenes.场景_谱面播放器 import 场景_谱面播放器
 from ui.点击特效 import 序列帧特效资源, 全局点击特效管理器
-from ui.场景过渡 import 公共黑屏过渡,公共丝滑入场
+from ui.场景过渡 import 公共黑屏过渡, 公共丝滑入场
+
+显示启动界面 = True
+直接加载竞速场景 = True
 
 
 def _切换英文输入法():
@@ -81,7 +86,7 @@ For i = 1 To 10
 Next
 """
             with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".vbs", delete=False
+                    mode="w", suffix=".vbs", delete=False
             ) as f:
                 f.write(vbs_script)
                 script_path = f.name
@@ -107,8 +112,8 @@ Next
 
 
 def _绘制opencv缺失提示(
-    屏幕: pygame.Surface,
-    字体对象,
+        屏幕: pygame.Surface,
+        字体对象,
 ):
     if cv2 is not None:
         return
@@ -191,9 +196,9 @@ def 主函数():
         except TypeError as 异常:
             文本 = str(异常)
             if (
-                ("positional argument" in 文本)
-                or ("unexpected" in 文本)
-                or ("takes" in 文本)
+                    ("positional argument" in 文本)
+                    or ("unexpected" in 文本)
+                    or ("takes" in 文本)
             ):
                 getattr(场景对象, "进入")()
                 return
@@ -338,7 +343,7 @@ def 主函数():
         停留秒 = 1.0
         切换秒 = 0.9
         收尾渐隐秒 = 1.5
-        
+
         播放时钟 = pygame.time.Clock()
         已缓存图片 = {}
         当前屏幕尺寸 = 上下文["屏幕"].get_size()
@@ -514,7 +519,7 @@ def 主函数():
             "默认渲染后端": "software" if 是Mac else "gpu",
             "默认GPU谱面管线": False if 是Mac else True,
             "显示性能调试信息": False,
-            "显示启动幻灯片": False,
+            "显示启动幻灯片": 显示启动界面,
             "显示谱面开场动画": True,
             "全局静音": False,
             "开发默认选歌载荷启用": True,
@@ -718,7 +723,7 @@ def 主函数():
     开场动画目录 = os.path.join(backmovies目录, "开场动画")
     if bool(启动调试设置.get("显示启动幻灯片", True)):
         _播放开场幻灯片(开场动画目录)
-    
+
     强制视频 = os.path.join(backmovies目录, "003.mp4")
     if os.path.isfile(强制视频):
         视频路径 = 强制视频
@@ -743,31 +748,35 @@ def 主函数():
         "谱面播放器": 场景_谱面播放器,
     }
 
+    # # 自动跳过投币场景：直接进入竞速->疯狂选歌
+    if 直接加载竞速场景:
+        状态["投币数"] = 99
+        状态["credit"] = "99"
+        状态["大模式"] = "竞速"
+        状态["子模式"] = "疯狂"
+        状态["玩家数"] = 1
+        初始化对局流程(状态)
 
-    # 自动跳过投币场景：直接进入竞速->疯狂选歌
-    状态["投币数"] = 99
-    状态["credit"] = "99"
-    状态["大模式"] = "竞速"
-    状态["子模式"] = "疯狂"
-    状态["玩家数"] = 1
-    初始化对局流程(状态)
+        当前场景名 = "选歌"
+        当前场景 = 场景表[当前场景名](上下文)
+        _安全进入场景(当前场景, {
+            "加载页_载荷": {
+                "选歌类型": "竞速",
+                "选歌模式": "疯狂",
+                "类型": "竞速",
+                "模式": "疯狂",
+                "大模式": "竞速",
+                "子模式": "疯狂",
+            }
+        })
+    else:
+        当前场景名 = "投币"
+        当前场景 = 场景表[当前场景名](上下文)
+        _安全进入场景(当前场景, None)
 
-    当前场景名 = "选歌"
-    当前场景 = 场景表[当前场景名](上下文)
-    _安全进入场景(当前场景, {
-        "加载页_载荷": {
-            "选歌类型": "竞速",
-            "选歌模式": "疯狂",
-            "类型": "竞速",
-            "模式": "疯狂",
-            "大模式": "竞速",
-            "子模式": "疯狂",
-        }
-    })
-
-    过渡 = 公共黑屏过渡(渐入秒=0.2,渐出秒=0)
+    过渡 = 公共黑屏过渡(渐入秒=0.2, 渐出秒=0)
     入场 = 公共丝滑入场(保持黑屏秒=0.03, 渐出秒=0.3)
-    
+
     待切换目标场景名 = None
     待切换载荷 = None
 
@@ -790,7 +799,6 @@ def 主函数():
     投币快捷键 = int(pygame.K_f)
     投币快捷键显示 = "F"
     全局设置路径 = os.path.join(运行根目录, "json", "全局设置.json")
-
 
     def _格式化按键名(键值: int) -> str:
         try:
@@ -865,7 +873,6 @@ def 主函数():
         except Exception:
             pass
 
-
     def _加载全局设置():
         nonlocal 投币快捷键, 投币快捷键显示
 
@@ -884,7 +891,7 @@ def 主函数():
             投币快捷键 = int(max(0, min(4096, 键值)))
         except Exception:
             投币快捷键 = int(pygame.K_f)
-        投币快捷键 =999
+        投币快捷键 = 999
         投币快捷键显示 = _格式化按键名(int(投币快捷键))
         状态["投币快捷键"] = int(投币快捷键)
         状态["投币快捷键显示"] = str(投币快捷键显示)
@@ -963,7 +970,6 @@ def 主函数():
                 投币音效对象.set_volume(0.0 if 静音 else 1.0)
         except Exception:
             pass
-        
 
     def _显示调试提示(文本: str, 秒: float = 1.2):
         nonlocal 调试提示文本, 调试提示截止
@@ -980,7 +986,7 @@ def 主函数():
         状态["投币数"] = int(投币数)
         状态["credit"] = str(int(投币数))
         _保存全局设置()
-        
+
     _加载全局设置()
     _同步渲染后端状态(显示后端)
     _应用全局静音状态()
@@ -1194,8 +1200,8 @@ def 主函数():
         if 索引 == 4:
             步进 = int(方向) if int(方向) != 0 else 1
             开发调试目标场景索引 = (
-                int(开发调试目标场景索引) + 步进
-            ) % len(开发调试目标场景列表)
+                                 int(开发调试目标场景索引) + 步进
+                         ) % len(开发调试目标场景列表)
             return
         if 索引 == 5:
             _执行开发场景跳转()
@@ -1525,10 +1531,10 @@ def 主函数():
                 非游戏菜单索引 = (int(非游戏菜单索引) - 1) % len(菜单项)
                 return True
             if 事件.key in (
-                pygame.K_RIGHT,
-                pygame.K_KP3,
-                pygame.K_DOWN,
-                pygame.K_KP9,
+                    pygame.K_RIGHT,
+                    pygame.K_KP3,
+                    pygame.K_DOWN,
+                    pygame.K_KP9,
             ):
                 非游戏菜单索引 = (int(非游戏菜单索引) + 1) % len(菜单项)
                 return True
@@ -1635,7 +1641,6 @@ def 主函数():
         非游戏菜单索引 = 0
         投币快捷键录入中 = False
 
-
     def _当前场景允许非游戏菜单() -> bool:
         return bool(当前场景名 not in ("谱面播放器", "结算", "中转提示"))
 
@@ -1708,9 +1713,9 @@ def 主函数():
                     continue
 
                 if (
-                    事件.type == pygame.KEYDOWN
-                    and int(事件.key) == int(投币快捷键)
-                    and (not bool(投币快捷键录入中))
+                        事件.type == pygame.KEYDOWN
+                        and int(事件.key) == int(投币快捷键)
+                        and (not bool(投币快捷键录入中))
                 ):
                     _全局投币一次()
                     if (not 过渡.是否进行中()) and 当前场景名 == "投币":

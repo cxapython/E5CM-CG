@@ -3075,7 +3075,7 @@ class 场景_谱面播放器(场景基类):
             self._打开暂停菜单()
             return None
 
-        if 事件.key == pygame.K_F2:
+        if 事件.key in (pygame.K_F2,pygame.K_m):
             if bool(getattr(self, "_电视跟跳开启", False)):
                 self._是否自动模式 = True
                 self._同步电视跟跳状态()
