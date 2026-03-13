@@ -2556,6 +2556,58 @@ def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
 
     return 歌名, 星级
 
+def 解析JSON元数据(json路径: str, 类型名: str, 模式名: str) -> Optional["歌曲信息"]:
+    """解析JSON格式谱面的元数据"""
+    if (not json路径) or (not os.path.isfile(json路径)):
+        return None
+
+    歌曲路径 = os.path.dirname(json路径)
+    歌曲文件夹 = os.path.basename(歌曲路径)
+    if str(歌曲文件夹 or "").strip().lower() in {"backup", "backups"}:
+        return None
+
+    # 读取JSON
+    try:
+        with open(json路径, "r", encoding="utf-8") as f:
+            json数据 = json.load(f)
+    except Exception:
+        return None
+
+    if not isinstance(json数据, dict):
+        return None
+
+    音频路径 = 找文件(歌曲路径, (".ogg", ".mp3", ".wav", ".m4a", ".flac"))
+    封面路径 = 找封面(歌曲路径)
+    歌名, 星级 = 从文件夹名解析歌名星级(歌曲文件夹)
+
+    # 从JSON中提取BPM
+    bpm = None
+    bpms原始 = json数据.get("bpms", []) or []
+    if bpms原始:
+        try:
+            bpm = float(bpms原始[0].get("bpmVal", 120.0))
+        except Exception:
+            bpm = None
+
+    # 从JSON scoreInfo中提取offset等其他信息
+    scoreInfo = json数据.get("scoreInfo", {}) or {}
+
+    return 歌曲信息(
+        序号=0,
+        类型=str(类型名 or ""),
+        模式=str(模式名 or ""),
+        歌曲文件夹=歌曲文件夹,
+        歌曲路径=歌曲路径,
+        sm路径=json路径,  # 复用sm路径字段存储JSON路径
+        mp3路径=音频路径,
+        封面路径=封面路径,
+        歌名=歌名,
+        星级=max(1, int(星级 or 1)),
+        bpm=bpm,
+        是否VIP=bool(int(星级 or 0) >= 5),
+        游玩次数=0,
+    )
+
 def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Optional["歌曲信息"]:
     if (not sm路径) or (not os.path.isfile(sm路径)):
         return None
@@ -2627,18 +2679,27 @@ def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信
 
     for 根, 目录列表, 文件列表 in os.walk(songs根目录):
         for 文件名 in 文件列表:
-            if not 文件名.lower().endswith(".sm"):
+            # 支持SM和JSON两种格式
+            文件扩展名 = 文件名.lower()
+            是SM = 文件扩展名.endswith(".sm")
+            是JSON = 文件扩展名.endswith(".json")
+            if not (是SM or 是JSON):
                 continue
 
-            sm路径 = os.path.join(根, 文件名)
-            相对 = os.path.relpath(sm路径, songs根目录)
+            谱面路径 = os.path.join(根, 文件名)
+            相对 = os.path.relpath(谱面路径, songs根目录)
             parts = 相对.split(os.sep)
             if len(parts) < 4:
                 continue
 
             类型名 = parts[0]
             模式名 = parts[1]
-            歌 = 解析歌曲元数据(sm路径, 类型名, 模式名)
+
+            if 是JSON:
+                歌 = 解析JSON元数据(谱面路径, 类型名, 模式名)
+            else:
+                歌 = 解析歌曲元数据(谱面路径, 类型名, 模式名)
+
             if 歌 is None:
                 continue
 
@@ -2724,12 +2785,16 @@ def 扫描songs_指定路径(
 
     for 根, 目录列表, 文件列表 in os.walk(模式目录):
         for 文件名 in 文件列表:
-            if not 文件名.lower().endswith(".sm"):
+            # 支持SM和JSON两种格式
+            文件扩展名 = 文件名.lower()
+            是SM = 文件扩展名.endswith(".sm")
+            是JSON = 文件扩展名.endswith(".json")
+            if not (是SM or 是JSON):
                 continue
 
-            sm路径 = os.path.join(根, 文件名)
+            谱面路径 = os.path.join(根, 文件名)
             try:
-                相对 = os.path.relpath(sm路径, songs根目录)
+                相对 = os.path.relpath(谱面路径, songs根目录)
                 parts = 相对.split(os.sep)
             except Exception:
                 continue
@@ -2739,7 +2804,12 @@ def 扫描songs_指定路径(
 
             类型名_实际 = parts[0]
             模式名_实际 = parts[1]
-            歌 = 解析歌曲元数据(sm路径, 类型名_实际, 模式名_实际)
+
+            if 是JSON:
+                歌 = 解析JSON元数据(谱面路径, 类型名_实际, 模式名_实际)
+            else:
+                歌 = 解析歌曲元数据(谱面路径, 类型名_实际, 模式名_实际)
+
             if 歌 is not None:
                 收集.append(歌)
 

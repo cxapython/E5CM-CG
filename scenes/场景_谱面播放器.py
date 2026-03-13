@@ -701,6 +701,269 @@ def _构建_sm事件列表(
     return 事件, float(offset), float(总时长), int(列数), str(charttype or "")
 
 
+def _取最常见间隔(line列表: List[int]) -> Optional[int]:
+    """统计lineNo间隔的最常见值，用于推断tick每拍"""
+    if len(line列表) < 3:
+        return None
+    排序后 = sorted(set(line列表))
+    间隔计数: Dict[int, int] = {}
+    for i in range(1, len(排序后)):
+        d = 排序后[i] - 排序后[i - 1]
+        if d <= 0:
+            continue
+        间隔计数[d] = 间隔计数.get(d, 0) + 1
+    if not 间隔计数:
+        return None
+    return max(间隔计数.items(), key=lambda x: x[1])[0]
+
+
+def _生成时间轴段_from_lineNo(
+    bpm点: List[Tuple[int, float]], tick每拍: int
+) -> List[Tuple[int, float, float]]:
+    """
+    根据lineNo BPM点生成时间轴段
+    返回：(段起lineNo, 段起秒, bpm)
+    """
+    段: List[Tuple[int, float, float]] = []
+    for i, (lineNo, bpm) in enumerate(bpm点):
+        if i == 0:
+            段.append((int(lineNo), 0.0, float(bpm)))
+            continue
+        上lineNo, 上段起秒, 上bpm = 段[-1]
+        deltaLine = int(lineNo) - int(上lineNo)
+        if deltaLine < 0:
+            continue
+        拍数 = deltaLine / float(tick每拍)
+        增量秒 = 0.0 if 上bpm <= 0 else 拍数 * (60.0 / 上bpm)
+        当前秒 = 上段起秒 + 增量秒
+        段.append((int(lineNo), 当前秒, float(bpm)))
+    if not 段:
+        段 = [(0, 0.0, 120.0)]
+    return 段
+
+
+def _lineNo转秒(lineNo: int, 段: List[Tuple[int, float, float]], tick每拍: int) -> float:
+    """将lineNo转换为秒数"""
+    lo, hi = 0, len(段) - 1
+    idx = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if 段[mid][0] <= lineNo:
+            idx = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    段起lineNo, 段起秒, bpm = 段[idx]
+    deltaLine = lineNo - 段起lineNo
+    拍数 = deltaLine / float(tick每拍)
+    return 段起秒 if bpm <= 0 else 段起秒 + 拍数 * (60.0 / bpm)
+
+
+def _构建_json事件列表(
+    json路径: str, 优先double: bool = False
+) -> Tuple[List[音符事件], float, float, int, str]:
+    """
+    解析JSON格式谱面，返回：(事件列表, offset, 总时长秒, 列数, charttype)
+
+    JSON谱面格式：
+    {
+        "scoreInfo": {"offset": 0.113, "version": 3},
+        "bpms": [{"lineNo": 0, "bpmVal": 130.0}],
+        "boards": [{
+            "lineDatas": [
+                {"lineNo": 288, "arrows": [{"aType": 6, "player": 1, "length": 0}]}
+            ],
+            "players": [{"player": 1}]
+        }],
+        "sectionNodes": [{"lineNo": 0, "numerator": 4, "denominator": 4}]
+    }
+
+    aType映射（Pump It Up 5键）：
+    - 1: DownLeft (左下)
+    - 2: UpLeft (左上)
+    - 4: Center (中)
+    - 6: UpRight (右上)
+    - 7: DownRight (右下)
+    - length > 0 表示长按，length单位是lineNo
+    """
+    json数据 = _安全读json(json路径)
+    if not json数据:
+        return [], 0.0, 0.0, 5, ""
+
+    # 解析offset
+    scoreInfo = json数据.get("scoreInfo", {}) or {}
+    offset = float(scoreInfo.get("offset", 0.0))
+
+    # 解析BPM点
+    bpms原始 = json数据.get("bpms", []) or []
+    bpm点: List[Tuple[int, float]] = []
+    for b in bpms原始:
+        try:
+            lineNo = int(b.get("lineNo", 0))
+            bpmVal = float(b.get("bpmVal", 120.0))
+            bpm点.append((lineNo, bpmVal))
+        except Exception:
+            continue
+    bpm点.sort(key=lambda x: x[0])
+    if not bpm点:
+        bpm点 = [(0, 120.0)]
+
+    # 解析boards中的音符数据
+    boards = json数据.get("boards", []) or []
+    if not boards:
+        return [], float(offset), 0.0, 5, ""
+
+    # 选择board（根据优先double）
+    board索引 = 0
+    if len(boards) > 1 and 优先double:
+        # 尝试找双踏板board
+        for idx, board in enumerate(boards):
+            players = board.get("players", []) or []
+            if len(players) >= 2:
+                board索引 = idx
+                break
+
+    board = boards[board索引]
+    lineDatas = board.get("lineDatas", []) or []
+
+    # 收集所有音符的lineNo用于推断tick每拍
+    音符原始: List[Tuple[int, int, int]] = []  # (lineNo, aType, length)
+    for 行 in lineDatas:
+        lineNo = int(行.get("lineNo", 0))
+        arrows = 行.get("arrows", []) or []
+        for a in arrows:
+            try:
+                player = int(a.get("player", 1))
+                # 暂时只处理player=1的数据（单踏板），双踏板需要处理player=2
+                if player not in (1, 2):
+                    continue
+                aType = int(a.get("aType", 0))
+                length = int(a.get("length", 0))
+                音符原始.append((lineNo, aType, length))
+            except Exception:
+                continue
+
+    音符原始.sort(key=lambda x: x[0])
+
+    # 推断tick每拍
+    tick每拍候选 = [96, 48, 192, 24, 12]
+    line列表 = [ln for ln, _, _ in 音符原始]
+    最常见间隔 = _取最常见间隔(line列表)
+    tick每拍 = 96  # 默认值
+    if 最常见间隔 is not None:
+        # 最常见间隔可能是 1/4拍、1/8拍等，尝试匹配
+        for 候选 in tick每拍候选:
+            if 最常见间隔 <= 候选 and 候选 % 最常见间隔 == 0:
+                tick每拍 = 候选
+                break
+        else:
+            # 如果无法匹配，使用最接近的候选
+            for 候选 in tick每拍候选:
+                if 最常见间隔 <= 候选:
+                    tick每拍 = 候选
+                    break
+
+    # 生成时间轴段
+    bpm段 = _生成时间轴段_from_lineNo(bpm点, tick每拍)
+
+    # aType到轨道序号的映射（Pump It Up 5键布局）
+    # 标准5键: DownLeft=0, UpLeft=1, Center=2, UpRight=3, DownRight=4
+    # aType: 1=DownLeft, 2=UpLeft, 4=Center, 6=UpRight, 7=DownRight
+    aType到轨道 = {
+        1: 0,  # DownLeft
+        2: 1,  # UpLeft
+        4: 2,  # Center
+        6: 3,  # UpRight
+        7: 4,  # DownRight
+    }
+
+    # 构建事件列表
+    事件: List[音符事件] = []
+    最大秒 = 0.0
+
+    for lineNo, aType, length in 音符原始:
+        if aType not in aType到轨道:
+            continue
+        轨道 = aType到轨道[aType]
+
+        # 应用offset（JSON中的offset可能是音频延迟，需要减去）
+        开始秒 = _lineNo转秒(lineNo, bpm段, tick每拍) - offset
+
+        if length > 0:
+            # 长按
+            结束秒 = _lineNo转秒(lineNo + length, bpm段, tick每拍) - offset
+            if 结束秒 < 开始秒:
+                开始秒, 结束秒 = 结束秒, 开始秒
+            开始beat = lineNo / float(tick每拍)
+            结束beat = (lineNo + length) / float(tick每拍)
+            事件.append(音符事件(
+                轨道序号=轨道,
+                开始秒=float(开始秒),
+                结束秒=float(结束秒),
+                开始beat=float(开始beat),
+                结束beat=float(结束beat),
+                类型="hold",
+            ))
+            最大秒 = max(最大秒, 结束秒)
+        else:
+            # 点按
+            开始beat = lineNo / float(tick每拍)
+            事件.append(音符事件(
+                轨道序号=轨道,
+                开始秒=float(开始秒),
+                结束秒=float(开始秒),
+                开始beat=float(开始beat),
+                结束beat=float(开始beat),
+                类型="tap",
+            ))
+            最大秒 = max(最大秒, 开始秒)
+
+    事件.sort(key=lambda e: e.开始秒)
+    总时长 = max(0.0, 最大秒 + 2.0)
+    列数 = 5
+    charttype = "pump-single"
+
+    return 事件, float(offset), float(总时长), int(列数), str(charttype or "")
+
+
+def _解析_json_music(json路径: str) -> Optional[str]:
+    """查找JSON谱面同目录下的音频文件"""
+    目录 = os.path.dirname(os.path.abspath(json路径))
+    if not os.path.isdir(目录):
+        return None
+
+    扩展优先 = [".ogg", ".mp3", ".wav", ".m4a", ".flac"]
+    全部候选: List[str] = []
+
+    try:
+        for 文件名 in os.listdir(目录):
+            路径 = os.path.join(目录, 文件名)
+            if not os.path.isfile(路径):
+                continue
+            低 = 文件名.lower()
+            if any(低.endswith(ext) for ext in 扩展优先):
+                全部候选.append(路径)
+    except Exception:
+        return None
+
+    if not 全部候选:
+        return None
+
+    # 优先选择与JSON同名的音频文件
+    json基名 = os.path.splitext(os.path.basename(json路径))[0].lower()
+
+    def 候选打分(路径: str) -> Tuple[int, int, int]:
+        文件名 = os.path.basename(路径).lower()
+        ext = os.path.splitext(文件名)[1].lower()
+        ext分 = {".ogg": 3, ".mp3": 2, ".wav": 1, ".m4a": 2, ".flac": 3}.get(ext, 0)
+        命中分 = 2 if json基名 and json基名 in 文件名 else 0
+        大小 = int(os.path.getsize(路径) / 1024)
+        return (ext分, 命中分, 大小)
+
+    全部候选.sort(key=候选打分, reverse=True)
+    return 全部候选[0]
+
+
 class 皮肤资源:
     """
     ✅ 只用文件夹皮肤
@@ -2639,49 +2902,96 @@ class 场景_谱面播放器(场景基类):
         if (not self._sm路径) or (not os.path.isfile(self._sm路径)):
             self._错误提示 = (
                 self._错误提示 + " | " if self._错误提示 else ""
-            ) + f"找不到SM：{self._sm路径 or '空'}"
+            ) + f"找不到谱面文件：{self._sm路径 or '空'}"
         else:
-            self._sm文本 = _安全读文本(self._sm路径)
-            try:
-                事件, 偏移, 总时长, 列数, charttype = _构建_sm事件列表(
-                    self._sm路径, 优先double=bool(优先双踏板)
-                )
-                self._谱面列数 = int(max(1, int(列数 or 5)))
-                self._谱面chart类型 = str(charttype or "")
-                self._是否双踏板模式 = bool(
-                    优先双踏板
-                    or self._谱面列数 >= 10
-                    or ("pump-double" in str(self._谱面chart类型).lower())
-                )
-                self._轨道数 = 10 if self._是否双踏板模式 else 5
-                self._刷新按键映射()
-                self._同步双踏板渲染器()
-                self._事件 = [
-                    事件项
-                    for 事件项 in 事件
-                    if 0 <= int(getattr(事件项, "轨道序号", -1)) < int(self._轨道数)
-                ]
-                self._offset = float(偏移)
-                self._谱面总时长秒 = float(总时长)
-            except Exception as 异常:
-                self._事件 = []
-                self._事件左渲染 = []
-                self._事件右渲染 = []
-                self._谱面列数 = 5
-                self._谱面chart类型 = ""
-                self._是否双踏板模式 = False
-                self._轨道数 = 5
-                self._刷新按键映射()
-                self._同步双踏板渲染器()
-                self._offset = 0.0
-                self._谱面总时长秒 = 0.0
-                self._错误提示 = (
-                    self._错误提示 + " | " if self._错误提示 else ""
-                ) + f"解析SM失败：{type(异常).__name__} {异常}"
+            # 根据文件扩展名选择解析方式
+            谱面扩展名 = os.path.splitext(self._sm路径)[1].lower()
+            是JSON谱面 = 谱面扩展名 == ".json"
 
-            self._音频路径 = _解析_sm_music(self._sm文本, self._sm路径)
-            if not self._音频路径:
-                self._音频路径 = _找同目录音频_按优先级(self._sm路径)
+            if 是JSON谱面:
+                # JSON格式谱面
+                try:
+                    事件, 偏移, 总时长, 列数, charttype = _构建_json事件列表(
+                        self._sm路径, 优先double=bool(优先双踏板)
+                    )
+                    self._谱面列数 = int(max(1, int(列数 or 5)))
+                    self._谱面chart类型 = str(charttype or "")
+                    self._是否双踏板模式 = bool(
+                        优先双踏板
+                        or self._谱面列数 >= 10
+                        or ("pump-double" in str(self._谱面chart类型).lower())
+                    )
+                    self._轨道数 = 10 if self._是否双踏板模式 else 5
+                    self._刷新按键映射()
+                    self._同步双踏板渲染器()
+                    self._事件 = [
+                        事件项
+                        for 事件项 in 事件
+                        if 0 <= int(getattr(事件项, "轨道序号", -1)) < int(self._轨道数)
+                    ]
+                    self._offset = float(偏移)
+                    self._谱面总时长秒 = float(总时长)
+                except Exception as 异常:
+                    self._事件 = []
+                    self._事件左渲染 = []
+                    self._事件右渲染 = []
+                    self._谱面列数 = 5
+                    self._谱面chart类型 = ""
+                    self._是否双踏板模式 = False
+                    self._轨道数 = 5
+                    self._刷新按键映射()
+                    self._同步双踏板渲染器()
+                    self._offset = 0.0
+                    self._谱面总时长秒 = 0.0
+                    self._错误提示 = (
+                        self._错误提示 + " | " if self._错误提示 else ""
+                    ) + f"解析JSON谱面失败：{type(异常).__name__} {异常}"
+
+                # JSON谱面的音频查找
+                self._音频路径 = _解析_json_music(self._sm路径)
+            else:
+                # SM格式谱面
+                self._sm文本 = _安全读文本(self._sm路径)
+                try:
+                    事件, 偏移, 总时长, 列数, charttype = _构建_sm事件列表(
+                        self._sm路径, 优先double=bool(优先双踏板)
+                    )
+                    self._谱面列数 = int(max(1, int(列数 or 5)))
+                    self._谱面chart类型 = str(charttype or "")
+                    self._是否双踏板模式 = bool(
+                        优先双踏板
+                        or self._谱面列数 >= 10
+                        or ("pump-double" in str(self._谱面chart类型).lower())
+                    )
+                    self._轨道数 = 10 if self._是否双踏板模式 else 5
+                    self._刷新按键映射()
+                    self._同步双踏板渲染器()
+                    self._事件 = [
+                        事件项
+                        for 事件项 in 事件
+                        if 0 <= int(getattr(事件项, "轨道序号", -1)) < int(self._轨道数)
+                    ]
+                    self._offset = float(偏移)
+                    self._谱面总时长秒 = float(总时长)
+                except Exception as 异常:
+                    self._事件 = []
+                    self._事件左渲染 = []
+                    self._事件右渲染 = []
+                    self._谱面列数 = 5
+                    self._谱面chart类型 = ""
+                    self._是否双踏板模式 = False
+                    self._轨道数 = 5
+                    self._刷新按键映射()
+                    self._同步双踏板渲染器()
+                    self._offset = 0.0
+                    self._谱面总时长秒 = 0.0
+                    self._错误提示 = (
+                        self._错误提示 + " | " if self._错误提示 else ""
+                    ) + f"解析SM失败：{type(异常).__name__} {异常}"
+
+                self._音频路径 = _解析_sm_music(self._sm文本, self._sm路径)
+                if not self._音频路径:
+                    self._音频路径 = _找同目录音频_按优先级(self._sm路径)
 
             if not self._歌曲名:
                 try:
