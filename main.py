@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import inspect
+import platform
 import pygame
 from typing import Optional
 
@@ -507,9 +508,11 @@ def 主函数():
         return str(默认值)
 
     def _读取启动调试设置() -> dict:
+        # Mac系统默认关闭GPU，避免兼容性问题
+        是Mac = platform.system() == "Darwin"
         默认设置 = {
-            "默认渲染后端": "gpu",
-            "默认GPU谱面管线": True,
+            "默认渲染后端": "software" if 是Mac else "gpu",
+            "默认GPU谱面管线": False if 是Mac else True,
             "显示性能调试信息": False,
             "显示启动幻灯片": True,
             "显示谱面开场动画": True,

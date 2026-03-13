@@ -1,4 +1,5 @@
 import os
+import platform
 import time
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -572,6 +573,9 @@ class SDL2GPU显示后端(显示后端基类):
 
 
 def 读取后端偏好(偏好: Optional[str] = None, 默认值: str = "software") -> str:
+    # Mac系统默认使用软件渲染，避免GPU兼容性问题
+    if platform.system() == "Darwin":
+        默认值 = "software"
     if 偏好 is None or not str(偏好).strip():
         文本 = str(os.environ.get("E5CM_RENDER_BACKEND", 默认值) or 默认值)
     else:
