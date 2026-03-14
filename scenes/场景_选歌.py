@@ -7,6 +7,22 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Set, Callable
+
+try:
+    from pypinyin import lazy_pinyin, Style
+    _HAS_PYPINYIN = True
+except ImportError:
+    _HAS_PYPINYIN = False
+
+def _取拼音首字母(文本: str) -> str:
+    """提取中文文本的拼音首字母串（大写），非中文字符原样保留首字符。"""
+    if not 文本:
+        return ""
+    if _HAS_PYPINYIN:
+        首字母列表 = lazy_pinyin(文本, style=Style.FIRST_LETTER)
+        return "".join(首字母列表).upper()
+    # 回退：返回原文本大写（仅英文有效）
+    return 文本.upper()
 from core.常量与路径 import (
     取项目根目录 as _公共取项目根目录,
     取运行根目录 as _公共取运行根目录,
@@ -4124,6 +4140,13 @@ class 选歌游戏:
         self.星级按钮列表: List[Tuple[int, 按钮]] = []
         self.筛选页面板矩形 = pygame.Rect(0, 0, 0, 0)
 
+        self.是否搜索页 = False
+        self.搜索文本 = ""
+        self.搜索页面板矩形 = pygame.Rect(0, 0, 0, 0)
+        self._搜索输入框矩形 = pygame.Rect(0, 0, 0, 0)
+        self._搜索键盘_字母按钮 = []
+        self._搜索键盘_功能按钮 = {}
+        self._搜索光标闪烁起始 = 0
 
         self.图缓存 = 图像缓存()
         self.预加载队列 = []
@@ -4143,8 +4166,6 @@ class 选歌游戏:
         self.按钮_ALL = 按钮("ALL", pygame.Rect(0, 0, 0, 0))
         self.按钮_2P加入 = 按钮("2P加入", pygame.Rect(0, 0, 0, 0))
         self.按钮_设置 = 按钮("设置", pygame.Rect(0, 0, 0, 0))
-        self.按钮_重选模式 = 按钮("重选模式", pygame.Rect(0, 0, 0, 0))
-
         self.数据树 = {}
         if self.指定类型名 and self.指定模式名:
             try:
@@ -4560,7 +4581,7 @@ class 选歌游戏:
 
     def _取当前歌曲列表缓存键(
         self, 原始列表: Optional[List[歌曲信息]] = None
-    ) -> Tuple[str, str, Optional[int], int, int]:
+    ):
         if 原始列表 is None:
             原始列表 = self.当前原始歌曲列表()
         return (
@@ -4569,6 +4590,7 @@ class 选歌游戏:
             self.当前筛选星级,
             int(id(原始列表)),
             int(len(原始列表)),
+            str(getattr(self, "搜索文本", "") or ""),
         )
 
     def 当前原始歌曲列表(self) -> List[歌曲信息]:
@@ -4802,7 +4824,12 @@ class 选歌游戏:
         缓存键 = self._取当前歌曲列表缓存键(原始)
         if self._当前歌曲列表缓存键 == 缓存键:
             return self._当前歌曲列表缓存值
-        if self.当前筛选星级 is None:
+
+        搜索词 = str(getattr(self, "搜索文本", "") or "").strip().upper()
+        需要星级过滤 = self.当前筛选星级 is not None
+        需要搜索过滤 = bool(搜索词)
+
+        if not 需要星级过滤 and not 需要搜索过滤:
             映射 = list(range(len(原始)))
             self._当前歌曲列表缓存键 = 缓存键
             self._当前歌曲列表缓存值 = (原始, 映射)
@@ -4811,9 +4838,21 @@ class 选歌游戏:
         过滤列表: List[歌曲信息] = []
         映射: List[int] = []
         for i, 歌 in enumerate(原始):
-            if int(歌.星级) == int(self.当前筛选星级):
-                过滤列表.append(歌)
-                映射.append(i)
+            if 需要星级过滤:
+                if int(歌.星级) != int(self.当前筛选星级):
+                    continue
+            if 需要搜索过滤:
+                歌名 = str(getattr(歌, "歌名", "") or "")
+                文件夹 = str(getattr(歌, "歌曲文件夹", "") or "")
+                # 拼音首字母匹配
+                歌名首字母 = _取拼音首字母(歌名)
+                文件夹首字母 = _取拼音首字母(文件夹)
+                if not 歌名首字母.startswith(搜索词) and not 文件夹首字母.startswith(搜索词):
+                    # 也支持部分包含匹配
+                    if 搜索词 not in 歌名首字母 and 搜索词 not in 文件夹首字母:
+                        continue
+            过滤列表.append(歌)
+            映射.append(i)
         self._当前歌曲列表缓存键 = 缓存键
         self._当前歌曲列表缓存值 = (过滤列表, 映射)
         return self._当前歌曲列表缓存值
@@ -5258,7 +5297,7 @@ class 选歌游戏:
 
         槽_歌曲分类 = pygame.Rect(左起, 槽y, 槽边长, 槽总高)
         槽_ALL = pygame.Rect(槽_歌曲分类.right + 左组间距, 槽y, 槽边长, 槽总高)
-        槽_重开 = pygame.Rect(槽_ALL.right + 左组间距, 槽y, 槽边长, 槽总高)
+        槽_搜索 = pygame.Rect(槽_ALL.right + 左组间距, 槽y, 槽边长, 槽总高)
 
         右起 = self.宽 - 右外边距 - 槽边长
         槽_设置 = pygame.Rect(右起, 槽y, 槽边长, 槽总高)
@@ -5331,13 +5370,8 @@ class 选歌游戏:
                 是否处理透明像素=False,
             )
 
-        if not hasattr(self, "按钮_重选模式"):
-            self.按钮_重选模式 = 按钮("重开", pygame.Rect(0, 0, 0, 0))
-        else:
-            try:
-                self.按钮_重选模式.名称 = "重开"
-            except Exception:
-                pass
+        if not hasattr(self, "按钮_搜索"):
+            self.按钮_搜索 = 按钮("搜索", pygame.Rect(0, 0, 0, 0))
 
         # ===== 设置最终矩形 =====
         self.按钮_歌曲分类.矩形 = 槽_歌曲分类
@@ -5352,33 +5386,33 @@ class 选歌游戏:
         except Exception:
             pass
 
-        # ALL / 重开：只占上半部图标区
+        # ALL / 搜索：只占上半部图标区
         槽_ALL_图标区 = pygame.Rect(槽_ALL.x, 槽_ALL.y, 槽边长, 槽边长)
-        槽_重开_图标区 = pygame.Rect(槽_重开.x, 槽_重开.y, 槽边长, 槽边长)
+        槽_搜索_图标区 = pygame.Rect(槽_搜索.x, 槽_搜索.y, 槽边长, 槽边长)
 
         ALL缩放 = self._取布局值("底部.ALL缩放", 0.5)
-        重开缩放 = self._取布局值("底部.重开缩放", 0.5)
+        搜索缩放 = self._取布局值("底部.搜索缩放", 0.5)
         try:
             ALL缩放 = float(ALL缩放)
         except Exception:
             ALL缩放 = 0.5
         try:
-            重开缩放 = float(重开缩放)
+            搜索缩放 = float(搜索缩放)
         except Exception:
-            重开缩放 = 0.5
+            搜索缩放 = 0.5
         ALL缩放 = max(0.1, min(2.0, ALL缩放))
-        重开缩放 = max(0.1, min(2.0, 重开缩放))
+        搜索缩放 = max(0.1, min(2.0, 搜索缩放))
 
         ALL边长 = max(24, int(槽边长 * ALL缩放))
-        重开边长 = max(24, int(槽边长 * 重开缩放))
+        搜索边长 = max(24, int(槽边长 * 搜索缩放))
 
         ALL矩形 = pygame.Rect(0, 0, ALL边长, ALL边长)
         ALL矩形.center = 槽_ALL_图标区.center
         self.按钮_ALL.矩形 = ALL矩形
 
-        重开矩形 = pygame.Rect(0, 0, 重开边长, 重开边长)
-        重开矩形.center = 槽_重开_图标区.center
-        self.按钮_重选模式.矩形 = 重开矩形
+        搜索矩形 = pygame.Rect(0, 0, 搜索边长, 搜索边长)
+        搜索矩形.center = 槽_搜索_图标区.center
+        self.按钮_搜索.矩形 = 搜索矩形
 
         # ========= 模式选择面板（保留原逻辑） =========
         最大宽 = self._取布局像素("模式选择面板.最大宽", 920, 最小=300, 最大=9999)
@@ -6373,7 +6407,7 @@ class 选歌游戏:
     def 绘制底部(self):
         self._确保公共交互()
 
-        # ✅ 底部图文按钮统一字号（重开除外）
+        # ✅ 底部图文按钮统一字号
         try:
             参考宽 = (
                 int(self.按钮_歌曲分类.矩形.w)
@@ -6397,9 +6431,10 @@ class 选歌游戏:
         else:
             self.按钮_ALL.绘制(self.屏幕, 底部标签字体)
 
-        # 重开（例外：走你自己的按钮样式）
-        重选字号 = max(12, int(self.按钮_重选模式.矩形.h * 0.26))
-        self.按钮_重选模式.绘制(self.屏幕, 获取字体(重选字号, 是否粗体=True))
+        # 搜索
+        if hasattr(self, "按钮_搜索"):
+            搜索字号 = max(12, int(self.按钮_搜索.矩形.h * 0.26))
+            self.按钮_搜索.绘制(self.屏幕, 获取字体(搜索字号, 是否粗体=True))
 
         # P加入（会在重算布局里根据玩家数切成 1P加入/2P加入）
         if isinstance(self.按钮_2P加入, 底部图文按钮):
@@ -6500,7 +6535,7 @@ class 选歌游戏:
             try:
                 字体 = 获取字体(28)
                 文面 = 字体.render(
-                    "没有扫描到歌曲，请检查歌曲目录songs文件夹，点击重开按钮退出当前模式",
+                    "没有扫描到歌曲，请检查歌曲目录songs文件夹，按ESC键退出当前模式",
                     True,
                     (255, 255, 255),
                 )
@@ -6880,6 +6915,274 @@ class 选歌游戏:
                         )
             except Exception:
                 pass
+
+    # ========== 搜索功能 ==========
+
+    def 打开搜索页(self):
+        if self.是否详情页:
+            return
+        self.是否搜索页 = True
+        self._搜索光标闪烁起始 = pygame.time.get_ticks()
+        self._重算搜索页布局()
+
+    def 关闭搜索页(self):
+        self.是否搜索页 = False
+
+    def 应用搜索(self):
+        self._失效歌曲视图缓存()
+        self.当前页 = 0
+        self.当前页卡片 = self.生成指定页卡片(self.当前页)
+        self.安排预加载(基准页=self.当前页)
+
+    def 清空搜索(self):
+        self.搜索文本 = ""
+        self.应用搜索()
+
+    def _重算搜索页布局(self):
+        # KTV风格键盘面板 — 更大的面板以容纳字母键盘
+        面板宽 = min(820, int(self.宽 * 0.72))
+        面板高 = min(520, int(self.高 * 0.68))
+        面板宽 = max(560, 面板宽)
+        面板高 = max(380, 面板高)
+        面板x = (self.宽 - 面板宽) // 2
+        面板y = (self.高 - 面板高) // 2
+        self.搜索页面板矩形 = pygame.Rect(面板x, 面板y, 面板宽, 面板高)
+
+        内边距 = 24
+        # 输入显示区域（顶部）
+        输入框高 = max(44, int(面板高 * 0.10))
+        输入框y = 面板y + 60
+        self._搜索输入框矩形 = pygame.Rect(
+            面板x + 内边距, 输入框y, 面板宽 - 内边距 * 2, 输入框高
+        )
+
+        # 字母键盘区域 — 3行 + 功能键行
+        键盘起始y = 输入框y + 输入框高 + 16
+        可用宽 = 面板宽 - 内边距 * 2
+        可用高 = 面板y + 面板高 - 键盘起始y - 内边距
+
+        # 字母排列：QWERTY布局
+        行1 = list("QWERTYUIOP")   # 10键
+        行2 = list("ASDFGHJKL")    # 9键
+        行3 = list("ZXCVBNM")      # 7键
+
+        键间距 = 6
+        行间距 = 8
+        总行数 = 4  # 3行字母 + 1行功能键
+        键高 = max(36, int((可用高 - 行间距 * (总行数 - 1)) / 总行数))
+
+        self._搜索键盘_字母按钮 = []  # [(字母, Rect), ...]
+        self._搜索键盘_功能按钮 = {}  # {"删除": Rect, "取消": Rect, "确认": Rect}
+
+        def _生成行按钮(字母列表, 行y, 偏移x=0):
+            按钮列表 = []
+            行键数 = len(字母列表)
+            键宽 = max(32, int((可用宽 - 偏移x * 2 - 键间距 * (行键数 - 1)) / 行键数))
+            起始x = 面板x + 内边距 + 偏移x
+            for i, 字母 in enumerate(字母列表):
+                x = 起始x + i * (键宽 + 键间距)
+                按钮列表.append((字母, pygame.Rect(x, 行y, 键宽, 键高)))
+            return 按钮列表
+
+        当前y = 键盘起始y
+        # 行1（10键，无偏移）
+        行1键宽 = max(32, int((可用宽 - 键间距 * 9) / 10))
+        self._搜索键盘_字母按钮.extend(_生成行按钮(行1, 当前y))
+        当前y += 键高 + 行间距
+
+        # 行2（9键，居中偏移）
+        行2偏移 = int((可用宽 - (行1键宽 * 9 + 键间距 * 8)) / 2)
+        self._搜索键盘_字母按钮.extend(_生成行按钮(行2, 当前y, 行2偏移))
+        当前y += 键高 + 行间距
+
+        # 行3（7键，更大偏移居中）
+        行3偏移 = int((可用宽 - (行1键宽 * 7 + 键间距 * 6)) / 2)
+        self._搜索键盘_字母按钮.extend(_生成行按钮(行3, 当前y, 行3偏移))
+        当前y += 键高 + 行间距
+
+        # 功能键行：删除、取消筛选、确认
+        功能键数 = 3
+        功能间距 = 16
+        功能键宽 = max(80, int((可用宽 - 功能间距 * (功能键数 - 1)) / 功能键数))
+        功能起始x = 面板x + 内边距
+        self._搜索键盘_功能按钮["删除"] = pygame.Rect(
+            功能起始x, 当前y, 功能键宽, 键高
+        )
+        self._搜索键盘_功能按钮["取消"] = pygame.Rect(
+            功能起始x + 功能键宽 + 功能间距, 当前y, 功能键宽, 键高
+        )
+        self._搜索键盘_功能按钮["确认"] = pygame.Rect(
+            功能起始x + (功能键宽 + 功能间距) * 2, 当前y, 功能键宽, 键高
+        )
+
+    def 绘制搜索页(self):
+        # 半透明遮罩
+        暗层 = pygame.Surface((self.宽, self.高), pygame.SRCALPHA)
+        暗层.fill((0, 0, 0, 180))
+        self.屏幕.blit(暗层, (0, 0))
+
+        面板 = self.搜索页面板矩形
+        面板底 = pygame.Surface((面板.w, 面板.h), pygame.SRCALPHA)
+        面板底.fill((8, 16, 35, 235))
+        self.屏幕.blit(面板底, 面板.topleft)
+        绘制圆角矩形(self.屏幕, 面板, (100, 160, 230), 圆角=20, 线宽=3)
+
+        标题字体 = 获取字体(30)
+        说明字体 = 获取字体(16)
+        输入字体 = 获取字体(28)
+        键盘字体 = 获取字体(22)
+        功能字体 = 获取字体(20)
+
+        # 标题
+        绘制文本(
+            self.屏幕, "首字母点歌", 标题字体, (255, 255, 255),
+            (面板.centerx, 面板.y + 28), 对齐="center",
+        )
+
+        # 输入显示区域
+        输入框 = self._搜索输入框矩形
+        pygame.draw.rect(self.屏幕, (5, 10, 28), 输入框, border_radius=12)
+        pygame.draw.rect(self.屏幕, (100, 160, 230), 输入框, width=2, border_radius=12)
+
+        文本内容 = self.搜索文本 or ""
+        # 显示：每个字母用间距排列，更有KTV感觉
+        if 文本内容:
+            间距字体 = 获取字体(30)
+            显示文本 = "  ".join(文本内容)
+            文本面 = 间距字体.render(显示文本, True, (251, 200, 106))
+            最大文本宽 = 输入框.w - 20
+            if 文本面.get_width() > 最大文本宽:
+                裁剪矩形 = pygame.Rect(
+                    文本面.get_width() - 最大文本宽, 0, 最大文本宽, 文本面.get_height()
+                )
+                self.屏幕.blit(文本面, (输入框.x + 10, 输入框.centery - 文本面.get_height() // 2), 裁剪矩形)
+            else:
+                self.屏幕.blit(文本面, (输入框.x + 10, 输入框.centery - 文本面.get_height() // 2))
+        else:
+            占位 = 说明字体.render("点击字母键输入歌名首字母...", True, (80, 110, 150))
+            self.屏幕.blit(占位, (输入框.x + 12, 输入框.centery - 占位.get_height() // 2))
+
+        # 匹配数量提示（输入框右侧）
+        if 文本内容:
+            # 临时计算匹配数
+            列表, _ = self.当前歌曲列表与映射()
+            提示文 = f"{len(列表)} 首"
+            提示面 = 说明字体.render(提示文, True, (120, 255, 140))
+            self.屏幕.blit(提示面, (输入框.right - 提示面.get_width() - 10, 输入框.centery - 提示面.get_height() // 2))
+
+        鼠标位置 = pygame.mouse.get_pos()
+
+        # 绘制字母键
+        for 字母, 矩形 in self._搜索键盘_字母按钮:
+            悬停 = 矩形.collidepoint(鼠标位置)
+            if 悬停:
+                bg色 = (50, 90, 160)
+                边框色 = (140, 195, 255)
+            else:
+                bg色 = (20, 40, 75)
+                边框色 = (70, 110, 175)
+            pygame.draw.rect(self.屏幕, bg色, 矩形, border_radius=8)
+            pygame.draw.rect(self.屏幕, 边框色, 矩形, width=2, border_radius=8)
+            绘制文本(
+                self.屏幕, 字母, 键盘字体, (255, 255, 255),
+                (矩形.centerx, 矩形.centery), 对齐="center",
+            )
+
+        # 绘制功能键
+        功能键配色 = {
+            "删除": ((140, 50, 40), (175, 65, 50), (220, 140, 120)),
+            "取消": ((90, 80, 30), (120, 105, 40), (200, 180, 80)),
+            "确认": ((30, 100, 60), (45, 135, 80), (100, 220, 130)),
+        }
+        for 名称, 矩形 in self._搜索键盘_功能按钮.items():
+            悬停 = 矩形.collidepoint(鼠标位置)
+            常色, 亮色, 边框色 = 功能键配色.get(名称, ((40, 40, 40), (60, 60, 60), (120, 120, 120)))
+            bg色 = 亮色 if 悬停 else 常色
+            pygame.draw.rect(self.屏幕, bg色, 矩形, border_radius=10)
+            pygame.draw.rect(self.屏幕, 边框色, 矩形, width=2, border_radius=10)
+            显示名 = {"删除": "删除 ←", "取消": "取消筛选", "确认": "确认搜索"}.get(名称, 名称)
+            绘制文本(
+                self.屏幕, 显示名, 功能字体, (255, 255, 255),
+                (矩形.centerx, 矩形.centery), 对齐="center",
+            )
+
+    def _搜索页_处理事件(self, 事件) -> bool:
+        """处理KTV键盘搜索页事件，返回 True 表示已消费。"""
+        if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
+            # 点击面板外部 → 关闭
+            if not self.搜索页面板矩形.collidepoint(事件.pos):
+                self._启动过渡(
+                    self._特效_按钮,
+                    pygame.Rect(事件.pos[0] - 20, 事件.pos[1] - 20, 40, 40),
+                    self.关闭搜索页,
+                )
+                return True
+
+            # 检测字母键点击
+            for 字母, 矩形 in getattr(self, "_搜索键盘_字母按钮", []):
+                if 矩形.collidepoint(事件.pos):
+                    self.搜索文本 = (self.搜索文本 or "") + 字母
+                    self.应用搜索()
+                    try:
+                        self._播放按钮音效()
+                    except Exception:
+                        pass
+                    return True
+
+            # 检测功能键点击
+            功能按钮 = getattr(self, "_搜索键盘_功能按钮", {})
+            if "删除" in 功能按钮 and 功能按钮["删除"].collidepoint(事件.pos):
+                if self.搜索文本:
+                    self.搜索文本 = self.搜索文本[:-1]
+                    self.应用搜索()
+                try:
+                    self._播放按钮音效()
+                except Exception:
+                    pass
+                return True
+
+            if "取消" in 功能按钮 and 功能按钮["取消"].collidepoint(事件.pos):
+                self.清空搜索()
+                self.关闭搜索页()
+                return True
+
+            if "确认" in 功能按钮 and 功能按钮["确认"].collidepoint(事件.pos):
+                self.应用搜索()
+                self.关闭搜索页()
+                return True
+
+            return True
+
+        if 事件.type == pygame.KEYDOWN:
+            if 事件.key == pygame.K_ESCAPE:
+                self._启动过渡(
+                    self._特效_按钮,
+                    pygame.Rect(
+                        self.搜索页面板矩形.centerx - 60,
+                        self.搜索页面板矩形.y + 20, 120, 50,
+                    ),
+                    self.关闭搜索页,
+                )
+                return True
+
+            if 事件.key == pygame.K_RETURN or 事件.key == pygame.K_KP_ENTER:
+                self.应用搜索()
+                self.关闭搜索页()
+                return True
+
+            if 事件.key == pygame.K_BACKSPACE:
+                if self.搜索文本:
+                    self.搜索文本 = self.搜索文本[:-1]
+                    self.应用搜索()
+                return True
+
+            # 物理键盘字母输入（A-Z）
+            if 事件.unicode and 事件.unicode.isalpha():
+                self.搜索文本 = (self.搜索文本 or "") + 事件.unicode.upper()
+                self.应用搜索()
+                return True
+
+        return False
 
     def _确保公共交互(self):
         if getattr(self, "_公共交互已初始化", False):
@@ -7267,6 +7570,9 @@ class 选歌游戏:
             if self.是否星级筛选页:
                 self.绘制星级筛选页()
 
+            if self.是否搜索页:
+                self.绘制搜索页()
+
             if bool(getattr(self, "是否设置页", False)):
                 try:
                     self.绘制设置页()
@@ -7336,6 +7642,11 @@ class 选歌游戏:
                         pass
                     continue
 
+                # ===== 搜索页优先 =====
+                if self.是否搜索页:
+                    self._搜索页_处理事件(事件)
+                    continue
+
                 # ===== 星级筛选页优先 =====
                 if self.是否星级筛选页:
                     if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
@@ -7377,6 +7688,13 @@ class 选歌游戏:
                         lambda: self.设置星级筛选(None),
                     )
 
+                if self.按钮_搜索.处理事件(事件):
+                    self._启动过渡(
+                        self._特效_按钮,
+                        self.按钮_搜索.矩形,
+                        self.打开搜索页,
+                    )
+
                 if self.按钮_2P加入.处理事件(事件):
                     self._启动过渡(
                         self._特效_按钮,
@@ -7390,14 +7708,6 @@ class 选歌游戏:
                     self._启动过渡(
                         self._特效_按钮, self.按钮_设置.矩形, self.打开设置页
                     )
-
-                if self.按钮_重选模式.处理事件(事件):
-                    self._启动过渡(
-                        self._特效_按钮,
-                        self.按钮_重选模式.矩形,
-                        self.请求回主程序重新选歌,
-                    )
-                    continue
 
                 if self.动画中:
                     continue
@@ -7558,7 +7868,16 @@ class 选歌游戏:
                     elif 事件.key == pygame.K_RIGHT:
                         self.触发翻页动画(目标页=self.当前页 + 1, 方向=+1)
                     elif 事件.key == pygame.K_ESCAPE:
-                        if self.当前筛选星级 is not None:
+                        搜索词 = str(getattr(self, "搜索文本", "") or "").strip()
+                        if 搜索词:
+                            self._启动过渡(
+                                self._特效_按钮,
+                                pygame.Rect(
+                                    self.宽 // 2 - 60, self.顶部高 // 2 - 20, 120, 40
+                                ),
+                                self.清空搜索,
+                            )
+                        elif self.当前筛选星级 is not None:
                             self._启动过渡(
                                 self._特效_按钮,
                                 pygame.Rect(
@@ -8835,6 +9154,12 @@ def 选歌_帧绘制(self):
         if bool(getattr(self, "是否星级筛选页", False)):
             self.绘制星级筛选页()
 
+        if bool(getattr(self, "是否搜索页", False)):
+            try:
+                self.绘制搜索页()
+            except Exception:
+                pass
+
         if bool(getattr(self, "是否设置页", False)):
             try:
                 self.绘制设置页()
@@ -8911,6 +9236,13 @@ def 选歌_处理事件_外部(self, 事件):
             pass
         return None
 
+    if bool(getattr(self, "是否搜索页", False)):
+        try:
+            self._搜索页_处理事件(事件)
+        except Exception:
+            pass
+        return None
+
     if bool(getattr(self, "是否星级筛选页", False)):
         if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
             if not self.筛选页面板矩形.collidepoint(事件.pos):
@@ -8958,6 +9290,14 @@ def 选歌_处理事件_外部(self, 事件):
         pass
 
     try:
+        if hasattr(self, "按钮_搜索") and self.按钮_搜索.处理事件(事件):
+            self._启动过渡(
+                self._特效_按钮, self.按钮_搜索.矩形, self.打开搜索页
+            )
+    except Exception:
+        pass
+
+    try:
         if self.按钮_2P加入.处理事件(事件):
             self._启动过渡(
                 self._特效_按钮,
@@ -8975,14 +9315,7 @@ def 选歌_处理事件_外部(self, 事件):
     except Exception:
         pass
 
-    try:
-        if self.按钮_重选模式.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮, self.按钮_重选模式.矩形, self.请求回主程序重新选歌
-            )
-            return None
-    except Exception:
-        pass
+    # 重开按钮已移至ESC功能
 
     if bool(getattr(self, "动画中", False)):
         return None
@@ -9138,7 +9471,16 @@ def 选歌_处理事件_外部(self, 事件):
         elif 事件.key == pygame.K_RIGHT:
             self.触发翻页动画(目标页=self.当前页 + 1, 方向=+1)
         elif 事件.key == pygame.K_ESCAPE:
-            if getattr(self, "当前筛选星级", None) is not None:
+            搜索词 = str(getattr(self, "搜索文本", "") or "").strip()
+            if 搜索词:
+                # 有搜索筛选 → 先清空搜索
+                self._启动过渡(
+                    self._特效_按钮,
+                    pygame.Rect(self.宽 // 2 - 60, self.顶部高 // 2 - 20, 120, 40),
+                    self.清空搜索,
+                )
+            elif getattr(self, "当前筛选星级", None) is not None:
+                # 有星级筛选 → 清空星级
                 self._启动过渡(
                     self._特效_按钮,
                     pygame.Rect(self.宽 // 2 - 60, self.顶部高 // 2 - 20, 120, 40),

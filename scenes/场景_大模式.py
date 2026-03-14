@@ -19,6 +19,20 @@ from ui.top栏 import 生成top栏
 from core.工具 import 绘制渐隐放大图
 from ui.场景过渡 import 公用放大过渡器
 
+
+def _解析diy_songs路径(diy路径: str):
+    """将用户配置的 diy_songs路径 拆解为 (songs根目录, 类型名, 模式名)。
+
+    用户只需提供一个文件夹路径，该文件夹里直接放歌曲子目录即可。
+    内部通过拆解路径层级来兼容选歌场景要求的 songs根/类型/模式 三层结构。
+    """
+    diy路径 = os.path.abspath(str(diy路径 or "").strip())
+    模式名 = os.path.basename(diy路径)
+    父目录 = os.path.dirname(diy路径)
+    类型名 = os.path.basename(父目录)
+    songs根 = os.path.dirname(父目录)
+    return songs根, 类型名, 模式名
+
 class 场景_大模式(场景基类):
     名称 = "大模式"
 
@@ -170,6 +184,11 @@ class 场景_大模式(场景基类):
         )
         if bgm:
             self.上下文["音乐"].播放循环(bgm)
+
+        # 清理 DIY 模式设置的外置路径，避免影响其他模式
+        状态 = self.上下文.get("状态")
+        if isinstance(状态, dict):
+            状态.pop("外置songs根目录", None)
 
         当前毫秒 = pygame.time.get_ticks()
         self._入场开始毫秒 = 当前毫秒
@@ -416,6 +435,11 @@ class 场景_大模式(场景基类):
             return None
 
         self._按钮音效.播放()
+
+        # ---- DIY 模式：跳过子模式，直接进入选歌 ----
+        if self._当前选择键 == "DIY":
+            return self._触发DIY直接选歌()
+
         if self._当前选择键 in self._可进入子模式集合:
             if self._正在放大切场景:
                 return None
@@ -448,6 +472,61 @@ class 场景_大模式(场景基类):
             return None
 
         self._触发不可用提示()
+        return None
+
+    def _触发DIY直接选歌(self):
+        """DIY 模式直接进入选歌场景，使用全局设置中配置的 diy_songs路径。"""
+        状态 = self.上下文.setdefault("状态", {})
+        if not isinstance(状态, dict):
+            状态 = {}
+            self.上下文["状态"] = 状态
+
+        diy路径 = str(状态.get("diy_songs路径", "") or "").strip()
+        if not diy路径 or not os.path.isdir(diy路径):
+            self._提示文本 = "请先在 全局设置.json 中配置 diy_songs路径"
+            self._提示截止毫秒 = self._取当前毫秒() + 2500
+            self._提示强调开始毫秒 = self._取当前毫秒()
+            self._banner摇头开始毫秒 = self._取当前毫秒()
+            return None
+
+        songs根, 类型名, 模式名 = _解析diy_songs路径(diy路径)
+
+        状态["大模式"] = "DIY"
+        状态["子模式"] = 模式名
+        状态["选歌_类型"] = 类型名
+        状态["选歌_模式"] = 模式名
+        状态["songs子文件夹"] = 类型名
+        状态["外置songs根目录"] = songs根
+
+        # 播放放大过渡动画（和竞速/花式一样的效果）
+        if self._正在放大切场景:
+            return None
+
+        self._正在放大切场景 = True
+        起始图 = self._banner当前图
+        起始rect = self._banner当前rect
+
+        if 起始rect is None:
+            起始rect = self._rect_banner命中.copy()
+
+        if 起始图 is None and self._当前banner原图 is not None:
+            起始图 = pygame.transform.smoothscale(
+                self._当前banner原图,
+                (max(1, 起始rect.w), max(1, 起始rect.h)),
+            ).convert_alpha()
+
+        if 起始图 is not None and self._全屏放大过渡 is not None:
+            self._全屏放大过渡.开始(起始图, 起始rect)
+            self._延迟目标场景 = "选歌"
+            pygame.time.set_timer(
+                self._事件_延迟切场景,
+                int(getattr(self._全屏放大过渡, "总时长毫秒", 520)),
+                loops=1,
+            )
+            return None
+
+        self._延迟目标场景 = "选歌"
+        pygame.time.set_timer(self._事件_延迟切场景, 300, loops=1)
         return None
 
     def _绘制未开放提示(self):

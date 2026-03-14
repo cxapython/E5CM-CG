@@ -1,4 +1,5 @@
 import math
+import os
 import pygame
 
 from core.常量与路径 import 拼资源路径
@@ -651,10 +652,34 @@ class 场景_子模式(场景基类):
             状态 = {}
             self.上下文["状态"] = 状态
 
+        # 清理上一次可能残留的外置路径
+        状态.pop("外置songs根目录", None)
+
         状态["子模式"] = 模式名
-        状态["选歌_类型"] = str(状态.get("大模式", "") or "")
-        状态["选歌_模式"] = str(模式名 or "")
         状态["选歌_BGM"] = str(self.子模式对应选歌BGM(模式名) or "")
+
+        # 检查是否有配置外置路径（疯狂 / club）
+        模式名lower = str(模式名 or "").strip().lower()
+        外置路径 = ""
+        if "疯狂" in 模式名 or "crazy" in 模式名lower:
+            外置路径 = str(状态.get("疯狂_songs路径", "") or "").strip()
+        elif "club" in 模式名lower or "双踏板" in 模式名:
+            外置路径 = str(状态.get("club_songs路径", "") or "").strip()
+
+        if 外置路径 and os.path.isdir(外置路径):
+            外置路径 = os.path.abspath(外置路径)
+            虚拟模式名 = os.path.basename(外置路径)
+            虚拟父目录 = os.path.dirname(外置路径)
+            虚拟类型名 = os.path.basename(虚拟父目录)
+            虚拟songs根 = os.path.dirname(虚拟父目录)
+
+            状态["外置songs根目录"] = 虚拟songs根
+            状态["选歌_类型"] = 虚拟类型名
+            状态["选歌_模式"] = 虚拟模式名
+            状态["songs子文件夹"] = 虚拟类型名
+        else:
+            状态["选歌_类型"] = str(状态.get("大模式", "") or "")
+            状态["选歌_模式"] = str(模式名 or "")
 
         音乐管理 = self.上下文.get("音乐")
         if 音乐管理 is not None:
