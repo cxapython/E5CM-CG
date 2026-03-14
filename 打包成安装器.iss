@@ -20,7 +20,7 @@ AppPublisher={#AppPublisher}
 DefaultGroupName={#AppName}
 AllowNoIcons=yes
 OutputDir=installer_output
-OutputBaseFilename=E5CM-CG_Setup
+OutputBaseFilename=E5CM-CG_Setup_{#AppVersion}
 SetupIconFile=icon\自解压安装器.ico
 Compression=lzma2
 SolidCompression=yes
@@ -35,6 +35,9 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.i
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"
+
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\backmovies"
 
 [Files]
 Source: "编译结果\E5CM-CG\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
