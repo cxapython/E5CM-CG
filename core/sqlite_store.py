@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Any, Dict
 
-from core.常量与路径 import 取运行根目录
+from core.常量与路径 import 取运行根目录, 取状态数据库路径
 
 
 DB_FILENAME = "runtime_state.sqlite3"
@@ -13,6 +13,9 @@ DB_FILENAME = "runtime_state.sqlite3"
 SCOPE_SELECT_SETTINGS = "select_settings"
 SCOPE_LOADING_PAYLOAD = "loading_payload"
 SCOPE_GAME_ESC_MENU_SETTINGS = "game_esc_menu_settings"
+SCOPE_GLOBAL_SETTINGS = "global_settings"
+SCOPE_FAVORITES = "favorites"
+SCOPE_SONG_RECORDS = "song_records"
 
 _LOCK = threading.RLock()
 
@@ -20,11 +23,15 @@ _LEGACY_JSON_FILES = {
     SCOPE_SELECT_SETTINGS: ("选歌设置.json",),
     SCOPE_LOADING_PAYLOAD: ("加载页.json",),
     SCOPE_GAME_ESC_MENU_SETTINGS: ("游戏esc菜单设置.json", "电视跟跳设置.json"),
+    SCOPE_GLOBAL_SETTINGS: ("全局设置.json",),
+    SCOPE_FAVORITES: ("收藏夹.json",),
+    SCOPE_SONG_RECORDS: ("歌曲记录索引.json",),
 }
 
 
-def get_runtime_store_path() -> str:
-    return os.path.join(取运行根目录(), "json", DB_FILENAME)
+def get_runtime_store_path(根目录: str | None = None) -> str:
+    目标根目录 = str(根目录 or "").strip() or 取运行根目录()
+    return 取状态数据库路径(DB_FILENAME, 根目录=目标根目录)
 
 
 def _ensure_parent_dir(path: str) -> None:
@@ -33,8 +40,8 @@ def _ensure_parent_dir(path: str) -> None:
         os.makedirs(parent, exist_ok=True)
 
 
-def _connect() -> sqlite3.Connection:
-    path = get_runtime_store_path()
+def _connect(根目录: str | None = None) -> sqlite3.Connection:
+    path = get_runtime_store_path(根目录=根目录)
     _ensure_parent_dir(path)
     conn = sqlite3.connect(path, timeout=5.0)
     try:
@@ -63,14 +70,15 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _read_legacy_json(scope: str) -> Dict[str, Any]:
+def _read_legacy_json(scope: str, 根目录: str | None = None) -> Dict[str, Any]:
     filenames = _LEGACY_JSON_FILES.get(str(scope or "").strip(), ())
     if isinstance(filenames, str):
         filenames = (filenames,)
     if not filenames:
         return {}
+    目标根目录 = str(根目录 or "").strip() or 取运行根目录()
     for filename in filenames:
-        path = os.path.join(取运行根目录(), "json", str(filename or "").strip())
+        path = os.path.join(目标根目录, "json", str(filename or "").strip())
         if not os.path.isfile(path):
             continue
         for encoding in ("utf-8-sig", "utf-8", "gbk"):
@@ -111,25 +119,29 @@ def _write_rows(conn: sqlite3.Connection, scope: str, data: Dict[str, Any]) -> N
         )
 
 
-def _maybe_migrate_scope(conn: sqlite3.Connection, scope: str) -> None:
+def _maybe_migrate_scope(
+    conn: sqlite3.Connection,
+    scope: str,
+    根目录: str | None = None,
+) -> None:
     if _scope_has_rows(conn, scope):
         return
-    legacy = _read_legacy_json(scope)
+    legacy = _read_legacy_json(scope, 根目录=根目录)
     if not legacy:
         return
     _write_rows(conn, scope, legacy)
     conn.commit()
 
 
-def read_scope(scope: str) -> Dict[str, Any]:
+def read_scope(scope: str, 根目录: str | None = None) -> Dict[str, Any]:
     scope_name = str(scope or "").strip()
     if not scope_name:
         return {}
     with _LOCK:
-        conn = _connect()
+        conn = _connect(根目录=根目录)
         try:
             _ensure_schema(conn)
-            _maybe_migrate_scope(conn, scope_name)
+            _maybe_migrate_scope(conn, scope_name, 根目录=根目录)
             rows = conn.execute(
                 "SELECT key, value_json FROM store_kv WHERE scope = ?",
                 (scope_name,),
@@ -145,31 +157,39 @@ def read_scope(scope: str) -> Dict[str, Any]:
     return result
 
 
-def write_scope_patch(scope: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+def write_scope_patch(
+    scope: str,
+    patch: Dict[str, Any],
+    根目录: str | None = None,
+) -> Dict[str, Any]:
     scope_name = str(scope or "").strip()
     if not scope_name:
         return {}
     patch_data = dict(patch or {})
     with _LOCK:
-        conn = _connect()
+        conn = _connect(根目录=根目录)
         try:
             _ensure_schema(conn)
-            _maybe_migrate_scope(conn, scope_name)
+            _maybe_migrate_scope(conn, scope_name, 根目录=根目录)
             if patch_data:
                 _write_rows(conn, scope_name, patch_data)
                 conn.commit()
         finally:
             conn.close()
-    return read_scope(scope_name)
+    return read_scope(scope_name, 根目录=根目录)
 
 
-def replace_scope(scope: str, data: Dict[str, Any]) -> Dict[str, Any]:
+def replace_scope(
+    scope: str,
+    data: Dict[str, Any],
+    根目录: str | None = None,
+) -> Dict[str, Any]:
     scope_name = str(scope or "").strip()
     if not scope_name:
         return {}
     replace_data = dict(data or {})
     with _LOCK:
-        conn = _connect()
+        conn = _connect(根目录=根目录)
         try:
             _ensure_schema(conn)
             conn.execute("DELETE FROM store_kv WHERE scope = ?", (scope_name,))
@@ -178,15 +198,15 @@ def replace_scope(scope: str, data: Dict[str, Any]) -> Dict[str, Any]:
             conn.commit()
         finally:
             conn.close()
-    return read_scope(scope_name)
+    return read_scope(scope_name, 根目录=根目录)
 
 
-def clear_scope(scope: str) -> None:
+def clear_scope(scope: str, 根目录: str | None = None) -> None:
     scope_name = str(scope or "").strip()
     if not scope_name:
         return
     with _LOCK:
-        conn = _connect()
+        conn = _connect(根目录=根目录)
         try:
             _ensure_schema(conn)
             conn.execute("DELETE FROM store_kv WHERE scope = ?", (scope_name,))

@@ -13,26 +13,35 @@ except Exception:
     _sdl2_video = None
 
 from core.常量与路径 import (
+    取动画配置路径 as _公共取动画配置路径,
+    取个人资料头像目录 as _公共取个人资料头像目录,
+    取个人资料路径 as _公共取个人资料路径,
     取项目根目录 as _公共取项目根目录,
+    取调试配置路径 as _公共取调试配置路径,
     取运行根目录 as _公共取运行根目录,
 )
 from core.动态背景 import DynamicBackgroundContext, DynamicBackgroundManager
 from core.game_esc_menu_settings import (
     GAME_ESC_SETTINGS_KEY_AUTOPLAY,
     GAME_ESC_SETTINGS_KEY_BINDINGS,
+    GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS,
     PROFILE_DOUBLE,
     PROFILE_LABELS,
     PROFILE_SINGLE,
     ArrowSkinOption,
     BackgroundOption,
+    CHART_VISUAL_OFFSET_STEP_MS,
     VideoBackgroundOption,
     assign_profile_key,
     build_track_key_maps,
+    clamp_chart_visual_offset_ms,
+    format_chart_visual_offset_ms,
     get_dynamic_background_modes,
     _is_stepmania_arrow_skin_dir,
     keycode_to_display_name,
     load_key_binding_profiles,
     read_saved_autoplay,
+    read_saved_chart_visual_offset_ms,
     resolve_arrow_skin_option,
     resolve_background_option,
     resolve_video_background_option,
@@ -41,6 +50,15 @@ from core.game_esc_menu_settings import (
     scan_video_background_options,
     serialize_key_binding_profiles,
     write_game_esc_settings_scope_patch,
+)
+from core.select_speed_settings import (
+    DEFAULT_SELECT_SCROLL_SPEED,
+    DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+    format_select_scroll_speed,
+    get_select_scroll_speed_index,
+    get_select_scroll_speed_options,
+    nearest_select_scroll_speed_option,
+    parse_select_scroll_speed,
 )
 from core.sqlite_store import (
     SCOPE_GAME_ESC_MENU_SETTINGS as _游戏esc菜单设置存储作用域,
@@ -155,18 +173,7 @@ def _从设置参数文本提取(参数文本: str, 键名: str) -> str:
 
 
 def _解析调速倍率(调速字符串: str) -> float:
-    s = str(调速字符串 or "").strip()
-    s = s.replace("x", "X")
-    m = re.search(r"X\s*([0-9]+(?:\.[0-9]+)?)", s)
-    if not m:
-        try:
-            return max(0.1, float(s))
-        except Exception:
-            return 3.0
-    try:
-        return max(0.1, float(m.group(1)))
-    except Exception:
-        return 3.0
+    return parse_select_scroll_speed(调速字符串, default=DEFAULT_SELECT_SCROLL_SPEED)
 
 
 def _解析大小倍率(设置参数: dict, 参数文本: str) -> float:
@@ -462,14 +469,9 @@ def _取_stage背景矩形_屏幕坐标(
 from typing import Optional
 
 
-def _提取sm标签值(sm文本: str, 标签名: str) -> str:
+def _提取sm标签原始值(sm文本: str, 标签名: str) -> str:
     """
-    ✅ 兼容“有分号 / 没分号”的 SM 标签提取：
-    - 从 #TAG: 后开始取
-    - 遇到 ';' 结束
-    - 若该标签没有分号：遇到“换行 + 可选空白 + #”（新标签起始）也视为结束
-    - 支持标签值跨多行
-    - 会删除每一行里的 // 注释
+    保留原始换行的标签提取，适合 #NOTES / SSC 的 #NOTEDATA:#NOTES。
     """
     try:
         文本 = str(sm文本 or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -477,7 +479,6 @@ def _提取sm标签值(sm文本: str, 标签名: str) -> str:
         if (not 文本) or (not 标签):
             return ""
 
-        # 用行首匹配更安全，避免误撞到 #NOTES 数据里奇怪的内容
         m = re.search(rf"(?im)^\s*#{re.escape(标签)}\s*:\s*", 文本)
         if not m:
             return ""
@@ -492,7 +493,6 @@ def _提取sm标签值(sm文本: str, 标签名: str) -> str:
                 break
 
             if ch == "\n":
-                # 没分号时：下一行（允许空白）如果以 # 开头，认为新标签开始
                 k = j + 1
                 while k < n and 文本[k] in (" ", "\t"):
                     k += 1
@@ -500,7 +500,22 @@ def _提取sm标签值(sm文本: str, 标签名: str) -> str:
                     break
             j += 1
 
-        原始值 = 文本[i:j]
+        return str(文本[i:j] or "").strip()
+    except Exception:
+        return ""
+
+
+def _提取sm标签值(sm文本: str, 标签名: str) -> str:
+    """
+    ✅ 兼容“有分号 / 没分号”的 SM 标签提取：
+    - 从 #TAG: 后开始取
+    - 遇到 ';' 结束
+    - 若该标签没有分号：遇到“换行 + 可选空白 + #”（新标签起始）也视为结束
+    - 支持标签值跨多行
+    - 会删除每一行里的 // 注释
+    """
+    try:
+        原始值 = _提取sm标签原始值(sm文本, 标签名)
         if not 原始值:
             return ""
 
@@ -542,40 +557,117 @@ def _解析_displaybpm(sm文本: str) -> Optional[float]:
         return None
 
 
+def _解析_rowsperbeat原始值(原始: str) -> Optional[float]:
+    文本 = str(原始 or "").strip()
+    if not 文本:
+        return None
+
+    for 片段 in 文本.split(","):
+        当前片段 = str(片段 or "").strip()
+        if not 当前片段:
+            continue
+
+        数值文本 = 当前片段
+        if "=" in 当前片段:
+            _, 数值文本 = 当前片段.split("=", 1)
+
+        数字们 = re.findall(r"-?\d+(?:\.\d+)?", str(数值文本))
+        if not 数字们:
+            continue
+
+        try:
+            数值 = float(数字们[0])
+        except Exception:
+            continue
+
+        if 数值 > 0:
+            return 数值
+
+    return None
+
+
+def _解析_rowsperbeat(sm文本: str) -> float:
+    try:
+        原始 = _提取sm标签值(sm文本, "ROWSPERBEAT")
+        数值 = _解析_rowsperbeat原始值(原始)
+        if 数值 is not None and 数值 > 0:
+            return float(数值)
+    except Exception:
+        pass
+    return 192.0
+
+
+def _解析_谱面位置beat(位置文本: str, 行每拍: float = 192.0) -> Optional[float]:
+    文本 = str(位置文本 or "").strip().lower()
+    if not 文本:
+        return None
+
+    数字们 = re.findall(r"-?\d+(?:\.\d+)?", 文本)
+    if not 数字们:
+        return None
+
+    try:
+        数值 = float(数字们[0])
+    except Exception:
+        return None
+
+    if 文本.endswith("r"):
+        try:
+            当前行每拍 = float(行每拍)
+        except Exception:
+            当前行每拍 = 192.0
+        if 当前行每拍 <= 0:
+            当前行每拍 = 192.0
+        return float(数值) / float(当前行每拍)
+
+    return float(数值)
+
+
+def _解析_bpms原始值(原始: str, 行每拍: float = 192.0) -> List[Tuple[float, float]]:
+    结果: List[Tuple[float, float]] = []
+    if not 原始:
+        return 结果
+
+    body = str(原始).strip().strip(";").strip()
+    for part in body.split(","):
+        p = str(part or "").strip()
+        if (not p) or ("=" not in p):
+            continue
+        a, b = p.split("=", 1)
+        try:
+            beat = _解析_谱面位置beat(a.strip(), 行每拍=行每拍)
+            if beat is None:
+                continue
+            数字们 = re.findall(r"-?\d+(?:\.\d+)?", str(b))
+            if not 数字们:
+                continue
+            bpm = float(数字们[0])
+            if bpm <= 0:
+                continue
+            结果.append((float(beat), float(bpm)))
+        except Exception:
+            continue
+
+    if not 结果:
+        return []
+
+    临时: Dict[float, float] = {}
+    for beat, bpm in 结果:
+        临时[float(beat)] = float(bpm)
+    return [(k, 临时[k]) for k in sorted(临时.keys())]
+
+
 def _解析_bpms(sm文本: str) -> List[Tuple[float, float]]:
     """
     ✅ 计时优先 BPMS，其次 DISPLAYBPM 兜底
     返回：[(开始beat, bpm), ...]，至少 1 条
     """
+    行每拍 = _解析_rowsperbeat(sm文本)
     原始 = _提取sm标签值(sm文本, "BPMS")
-    结果: List[Tuple[float, float]] = []
-
-    if 原始:
-        body = str(原始).strip().strip(";").strip()
-        for part in body.split(","):
-            p = str(part or "").strip()
-            if (not p) or ("=" not in p):
-                continue
-            a, b = p.split("=", 1)
-            try:
-                beat = float(a.strip())
-                数字们 = re.findall(r"-?\d+(?:\.\d+)?", str(b))
-                if not 数字们:
-                    continue
-                bpm = float(数字们[0])
-                if bpm <= 0:
-                    continue
-                结果.append((float(beat), float(bpm)))
-            except Exception:
-                continue
+    结果 = _解析_bpms原始值(原始, 行每拍=行每拍)
 
     if 结果:
-        # 去重 + 排序（同 beat 取最后一个）
-        临时: Dict[float, float] = {}
-        for beat, bpm in 结果:
-            临时[float(beat)] = float(bpm)
-        out = [(k, 临时[k]) for k in sorted(临时.keys())]
-        return out
+        return 结果
 
     # ✅ BPMS 没有/解析失败 -> DISPLAYBPM 兜底成常速
     显示bpm = _解析_displaybpm(sm文本)
@@ -629,20 +721,37 @@ class 音符事件:
     类型: str  # "tap" / "hold"
 
 
+def _提取ssc谱面块列表(sm文本: str) -> List[str]:
+    文本 = str(sm文本 or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not 文本:
+        return []
+
+    结果: List[str] = []
+    for 匹配 in re.finditer(
+        r"^\s*#NOTEDATA\s*:\s*;\s*(.*?)(?=^\s*#NOTEDATA\s*:\s*;|\Z)",
+        文本,
+        flags=re.IGNORECASE | re.DOTALL | re.MULTILINE,
+    ):
+        块文本 = str(匹配.group(1) or "").strip()
+        if 块文本:
+            结果.append(块文本)
+    return 结果
+
+
 def _解析_sm_notes_选谱面(
     sm文本: str, 优先double: bool = False
-) -> Tuple[str, int, str]:
+) -> Tuple[str, int, str, str, str]:
     """
-    选中一个 #NOTES 块返回 (notedata第6段, 列数, charttype)
+    选中一个谱面块返回 (notedata, 列数, charttype, 局部BPMS文本, 局部OFFSET文本)
     默认优先 pump-single；当 优先double=True 时优先 pump-double。
     """
     notes块列表 = []
     for m in re.finditer(r"#NOTES\s*:(.*?);", sm文本, flags=re.IGNORECASE | re.DOTALL):
         notes块列表.append(m.group(1))
 
-    候选: List[Tuple[str, str, int]] = []
+    候选: List[Tuple[str, str, int, str, str]] = []
     for blk in notes块列表:
-        parts = blk.split(":")
+        parts = blk.split(":", 5)
         if len(parts) < 6:
             continue
         charttype = (parts[0] or "").strip().lower()
@@ -661,13 +770,44 @@ def _解析_sm_notes_选谱面(
                     break
         except Exception:
             列数 = 5
-        候选.append((charttype, notedata, int(列数)))
+        候选.append((charttype, notedata, int(列数), "", ""))
+
+    for 块文本 in _提取ssc谱面块列表(sm文本):
+        charttype = _提取sm标签值(块文本, "STEPSTYPE").lower()
+        notedata = _提取sm标签原始值(块文本, "NOTES")
+        if not notedata:
+            continue
+
+        列数 = 5
+        try:
+            纯 = str(notedata or "").replace("\r", "")
+            for 小节 in 纯.split(","):
+                行们 = [
+                    ln.strip()
+                    for ln in 小节.split("\n")
+                    if ln.strip() and (not ln.strip().startswith("//"))
+                ]
+                if 行们:
+                    列数 = max(1, len(行们[0]))
+                    break
+        except Exception:
+            列数 = 5
+
+        候选.append(
+            (
+                charttype,
+                notedata,
+                int(列数),
+                _提取sm标签值(块文本, "BPMS"),
+                _提取sm标签值(块文本, "OFFSET"),
+            )
+        )
 
     if not 候选:
-        return "", 5, ""
+        return "", 5, "", "", ""
 
     # 根据玩法偏好选谱面，最后兜底按列数最大的 chart。
-    选中chart: Tuple[str, str, int]
+    选中chart: Tuple[str, str, int, str, str]
     选中chart = 候选[0]
     if bool(优先double):
         for c in 候选:
@@ -695,12 +835,18 @@ def _解析_sm_notes_选谱面(
 
     纯 = (选中chart[1] or "").replace("\r", "")
     列数 = int(max(1, int(选中chart[2] or 5)))
-    return 纯, 列数, str(选中chart[0] or "")
+    return (
+        纯,
+        列数,
+        str(选中chart[0] or ""),
+        str(选中chart[3] or ""),
+        str(选中chart[4] or ""),
+    )
 
 
 def _构建_sm事件列表(
     sm路径: str, 优先double: bool = False
-) -> Tuple[List[音符事件], float, float, int, str]:
+) -> Tuple[List[音符事件], float, float, int, str, List[Tuple[float, float]]]:
     """
     返回：(事件列表, offset, 总时长秒, 列数, charttype)
 
@@ -712,17 +858,36 @@ def _构建_sm事件列表(
     """
     sm文本 = _安全读文本(sm路径)
     if not sm文本:
-        return [], 0.0, 0.0, 5, ""
+        return [], 0.0, 0.0, 5, "", [(0.0, 120.0)]
 
     offset = _解析_offset(sm文本)
     bpms = _解析_bpms(sm文本)
-    bpm段 = _生成时间轴段(bpms)
-
-    notedata, 列数, charttype = _解析_sm_notes_选谱面(
+    (
+        notedata,
+        列数,
+        charttype,
+        局部bpms文本,
+        局部offset文本,
+    ) = _解析_sm_notes_选谱面(
         sm文本, 优先double=bool(优先double)
     )
     if not notedata:
-        return [], offset, 0.0, 5, ""
+        return [], offset, 0.0, 5, "", list(bpms or [(0.0, 120.0)])
+
+    if 局部offset文本:
+        try:
+            offset = float(str(局部offset文本).strip())
+        except Exception:
+            pass
+
+    if 局部bpms文本:
+        局部bpms = _解析_bpms原始值(
+            局部bpms文本, 行每拍=_解析_rowsperbeat(sm文本)
+        )
+        if 局部bpms:
+            bpms = 局部bpms
+
+    bpm段 = _生成时间轴段(bpms)
 
     小节列表 = [m.strip() for m in notedata.split(",")]
     事件: List[音符事件] = []
@@ -801,7 +966,14 @@ def _构建_sm事件列表(
 
     事件.sort(key=lambda e: e.开始秒)
     总时长 = max(0.0, 最大秒 + 2.0)
-    return 事件, float(offset), float(总时长), int(列数), str(charttype or "")
+    return (
+        事件,
+        float(offset),
+        float(总时长),
+        int(列数),
+        str(charttype or ""),
+        list(bpms or [(0.0, 120.0)]),
+    )
 
 
 def _构建_json事件列表(
@@ -1079,7 +1251,8 @@ class 场景_谱面播放器(场景基类):
 
         self._sm路径: str = ""
         self._sm文本: str = ""
-        self._谱面格式: str = "sm"  # "sm" / "json"
+        self._谱面格式: str = "sm"  # "sm" / "ssc" / "json"
+        self._sm_bpms: List[Tuple[float, float]] = []
         self._json_bpms_line: List[Tuple[int, float]] = []
         self._json_tick每拍: int = 96
 
@@ -1098,6 +1271,8 @@ class 场景_谱面播放器(场景基类):
         self._计分系统 = None
         self._是否自动模式: bool = False  # F2切换：自动判定（用来调UI/对齐音频）
         self._输入补偿秒: float = 0.0  # 你后续可做“延迟校准”（默认0）
+        self._谱面视觉偏移毫秒: int = 0
+        self._谱面视觉偏移秒: float = 0.0
 
         # 判定光
         self._判定光: List[float] = [0.0] * 5
@@ -1160,7 +1335,7 @@ class 场景_谱面播放器(场景基类):
         self._单轨宽: int = 0
 
         # 视觉参数
-        self._卷轴速度倍率: float = 3.0
+        self._卷轴速度倍率: float = DEFAULT_SELECT_SCROLL_SPEED
         self._滚动速度px每秒: float = 1260.0
         self._尺寸倍率: float = 1.0
         self._箭头默认缩放: float = 1.2
@@ -1212,8 +1387,9 @@ class 场景_谱面播放器(场景基类):
         self._操作反馈文本: str = ""
         self._操作反馈剩余秒: float = 0.0
         self._操作反馈总秒: float = 1.35
-        self._布局调试设置路径: str = os.path.join(
-            _取项目根目录(), "json", "谱面布局调试器_设置.json"
+        self._布局调试设置路径: str = _公共取调试配置路径(
+            "谱面布局调试器_设置.json",
+            根目录=_取项目根目录(),
         )
         self._布局调试设置_mtime: float = -2.0
         self._布局调试设置检查间隔秒: float = 0.25
@@ -1243,8 +1419,9 @@ class 场景_谱面播放器(场景基类):
         self._双踏板入场锁定判定线y: Optional[int] = None
         self._双踏板入场待首帧校正: bool = False
         self._性能模式: bool = False
-        self._准备动画设置路径: str = os.path.join(
-            _取项目根目录(), "json", "准备就绪动画_设置.json"
+        self._准备动画设置路径: str = _公共取动画配置路径(
+            "准备就绪动画_设置.json",
+            根目录=_取项目根目录(),
         )
         self._准备动画设置: Dict[str, float] = {}
         self._准备动画背景无蒙版: Optional[pygame.Surface] = None
@@ -2352,7 +2529,10 @@ class 场景_谱面播放器(场景基类):
             if not isinstance(数据, dict):
                 数据 = {}
             参数 = dict(数据.get("设置参数", {}) or {})
-            参数["调速"] = f"X{float(getattr(self, '_卷轴速度倍率', 4.0) or 4.0):.1f}"
+            参数["调速"] = format_select_scroll_speed(
+                getattr(self, "_卷轴速度倍率", DEFAULT_SELECT_SCROLL_SPEED),
+                prefix="X",
+            )
             当前背景模式 = str(getattr(self, "_背景模式", "图片") or "图片")
             当前动态背景 = str(
                 self._规范动态背景模式(getattr(self, "_动态背景模式", "关闭") or "关闭")
@@ -2401,8 +2581,11 @@ class 场景_谱面播放器(场景基类):
 
             _更新索引(
                 "调速",
-                ["3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0"],
-                f"{float(getattr(self, '_卷轴速度倍率', 4.0) or 4.0):.1f}",
+                get_select_scroll_speed_options(),
+                nearest_select_scroll_speed_option(
+                    getattr(self, "_卷轴速度倍率", DEFAULT_SELECT_SCROLL_SPEED),
+                    default=DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+                ),
             )
             可见背景模式 = "动态背景" if self._动态背景已启用() else str(当前背景模式 or "图片")
             _更新索引("背景模式", ["图片", "视频", "动态背景"], 可见背景模式)
@@ -2474,11 +2657,15 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             return None
 
+    def _取谱面偏移菜单文本(self) -> str:
+        return format_chart_visual_offset_ms(getattr(self, "_谱面视觉偏移毫秒", 0))
+
     def _保存游戏esc菜单设置(
         self,
         是否开启: Optional[bool] = None,
         背景遮罩alpha: Optional[int] = None,
         性能模式: Optional[bool] = None,
+        谱面视觉偏移毫秒: Optional[int] = None,
     ):
         原数据 = self._读取游戏esc菜单设置()
         if not isinstance(原数据, dict):
@@ -2502,6 +2689,11 @@ class 场景_谱面播放器(场景基类):
         if 性能模式 is not None:
             新数据["性能模式"] = bool(性能模式)
 
+        if 谱面视觉偏移毫秒 is not None:
+            新数据[GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS] = int(
+                clamp_chart_visual_offset_ms(谱面视觉偏移毫秒, 0)
+            )
+
         新数据["更新时间"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
         try:
@@ -2519,6 +2711,10 @@ class 场景_谱面播放器(场景基类):
                 )
             if 性能模式 is not None:
                 self._载荷["性能模式"] = bool(性能模式)
+            if 谱面视觉偏移毫秒 is not None:
+                self._载荷[GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS] = int(
+                    clamp_chart_visual_offset_ms(谱面视觉偏移毫秒, 0)
+                )
         except Exception:
             pass
         
@@ -2548,6 +2744,17 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
         self._同步电视跟跳状态()
+
+    def _设置谱面视觉偏移毫秒(self, 偏移毫秒: object, save: bool = True):
+        新值 = int(clamp_chart_visual_offset_ms(偏移毫秒, 0))
+        self._谱面视觉偏移毫秒 = int(新值)
+        self._谱面视觉偏移秒 = float(self._谱面视觉偏移毫秒) / 1000.0
+        try:
+            self._载荷[GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS] = int(新值)
+        except Exception:
+            pass
+        if bool(save):
+            self._保存游戏esc菜单设置(谱面视觉偏移毫秒=int(新值))
 
     @staticmethod
     def _规范动态背景模式(值: Any) -> str:
@@ -2758,15 +2965,13 @@ class 场景_谱面播放器(场景基类):
         return 旧图
 
     def _菜单切换调速(self):
-        选项 = ["3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0"]
-        try:
-            当前值 = float(getattr(self, "_卷轴速度倍率", 4.0) or 4.0)
-        except Exception:
-            当前值 = 4.0
-        try:
-            当前索引 = min(range(len(选项)), key=lambda i: abs(float(选项[i]) - 当前值))
-        except Exception:
-            当前索引 = 0
+        选项 = get_select_scroll_speed_options()
+        if not 选项:
+            return
+        当前索引 = get_select_scroll_speed_index(
+            getattr(self, "_卷轴速度倍率", DEFAULT_SELECT_SCROLL_SPEED),
+            default=DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+        )
         新值 = float(选项[(int(当前索引) + 1) % len(选项)])
         self._卷轴速度倍率 = float(新值)
         self._滚动速度px每秒 = float(420.0 * self._卷轴速度倍率)
@@ -2939,16 +3144,31 @@ class 场景_谱面播放器(场景基类):
             return None
 
         if 键名 == "scroll_speed":
-            候选 = ["3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0"]
-            当前 = f"{float(getattr(self, '_卷轴速度倍率', 4.0) or 4.0):.1f}"
-            try:
-                索引 = 候选.index(当前)
-            except Exception:
-                索引 = 2
+            候选 = get_select_scroll_speed_options()
+            if not 候选:
+                return None
+            索引 = get_select_scroll_speed_index(
+                getattr(self, "_卷轴速度倍率", DEFAULT_SELECT_SCROLL_SPEED),
+                default=DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+            )
             self._卷轴速度倍率 = float(候选[(索引 + step) % len(候选)])
             self._滚动速度px每秒 = float(420.0 * self._卷轴速度倍率)
             self._保存游戏视觉设置到选歌json()
-            self._设置操作反馈(f"调速已切换：X{self._卷轴速度倍率:.1f}")
+            self._设置操作反馈(
+                f"调速已切换：{format_select_scroll_speed(self._卷轴速度倍率, prefix='X')}"
+            )
+            return None
+
+        if 键名 == "chart_visual_offset":
+            当前值 = int(getattr(self, "_谱面视觉偏移毫秒", 0) or 0)
+            新值 = int(
+                clamp_chart_visual_offset_ms(
+                    当前值 + int(step) * int(CHART_VISUAL_OFFSET_STEP_MS),
+                    当前值,
+                )
+            )
+            self._设置谱面视觉偏移毫秒(int(新值), save=True)
+            self._设置操作反馈(f"谱面偏移：{self._取谱面偏移菜单文本()}")
             return None
 
         if 键名 == "background_mode":
@@ -3172,7 +3392,8 @@ class 场景_谱面播放器(场景基类):
             return False
         try:
             预览 = pygame.Surface((max(1, rect.w), max(1, rect.h))).convert()
-            self._绘制cover背景面(预览, 图像)
+            预览.fill((0, 0, 0))
+            self._绘制contain预览面(预览, 图像)
             屏幕.blit(预览, rect.topleft)
             return True
         except Exception:
@@ -3234,21 +3455,16 @@ class 场景_谱面播放器(场景基类):
         if 播放器 is None:
             return False
         try:
-            if hasattr(播放器, "读取覆盖帧"):
-                视频帧 = 播放器.读取覆盖帧(max(1, rect.w), max(1, rect.h))
-            else:
-                视频帧 = 播放器.读取帧()
+            视频帧 = 播放器.读取帧() if hasattr(播放器, "读取帧") else None
         except Exception:
             视频帧 = None
         if not isinstance(视频帧, pygame.Surface):
             return False
         try:
-            if 视频帧.get_size() == (rect.w, rect.h):
-                屏幕.blit(视频帧, rect.topleft)
-            else:
-                预览 = pygame.Surface((max(1, rect.w), max(1, rect.h))).convert()
-                self._绘制cover背景面(预览, 视频帧)
-                屏幕.blit(预览, rect.topleft)
+            预览 = pygame.Surface((max(1, rect.w), max(1, rect.h))).convert()
+            预览.fill((0, 0, 0))
+            self._绘制contain预览面(预览, 视频帧)
+            屏幕.blit(预览, rect.topleft)
             return True
         except Exception:
             return False
@@ -3442,6 +3658,10 @@ class 场景_谱面播放器(场景基类):
         else:
             self._是否自动模式 = bool(存档自动模式)
         self._电视跟跳开启 = bool(self._是否自动模式)
+        self._设置谱面视觉偏移毫秒(
+            read_saved_chart_visual_offset_ms(游戏esc菜单设置),
+            save=False,
+        )
 
         if 游戏esc菜单性能模式 is not None:
             self._性能模式 = bool(游戏esc菜单性能模式)
@@ -3653,7 +3873,12 @@ class 场景_谱面播放器(场景基类):
         if 提示文本:
             self._设置操作反馈(提示文本)
 
-        self._卷轴速度倍率 = _解析调速倍率(str(设置参数.get("调速", "X4.0") or "X4.0"))
+        self._卷轴速度倍率 = _解析调速倍率(
+            str(
+                设置参数.get("调速", f"X{DEFAULT_SELECT_SCROLL_SPEED_OPTION}")
+                or f"X{DEFAULT_SELECT_SCROLL_SPEED_OPTION}"
+            )
+        )
         self._滚动速度px每秒 = float(420.0 * self._卷轴速度倍率)
         self._尺寸倍率 = _解析大小倍率(设置参数, 参数文本)
         self._轨迹模式 = (
@@ -3806,6 +4031,7 @@ class 场景_谱面播放器(场景基类):
         self._音频路径 = None
         self._音频已加载路径 = None
         self._谱面格式 = "sm"
+        self._sm_bpms = []
         self._json_bpms_line = []
         self._json_tick每拍 = 96
 
@@ -3864,12 +4090,13 @@ class 场景_谱面播放器(场景基类):
 
                 self._音频路径 = _找同目录音频_按优先级(self._sm路径)
             else:
-                self._谱面格式 = "sm"
+                self._谱面格式 = "ssc" if 扩展名 == ".ssc" else "sm"
                 self._sm文本 = _安全读文本(self._sm路径)
                 try:
-                    事件, 偏移, 总时长, 列数, charttype = _构建_sm事件列表(
+                    事件, 偏移, 总时长, 列数, charttype, bpms_beat = _构建_sm事件列表(
                         self._sm路径, 优先double=bool(优先双踏板)
                     )
+                    self._sm_bpms = list(bpms_beat or [])
                     self._谱面列数 = int(max(1, int(列数 or 5)))
                     self._谱面chart类型 = str(charttype or "")
                     self._是否双踏板模式 = bool(
@@ -3897,6 +4124,7 @@ class 场景_谱面播放器(场景基类):
                     self._轨道数 = 5
                     self._刷新按键映射()
                     self._同步双踏板渲染器()
+                    self._sm_bpms = []
                     self._offset = 0.0
                     self._谱面总时长秒 = 0.0
                     self._错误提示 = (
@@ -3975,7 +4203,7 @@ class 场景_谱面播放器(场景基类):
             if str(self._谱面格式 or "") == "json":
                 bpms = _json_bpms转beat(self._json_bpms_line, int(self._json_tick每拍 or 96))
             else:
-                bpms = _解析_bpms(self._sm文本)
+                bpms = list(self._sm_bpms or _解析_bpms(self._sm文本))
             bpm段 = _生成时间轴段(bpms)
 
             def _beat转秒_闭包(beat: float) -> float:
@@ -4517,6 +4745,7 @@ class 场景_谱面播放器(场景基类):
             输入 = 渲染输入(
                 当前谱面秒=float(self._当前谱面秒),
                 总时长秒=float(self._谱面总时长秒),
+                谱面视觉偏移秒=float(self._谱面视觉偏移秒),
                 轨道中心列表=轨道中心列表,
                 判定线y=int(左判定线y),
                 底部y=int(self._底部y),
@@ -4623,6 +4852,7 @@ class 场景_谱面播放器(场景基类):
                 输入右 = 渲染输入(
                     当前谱面秒=float(self._当前谱面秒),
                     总时长秒=float(self._谱面总时长秒),
+                    谱面视觉偏移秒=float(self._谱面视觉偏移秒),
                     轨道中心列表=list(右侧轨道中心列表),
                     判定线y=int(右判定线y),
                     底部y=int(self._底部y),
@@ -5688,6 +5918,33 @@ class 场景_谱面播放器(场景基类):
         y = int((屏高 - 新高) // 2)
         屏幕.blit(图2, (x, y))
 
+    def _绘制contain预览面(self, 屏幕: pygame.Surface, 原图: pygame.Surface):
+        if not isinstance(屏幕, pygame.Surface) or not isinstance(原图, pygame.Surface):
+            return
+
+        屏宽, 屏高 = 屏幕.get_size()
+        原宽 = int(max(1, 原图.get_width()))
+        原高 = int(max(1, 原图.get_height()))
+        比例 = min(float(屏宽) / float(原宽), float(屏高) / float(原高))
+        新宽 = int(max(1, round(float(原宽) * 比例)))
+        新高 = int(max(1, round(float(原高) * 比例)))
+
+        try:
+            图2 = (
+                原图
+                if (新宽, 新高) == (原宽, 原高)
+                else pygame.transform.smoothscale(原图, (新宽, 新高))
+            )
+        except Exception:
+            try:
+                图2 = pygame.transform.scale(原图, (新宽, 新高))
+            except Exception:
+                return
+
+        x = int((屏宽 - 新宽) // 2)
+        y = int((屏高 - 新高) // 2)
+        屏幕.blit(图2, (x, y))
+
     def _加载准备动画资源(self):
         self._准备动画图 = 加载准备动画图片(_取项目根目录())
         self._加载准备动画音效()
@@ -6108,7 +6365,7 @@ class 场景_谱面播放器(场景基类):
 
     def _取个人资料json_懒加载(self) -> dict:
         """
-        只读取运行根\\json\\个人资料.json
+        只读取运行根\\userdata\\profile\\个人资料.json
         缓存策略：按“实际命中的 json 路径 + mtime”缓存
         """
         try:
@@ -6117,7 +6374,7 @@ class 场景_谱面播放器(场景基类):
                 self._个人资料json_缓存key = ""
             if not hasattr(self, "_个人资料json_实际路径"):
                 self._个人资料json_实际路径 = ""
-            实际路径 = os.path.join(_取运行根目录(), "json", "个人资料.json")
+            实际路径 = _公共取个人资料路径(_取运行根目录())
 
             if not 实际路径:
                 self._个人资料json_缓存 = {}
@@ -6272,7 +6529,9 @@ class 场景_谱面播放器(场景基类):
             文本 = 文本.replace("/", os.sep).replace("\\", os.sep)
             候选路径列表: List[str] = []
 
-            if 文本.startswith(f"json{os.sep}"):
+            if 文本.startswith(f"json{os.sep}") or 文本.startswith(
+                f"userdata{os.sep}profile{os.sep}avatars{os.sep}"
+            ):
                 if 运行根目录:
                     候选路径列表.append(os.path.join(运行根目录, 文本))
                 if 资源根目录:
@@ -6286,7 +6545,10 @@ class 场景_谱面播放器(场景基类):
                 文件名 = os.path.basename(文本)
                 if 运行根目录:
                     候选路径列表.append(
-                        os.path.join(运行根目录, "json", "个人资料", 文件名)
+                        os.path.join(
+                            _公共取个人资料头像目录(运行根目录),
+                            文件名,
+                        )
                     )
                 if 资源根目录:
                     候选路径列表.append(

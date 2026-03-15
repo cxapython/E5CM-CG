@@ -10,14 +10,19 @@ from core.动态背景 import DynamicBackgroundManager
 from core.game_esc_menu_settings import (
     GAME_ESC_SETTINGS_KEY_AUTOPLAY,
     GAME_ESC_SETTINGS_KEY_BINDINGS,
+    GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS,
     PROFILE_DOUBLE,
     PROFILE_SINGLE,
     ArrowSkinOption,
     BackgroundOption,
+    CHART_VISUAL_OFFSET_STEP_MS,
     VideoBackgroundOption,
     assign_profile_key,
+    clamp_chart_visual_offset_ms,
+    format_chart_visual_offset_ms,
     get_dynamic_background_modes,
     load_key_binding_profiles,
+    read_saved_chart_visual_offset_ms,
     resolve_arrow_skin_option,
     resolve_background_option,
     resolve_video_background_option,
@@ -27,6 +32,14 @@ from core.game_esc_menu_settings import (
     serialize_key_binding_profiles,
     write_game_esc_settings_scope_patch,
 )
+from core.select_speed_settings import (
+    DEFAULT_SELECT_SCROLL_SPEED,
+    DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+    format_select_scroll_speed,
+    get_select_scroll_speed_index,
+    get_select_scroll_speed_options,
+    parse_select_scroll_speed,
+)
 from core.sqlite_store import (
     SCOPE_GAME_ESC_MENU_SETTINGS,
     SCOPE_SELECT_SETTINGS,
@@ -35,6 +48,7 @@ from core.sqlite_store import (
 )
 from core.工具 import 获取字体
 from ui.game_esc_menu import GameEscMenuController
+from ui.谱面渲染器 import _皮肤包
 
 
 class SelectSceneEscMenuHost:
@@ -58,7 +72,8 @@ class SelectSceneEscMenuHost:
         self._菜单视频预览路径 = ""
         self._背景预览缓存: Dict[str, pygame.Surface] = {}
         self._箭头预览缓存: Dict[str, pygame.Surface] = {}
-        self._卷轴速度倍率 = 4.0
+        self._箭头皮肤包缓存: Dict[str, object] = {}
+        self._卷轴速度倍率 = DEFAULT_SELECT_SCROLL_SPEED
         self._隐藏模式 = "关闭"
         self._轨迹模式 = "正常"
         self._方向模式 = "关闭"
@@ -69,6 +84,7 @@ class SelectSceneEscMenuHost:
         self._性能模式 = False
         self._是否自动模式 = False
         self._是否双踏板模式 = False
+        self._谱面视觉偏移毫秒 = 0
         self._背景暗层alpha = 179
         self._refresh_from_storage()
 
@@ -114,6 +130,9 @@ class SelectSceneEscMenuHost:
     def _设置操作反馈(self, _文本: str):
         return
 
+    def _取谱面偏移菜单文本(self) -> str:
+        return format_chart_visual_offset_ms(getattr(self, "_谱面视觉偏移毫秒", 0))
+
     def _refresh_from_storage(self):
         select_data = read_scope(SCOPE_SELECT_SETTINGS)
         esc_data = read_scope(SCOPE_GAME_ESC_MENU_SETTINGS)
@@ -129,7 +148,10 @@ class SelectSceneEscMenuHost:
         self._菜单单踏板键位 = dict(bindings.get(PROFILE_SINGLE, {}) or {})
         self._菜单双踏板键位 = dict(bindings.get(PROFILE_DOUBLE, {}) or {})
 
-        self._卷轴速度倍率 = float(str(params.get("调速", "X4.0")).replace("X", "") or 4.0)
+        self._卷轴速度倍率 = parse_select_scroll_speed(
+            params.get("调速", f"X{DEFAULT_SELECT_SCROLL_SPEED_OPTION}"),
+            default=DEFAULT_SELECT_SCROLL_SPEED,
+        )
         self._隐藏模式 = str(params.get("隐藏", "关闭") or "关闭")
         self._轨迹模式 = str(params.get("轨迹", "正常") or "正常")
         self._方向模式 = str(params.get("方向", "关闭") or "关闭")
@@ -138,6 +160,7 @@ class SelectSceneEscMenuHost:
         self._动态背景模式 = str(params.get("动态背景", "唱片") or "唱片")
         self._性能模式 = bool(esc_data.get("性能模式", False))
         self._是否自动模式 = bool(esc_data.get(GAME_ESC_SETTINGS_KEY_AUTOPLAY, False))
+        self._谱面视觉偏移毫秒 = int(read_saved_chart_visual_offset_ms(esc_data))
         self._背景暗层alpha = int(max(0, min(255, int(esc_data.get("背景遮罩alpha", 179) or 179))))
 
         self._当前背景选项 = resolve_background_option(
@@ -160,7 +183,7 @@ class SelectSceneEscMenuHost:
 
     def _save_select_visual_settings(self):
         params = {
-            "调速": f"X{float(self._卷轴速度倍率 or 4.0):.1f}",
+            "调速": format_select_scroll_speed(self._卷轴速度倍率, prefix="X"),
             "背景模式": str(self._背景模式 or "图片"),
             "动态背景": str(self._动态背景模式 or "关闭"),
             "隐藏": str(self._隐藏模式 or "关闭"),
@@ -198,9 +221,13 @@ class SelectSceneEscMenuHost:
             return None
 
         if key == "scroll_speed":
-            options = ["3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0"]
-            current = f"{float(self._卷轴速度倍率 or 4.0):.1f}"
-            index = options.index(current) if current in options else 2
+            options = get_select_scroll_speed_options()
+            if not options:
+                return None
+            index = get_select_scroll_speed_index(
+                self._卷轴速度倍率,
+                default=DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+            )
             self._卷轴速度倍率 = float(options[(index + step) % len(options)])
             self._save_select_visual_settings()
             return None
@@ -307,6 +334,20 @@ class SelectSceneEscMenuHost:
             self._save_esc_scope_patch({"背景遮罩alpha": int(self._背景暗层alpha)})
             return None
 
+        if key == "chart_visual_offset":
+            current = int(getattr(self, "_谱面视觉偏移毫秒", 0) or 0)
+            new_value = int(
+                clamp_chart_visual_offset_ms(
+                    current + int(step) * int(CHART_VISUAL_OFFSET_STEP_MS),
+                    current,
+                )
+            )
+            self._谱面视觉偏移毫秒 = int(new_value)
+            self._save_esc_scope_patch(
+                {GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS: int(self._谱面视觉偏移毫秒)}
+            )
+            return None
+
         if key == "performance_mode":
             self._性能模式 = not bool(self._性能模式)
             self._save_esc_scope_patch({"性能模式": bool(self._性能模式)})
@@ -392,7 +433,7 @@ class SelectSceneEscMenuHost:
         image = self._load_surface(self._背景预览缓存, path, True)
         if not isinstance(image, pygame.Surface):
             return False
-        self._blit_cover(screen, image, rect)
+        self._blit_contain(screen, image, rect)
         return True
 
     def _close_video_preview_player(self):
@@ -435,32 +476,78 @@ class SelectSceneEscMenuHost:
         if player is None:
             return False
         try:
-            frame = player.读取覆盖帧(max(1, rect.w), max(1, rect.h)) if hasattr(player, "读取覆盖帧") else player.读取帧()
+            frame = player.读取帧() if hasattr(player, "读取帧") else None
         except Exception:
             frame = None
         if not isinstance(frame, pygame.Surface):
             return False
-        if frame.get_size() == (rect.w, rect.h):
-            screen.blit(frame, rect.topleft)
-        else:
-            self._blit_cover(screen, frame, rect)
+        self._blit_contain(screen, frame, rect)
         return True
+
+    def _get_arrow_preview_atlas(self):
+        option = self._当前箭头选项
+        if option is None:
+            return None
+        skin_dir = os.path.abspath(str(getattr(option, "skin_dir", "") or "").strip())
+        if (not skin_dir) or (not os.path.isdir(skin_dir)):
+            return None
+        cached = self._箭头皮肤包缓存.get(skin_dir)
+        if cached is None:
+            try:
+                package = _皮肤包()
+                package.加载(skin_dir)
+                cached = package
+            except Exception:
+                cached = False
+            self._箭头皮肤包缓存[skin_dir] = cached
+        if cached is False:
+            return None
+        return getattr(cached, "arrow", None)
+
+    def _draw_five_lane_arrow_preview(
+        self,
+        screen: pygame.Surface,
+        rect: pygame.Rect,
+        atlas,
+        fallback_image: Optional[pygame.Surface],
+    ) -> bool:
+        inner = rect.inflate(-18, -18)
+        if inner.w <= 0 or inner.h <= 0:
+            return False
+        lane_gap = max(6, int(inner.w * 0.02))
+        lane_width = max(12, int((inner.w - lane_gap * 4) / 5))
+        codes = ("lb", "lt", "cc", "rt", "rb")
+        has_preview = False
+        for index, code in enumerate(codes):
+            lane_x = inner.x + index * (lane_width + lane_gap)
+            lane_rect = pygame.Rect(lane_x, inner.y, lane_width, inner.h)
+            pygame.draw.rect(screen, (16, 24, 38), lane_rect, border_radius=10)
+            pygame.draw.rect(screen, (38, 58, 90), lane_rect, width=1, border_radius=10)
+            source = atlas.取(f"arrow_body_{code}.png") if atlas is not None else None
+            if not isinstance(source, pygame.Surface):
+                source = fallback_image
+            if not isinstance(source, pygame.Surface):
+                continue
+            image_rect = lane_rect.inflate(
+                -max(4, int(lane_rect.w * 0.18)),
+                -max(10, int(lane_rect.h * 0.18)),
+            )
+            if image_rect.w <= 0 or image_rect.h <= 0:
+                image_rect = lane_rect
+            self._blit_contain(screen, source, image_rect)
+            has_preview = True
+        return has_preview
 
     def _esc_menu_draw_arrow_preview(self, screen: pygame.Surface, rect: pygame.Rect) -> bool:
         option = self._当前箭头选项
         if option is None:
             return False
+        atlas = self._get_arrow_preview_atlas()
         preview_path = str(getattr(option, "preview_path", "") or "")
         image = self._load_surface(self._箭头预览缓存, preview_path, True)
-        if not isinstance(image, pygame.Surface):
-            font = 获取字体(20, 是否粗体=False)
-            label = font.render(str(getattr(option, "label", "箭头") or "箭头"), True, (220, 235, 255))
-            screen.blit(label, (int(rect.centerx - label.get_width() * 0.5), int(rect.centery - label.get_height() * 0.5)))
+        if self._draw_five_lane_arrow_preview(screen, rect, atlas, image):
             return True
-        # 选歌场景使用的是单张候选箭头 PNG，需要比对局内图集预览缩得更小。
-        preview_w = max(84, int(rect.w * 0.24))
-        preview_h = max(84, int(rect.h * 0.24))
-        inner_rect = pygame.Rect(0, 0, preview_w, preview_h)
-        inner_rect.center = rect.center
-        self._blit_contain(screen, image, inner_rect)
+        font = 获取字体(20, 是否粗体=False)
+        label = font.render(str(getattr(option, "label", "箭头") or "箭头"), True, (220, 235, 255))
+        screen.blit(label, (int(rect.centerx - label.get_width() * 0.5), int(rect.centery - label.get_height() * 0.5)))
         return True

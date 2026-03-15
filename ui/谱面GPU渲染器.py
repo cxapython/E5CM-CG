@@ -228,6 +228,7 @@ class 谱面GPU管线渲染器:
 
         return {
             "当前谱面秒": _取浮点(getattr(输入, "当前谱面秒", 0.0), 0.0),
+            "谱面视觉偏移秒": _取浮点(getattr(输入, "谱面视觉偏移秒", 0.0), 0.0),
             "轨道中心列表": 轨道中心列表,
             "判定线y": int(y判定),
             "判定线y列表": 判定线y列表[:5],
@@ -733,6 +734,8 @@ class 谱面GPU管线渲染器:
             return 0
 
         当前秒 = _取浮点(帧输入.get("当前谱面秒", 0.0), 0.0)
+        视觉偏移秒 = _取浮点(帧输入.get("谱面视觉偏移秒", 0.0), 0.0)
+        视觉偏移绝对值 = abs(float(视觉偏移秒))
         判定线y = _取整数(帧输入.get("判定线y", 0), 0)
         轨道中心列表 = list(帧输入.get("轨道中心列表", []) or [])[:5]
         判定线y列表 = list(帧输入.get("判定线y列表", []) or [])[:5]
@@ -759,6 +762,7 @@ class 谱面GPU管线渲染器:
             事件列表=事件列表,
             当前秒=float(当前秒),
             渲染秒=float(渲染秒),
+            视觉偏移秒=float(视觉偏移秒),
             判定线y列表=判定线y列表,
             速度=float(速度),
             提前秒=float(提前秒),
@@ -768,7 +772,7 @@ class 谱面GPU管线渲染器:
             半隐y阈值=int(半隐y阈值),
         )
         消失后秒 = max(0.8, float(max(0, 判定线y) + 箭头宽_tap * 2) / float(max(1.0, 速度)) + 0.18)
-        起始阈值秒 = 当前秒 - float(消失后秒)
+        起始阈值秒 = 当前秒 - float(消失后秒) - float(视觉偏移绝对值)
         开始秒列表 = list(事件缓存.get("开始秒列表", []) or [])
         前缀最大结束秒 = list(事件缓存.get("前缀最大结束秒", []) or [])
         起始索引 = bisect.bisect_left(前缀最大结束秒, 起始阈值秒)
@@ -780,7 +784,8 @@ class 谱面GPU管线渲染器:
             if 索引 >= len(开始秒列表):
                 break
             开始秒 = _取浮点(开始秒列表[索引], 0.0)
-            if 开始秒 > 当前秒 + 提前秒:
+            显示开始秒 = float(开始秒) + float(视觉偏移秒)
+            if 显示开始秒 > 当前秒 + 提前秒:
                 break
 
             事件 = 事件列表[索引]
@@ -790,18 +795,19 @@ class 谱面GPU管线渲染器:
             结束秒 = _取浮点(getattr(事件, "结束秒", 开始秒), 开始秒)
             if 结束秒 < 开始秒:
                 结束秒 = 开始秒
+            显示结束秒 = float(结束秒) + float(视觉偏移秒)
 
             x中心 = int(轨道中心列表[轨道])
             当前轨判定y = _取整数(判定线y列表[轨道], 判定线y)
-            y开始 = int(round(float(当前轨判定y) + (开始秒 - 渲染秒) * 速度))
-            y结束 = int(round(float(当前轨判定y) + (结束秒 - 渲染秒) * 速度))
+            y开始 = int(round(float(当前轨判定y) + (显示开始秒 - 渲染秒) * 速度))
+            y结束 = int(round(float(当前轨判定y) + (显示结束秒 - 渲染秒) * 速度))
             类型 = str(getattr(事件, "类型", "tap") or "tap")
 
             if str(类型) == "hold":
                 是否命中hold = self._是否命中长按(
                     软件渲染器, int(轨道), float(开始秒), float(结束秒), float(当前秒)
                 )
-                if bool(是否命中hold) and float(当前秒) >= float(结束秒):
+                if bool(是否命中hold) and float(当前秒) >= float(显示结束秒):
                     continue
                 绘制数 += self._绘制长按(
                     渲染器,
@@ -819,7 +825,7 @@ class 谱面GPU管线渲染器:
                     使用灰度,
                     bool(是否命中hold),
                     float(当前秒),
-                    float(结束秒),
+                    float(显示结束秒),
                 )
                 continue
 
@@ -836,12 +842,20 @@ class 谱面GPU管线渲染器:
             旋转角度 = 0.0
             if "摇摆" in 轨迹模式:
                 主振幅 = max(16.0, float(箭头宽_tap) * 0.52)
-                主相位 = float(渲染秒) * (math.pi * 2.0) * 2.05 + float(开始秒) * 0.55 + float(轨道) * 0.72
+                主相位 = (
+                    float(渲染秒) * (math.pi * 2.0) * 2.05
+                    + float(显示开始秒) * 0.55
+                    + float(轨道) * 0.72
+                )
                 次相位 = float(主相位) * 0.52 + float(轨道) * 0.35
                 x绘制 = float(x中心) + math.sin(主相位) * 主振幅 + math.sin(次相位) * (主振幅 * 0.22)
             elif "旋转" in 轨迹模式:
                 旋转角度 = float(
-                    (渲染秒 * 360.0 * 1.25 + float(开始秒) * 140.0 + float(轨道) * 35.0)
+                    (
+                        渲染秒 * 360.0 * 1.25
+                        + float(显示开始秒) * 140.0
+                        + float(轨道) * 35.0
+                    )
                     % 360.0
                 )
 
@@ -875,6 +889,7 @@ class 谱面GPU管线渲染器:
         事件列表: List[Any],
         当前秒: float,
         渲染秒: float,
+        视觉偏移秒: float,
         判定线y列表: List[int],
         速度: float,
         提前秒: float,
@@ -993,15 +1008,20 @@ class 谱面GPU管线渲染器:
                 st, ed, 轨道, 类型, st毫秒 = 条目
             except Exception:
                 continue
-            if float(st) > float(当前秒) + float(提前秒):
+            显示开始秒 = float(st) + float(视觉偏移秒)
+            显示结束秒 = float(ed) + float(视觉偏移秒)
+            if float(显示开始秒) > float(当前秒) + float(提前秒):
                 break
-            if float(st) < float(当前秒) - 2.5 and float(ed) < float(当前秒) - 2.5:
+            if (
+                float(显示开始秒) < float(当前秒) - 2.5 - abs(float(视觉偏移秒))
+                and float(显示结束秒) < float(当前秒) - 2.5 - abs(float(视觉偏移秒))
+            ):
                 continue
             轨道 = int(轨道)
             if 轨道 < 0 or 轨道 >= len(判定线y列表):
                 continue
             当前轨判定y = int(判定线y列表[轨道])
-            y开始 = float(当前轨判定y) + (float(st) - float(渲染秒)) * float(速度)
+            y开始 = float(当前轨判定y) + (float(显示开始秒) - float(渲染秒)) * float(速度)
 
             if abs(float(ed) - float(st)) < 1e-6 or str(类型) == "tap":
                 if y开始 < float(上边界) or y开始 > float(下边界):
@@ -1034,7 +1054,7 @@ class 谱面GPU管线渲染器:
                                 )
                 continue
 
-            y结束 = float(当前轨判定y) + (float(ed) - float(渲染秒)) * float(速度)
+            y结束 = float(当前轨判定y) + (float(显示结束秒) - float(渲染秒)) * float(速度)
             seg_top = float(min(y开始, y结束))
             seg_bot = float(max(y开始, y结束))
             if seg_bot < float(上边界) or seg_top > float(下边界):
@@ -1069,7 +1089,9 @@ class 谱面GPU管线渲染器:
                             if 轨道 < len(击中特效循环到谱面秒):
                                 击中特效循环到谱面秒[轨道] = float(ed)
                             是否命中hold = True
-            if bool(是否命中hold) and (float(st) <= float(当前秒) <= float(ed)):
+            if bool(是否命中hold) and (
+                float(显示开始秒) <= float(当前秒) <= float(显示结束秒)
+            ):
                 活跃hold轨道.add(int(轨道))
                 try:
                     软件渲染器._hold当前按下中[int(轨道)] = bool(_轨道是否按下(int(轨道)))

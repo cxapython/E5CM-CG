@@ -9,10 +9,13 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Set, Callable
 from core.常量与路径 import (
     取项目根目录 as _公共取项目根目录,
+    取布局配置路径 as _公共取布局配置路径,
     取运行根目录 as _公共取运行根目录,
     取songs根目录 as _公共取songs根目录,
+    取调试配置路径 as _公共取调试配置路径,
 )
 from core.sqlite_store import (
+    SCOPE_FAVORITES as _收藏夹存储作用域,
     SCOPE_GAME_ESC_MENU_SETTINGS as _游戏esc菜单设置存储作用域,
     SCOPE_LOADING_PAYLOAD as _加载页存储作用域,
     SCOPE_SELECT_SETTINGS as _选歌设置存储作用域,
@@ -20,6 +23,13 @@ from core.sqlite_store import (
     read_scope as _读取存储作用域,
     replace_scope as _覆盖存储作用域,
     write_scope_patch as _写入存储作用域,
+)
+from core.select_speed_settings import (
+    DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+    format_select_scroll_speed,
+    get_default_select_scroll_speed_index,
+    get_select_scroll_speed_options,
+    nearest_select_scroll_speed_option,
 )
 from core.歌曲记录 import 读取歌曲记录索引, 取歌曲记录键
 from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四把
@@ -347,6 +357,7 @@ class 场景_选歌(场景基类):
         if not os.path.isfile(背景音乐路径):
             背景音乐路径 = ""
 
+        类型小写 = 类型名.strip().lower()
         模式小写 = 模式名.strip().lower()
 
         学习路径 = _取第一个存在的文件(
@@ -389,6 +400,8 @@ class 场景_选歌(场景基类):
                 背景音乐路径 = 混音路径
             elif (("club" in 模式小写) or ("双踏板" in 模式名)) and club路径:
                 背景音乐路径 = club路径
+            elif 类型小写 == "diy" and 表演路径:
+                背景音乐路径 = 表演路径
 
         if not 背景音乐路径:
             背景音乐路径 = _取第一个存在的文件(
@@ -830,10 +843,11 @@ def _设置页_加载持久化设置(self):
         else:
             候选值 = str(参数.get(参数键, 参数.get(兼容参数键, "")) or "").strip()
 
-        if 参数键 == "调速":
-            候选值 = 候选值.replace("x", "X")
-            if 候选值.startswith("X"):
-                候选值 = 候选值[1:]
+        if 参数键 == "调速" and 候选值:
+            候选值 = nearest_select_scroll_speed_option(
+                候选值,
+                default=DEFAULT_SELECT_SCROLL_SPEED_OPTION,
+            )
 
         if not 候选值:
             continue
@@ -917,7 +931,7 @@ def _确保设置页资源(self):
     self.设置_方向选项 = ["关闭", "反向"]
     self.设置_大小选项 = ["正常", "放大"]
 
-    self.设置_调速索引 = 0
+    self.设置_调速索引 = get_default_select_scroll_speed_index()
     self.设置_变速索引 = 0
     self.设置_谱面索引 = 0
     self.设置_隐藏索引 = 0
@@ -1028,7 +1042,7 @@ def _确保设置页资源(self):
     self._设置页_背景缩放缓存尺寸 = (0, 0)
 
     self._设置页_调试器 = 设置页布局调试器(
-        os.path.join(_取运行根目录(), "json", "选歌设置页调试.json")
+        _公共取调试配置路径("选歌设置页调试.json", 根目录=_取运行根目录())
     )
     
 
@@ -1071,6 +1085,8 @@ def _设置页_同步参数(self):
             else:
                 输出参数["背景模式"] = 当前值
                 输出参数["动态背景"] = "关闭"
+        elif 参数键 == "调速":
+            输出参数[参数键] = format_select_scroll_speed(当前值, prefix=值前缀 or "X")
         else:
             输出参数[参数键] = f"{值前缀}{当前值}" if 值前缀 else 当前值
 
@@ -1778,7 +1794,7 @@ _选歌布局_修改时间: float = -1.0
 _选歌布局_最近检查时刻: float = -999.0
 
 def _选歌布局_文件路径() -> str:
-    return os.path.join(_取项目根目录(), "json", "选歌布局.json")
+    return _公共取布局配置路径("选歌布局.json", 根目录=_取项目根目录())
 
 def _选歌布局_默认值() -> dict:
     return {
@@ -2616,16 +2632,159 @@ def 安全读取json(文件路径: str) -> Optional[dict]:
     except Exception:
         return None
 
-def 解析显示BPM(sm文本: str) -> Optional[int]:
-    匹配 = re.search(r"#DISPLAYBPM\s*:\s*([^;]+)\s*;", sm文本, flags=re.IGNORECASE)
+def _提取SM标签值(sm文本: str, 标签名: str) -> str:
+    if not sm文本:
+        return ""
+    匹配 = re.search(
+        rf"#{re.escape(str(标签名 or '').strip())}\s*:\s*(.*?)\s*;",
+        sm文本,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
     if not 匹配:
+        return ""
+    return str(匹配.group(1) or "").strip()
+
+def _解析文本里的首个正数(文本: str) -> Optional[float]:
+    if not 文本:
         return None
-    原始 = 匹配.group(1).strip()
-    数字匹配 = re.search(r"(\d+)", 原始)
-    if not 数字匹配:
+    for 匹配 in re.finditer(r"-?\d+(?:\.\d+)?", str(文本 or "")):
+        try:
+            数值 = float(匹配.group(0))
+        except Exception:
+            continue
+        if 数值 > 0:
+            return 数值
+    return None
+
+def _解析BPMS标签首个BPM(原始标签值: str) -> Optional[float]:
+    文本 = str(原始标签值 or "").strip()
+    if not 文本:
+        return None
+
+    for 片段 in 文本.split(","):
+        if "=" not in 片段:
+            continue
+        _, bpm文本 = 片段.split("=", 1)
+        数值 = _解析文本里的首个正数(bpm文本)
+        if 数值 is not None and 数值 > 0:
+            return 数值
+    return None
+
+def _规范化谱面文本(谱面文本: str) -> str:
+    return str(谱面文本 or "").replace("\r\n", "\n").replace("\r", "\n")
+
+def _提取SSC谱面块列表(谱面文本: str) -> List[str]:
+    文本 = _规范化谱面文本(谱面文本)
+    if not 文本:
+        return []
+
+    结果: List[str] = []
+    for 匹配 in re.finditer(
+        r"^\s*#NOTEDATA\s*:\s*;\s*(.*?)(?=^\s*#NOTEDATA\s*:\s*;|\Z)",
+        文本,
+        flags=re.IGNORECASE | re.DOTALL | re.MULTILINE,
+    ):
+        块文本 = str(匹配.group(1) or "").strip()
+        if 块文本:
+            结果.append(块文本)
+    return 结果
+
+def _计算谱面列数(谱面数据文本: str) -> int:
+    try:
+        纯文本 = _规范化谱面文本(谱面数据文本)
+        for 小节 in 纯文本.split(","):
+            行列表 = [
+                行.strip()
+                for 行 in 小节.split("\n")
+                if 行.strip() and (not 行.strip().startswith("//"))
+            ]
+            if 行列表:
+                return max(1, len(行列表[0]))
+    except Exception:
+        return 5
+    return 5
+
+def _收集SM谱面候选信息(谱面文本: str) -> List[dict]:
+    结果: List[dict] = []
+
+    for 匹配 in re.finditer(r"#NOTES\s*:\s*(.*?);", 谱面文本, flags=re.IGNORECASE | re.DOTALL):
+        块文本 = str(匹配.group(1) or "")
+        段列表 = 块文本.split(":", 5)
+        if len(段列表) < 6:
+            continue
+
+        谱面类型 = str(段列表[0] or "").strip().lower()
+        星级文本 = str(段列表[3] or "").strip()
+        谱面数据文本 = str(段列表[5] or "")
+        结果.append(
+            {
+                "charttype": 谱面类型,
+                "meter_text": 星级文本,
+                "notes_text": 谱面数据文本,
+                "bpms_text": "",
+                "offset_text": "",
+                "columns": _计算谱面列数(谱面数据文本),
+            }
+        )
+
+    for 块文本 in _提取SSC谱面块列表(谱面文本):
+        谱面类型 = _提取SM标签值(块文本, "STEPSTYPE").lower()
+        星级文本 = _提取SM标签值(块文本, "METER")
+        谱面数据文本 = _提取SM标签值(块文本, "NOTES")
+        if not 谱面数据文本:
+            continue
+
+        结果.append(
+            {
+                "charttype": 谱面类型,
+                "meter_text": 星级文本,
+                "notes_text": 谱面数据文本,
+                "bpms_text": _提取SM标签值(块文本, "BPMS"),
+                "offset_text": _提取SM标签值(块文本, "OFFSET"),
+                "columns": _计算谱面列数(谱面数据文本),
+            }
+        )
+
+    return 结果
+
+def _首选谱面优先级(charttype: str) -> int:
+    谱面类型 = str(charttype or "").strip().lower()
+    if "pump-single" in 谱面类型:
+        return 50
+    if "dance-single" in 谱面类型:
+        return 45
+    if "single" in 谱面类型:
+        return 40
+    if "pump-double" in 谱面类型:
+        return 30
+    if "double" in 谱面类型:
+        return 20
+    return 10
+
+def _选取首选谱面候选(候选列表: List[dict]) -> Optional[dict]:
+    if not 候选列表:
+        return None
+
+    def _排序键(项: dict) -> Tuple[int, int]:
+        优先级 = _首选谱面优先级(str(项.get("charttype", "") or ""))
+        try:
+            列数 = int(项.get("columns", 0) or 0)
+        except Exception:
+            列数 = 0
+        return (优先级, 列数)
+
+    return max(候选列表, key=_排序键)
+
+def 解析显示BPM(sm文本: str) -> Optional[int]:
+    显示BPM原始 = _提取SM标签值(sm文本, "DISPLAYBPM")
+    数值 = _解析文本里的首个正数(显示BPM原始)
+    if 数值 is None:
+        bpms原始 = _提取SM标签值(sm文本, "BPMS")
+        数值 = _解析BPMS标签首个BPM(bpms原始)
+    if 数值 is None:
         return None
     try:
-        return int(数字匹配.group(1))
+        return int(round(float(数值)))
     except Exception:
         return None
 
@@ -2707,6 +2866,51 @@ def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
 
     return 歌名, 星级
 
+def _解析SM谱面星级(sm文本: str) -> Optional[int]:
+    if not sm文本:
+        return None
+
+    候选列表: List[Tuple[int, int]] = []
+    for 谱面信息 in _收集SM谱面候选信息(sm文本):
+        谱面类型 = str(谱面信息.get("charttype", "") or "").strip().lower()
+        星级原始 = str(谱面信息.get("meter_text", "") or "").strip()
+        星级数值 = _解析文本里的首个正数(星级原始)
+        if 星级数值 is None:
+            continue
+
+        try:
+            星级 = int(round(float(星级数值)))
+        except Exception:
+            continue
+
+        if 星级 <= 0:
+            continue
+
+        优先级 = 0
+        if "pump-single" in 谱面类型:
+            优先级 = 50
+        elif "dance-single" in 谱面类型:
+            优先级 = 45
+        elif "single" in 谱面类型:
+            优先级 = 40
+        elif "pump-double" in 谱面类型:
+            优先级 = 30
+        elif "double" in 谱面类型:
+            优先级 = 20
+        else:
+            优先级 = 10
+
+        候选列表.append((优先级, 星级))
+
+    if not 候选列表:
+        return None
+
+    最高优先级 = max(项[0] for 项 in 候选列表)
+    同优先级候选 = [星级 for 优先级, 星级 in 候选列表 if 优先级 == 最高优先级]
+    if not 同优先级候选:
+        return None
+    return max(1, min(20, max(同优先级候选)))
+
 def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Optional["歌曲信息"]:
     if (not sm路径) or (not os.path.isfile(sm路径)):
         return None
@@ -2736,6 +2940,18 @@ def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Opti
     else:
         bpm = 解析显示BPM(sm文本)
     歌名, 星级 = 从文件夹名解析歌名星级(歌曲文件夹)
+    if 扩展名 != ".json":
+        首选谱面 = _选取首选谱面候选(_收集SM谱面候选信息(sm文本))
+        if 首选谱面 is not None:
+            谱面BPMS文本 = str(首选谱面.get("bpms_text", "") or "").strip()
+            if 谱面BPMS文本:
+                谱面BPM = _解析BPMS标签首个BPM(谱面BPMS文本)
+                if 谱面BPM is not None:
+                    bpm = int(round(float(谱面BPM)))
+
+        谱面星级 = _解析SM谱面星级(sm文本)
+        if 谱面星级 is not None:
+            星级 = int(谱面星级)
 
     if "#" not in str(歌曲文件夹 or ""):
         if 扩展名 == ".json":
@@ -2789,6 +3005,40 @@ def 找封面(歌曲路径: str) -> Optional[str]:
             return os.path.join(歌曲路径, 文件名)
     return 找文件(歌曲路径, (".jpg", ".jpeg", ".png", ".webp"))
 
+def _谱面文件优先级(文件路径: str) -> int:
+    扩展名 = os.path.splitext(str(文件路径 or ""))[1].lower()
+    return {".json": 3, ".ssc": 2, ".sm": 1, ".sma": 1}.get(扩展名, 0)
+
+def _收集候选谱面文件(根目录: str) -> List[str]:
+    if not os.path.isdir(根目录):
+        return []
+
+    每目录最佳文件: Dict[str, str] = {}
+
+    for 当前根, 目录列表, 文件列表 in os.walk(根目录):
+        for 文件名 in 文件列表:
+            扩展名 = os.path.splitext(str(文件名 or ""))[1].lower()
+            if 扩展名 not in {".json", ".ssc", ".sm", ".sma"}:
+                continue
+
+            文件路径 = os.path.join(当前根, 文件名)
+            目录键 = os.path.abspath(os.path.dirname(文件路径))
+            已有文件 = 每目录最佳文件.get(目录键)
+            if not 已有文件:
+                每目录最佳文件[目录键] = 文件路径
+                continue
+
+            当前优先级 = _谱面文件优先级(文件路径)
+            已有优先级 = _谱面文件优先级(已有文件)
+            if 当前优先级 > 已有优先级:
+                每目录最佳文件[目录键] = 文件路径
+                continue
+
+            if 当前优先级 == 已有优先级 and str(文件路径).casefold() < str(已有文件).casefold():
+                每目录最佳文件[目录键] = 文件路径
+
+    return [每目录最佳文件[k] for k in sorted(每目录最佳文件.keys(), key=str.casefold)]
+
 def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信息]]]:
     结果: Dict[str, Dict[str, List[歌曲信息]]] = {}
     if not os.path.isdir(songs根目录):
@@ -2796,29 +3046,23 @@ def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信
 
     临时收集: Dict[Tuple[str, str], List[歌曲信息]] = {}
 
-    for 根, 目录列表, 文件列表 in os.walk(songs根目录):
-        for 文件名 in 文件列表:
-            低 = 文件名.lower()
-            if not (低.endswith(".sm") or 低.endswith(".json")):
-                continue
+    for sm路径 in _收集候选谱面文件(songs根目录):
+        相对 = os.path.relpath(sm路径, songs根目录)
+        parts = 相对.split(os.sep)
+        if len(parts) < 4:
+            continue
 
-            sm路径 = os.path.join(根, 文件名)
-            相对 = os.path.relpath(sm路径, songs根目录)
-            parts = 相对.split(os.sep)
-            if len(parts) < 4:
-                continue
+        类型名 = parts[0]
+        模式名 = parts[1]
+        歌 = 解析歌曲元数据(sm路径, 类型名, 模式名)
+        if 歌 is None:
+            continue
 
-            类型名 = parts[0]
-            模式名 = parts[1]
-            歌 = 解析歌曲元数据(sm路径, 类型名, 模式名)
-            if 歌 is None:
-                continue
+        键 = (类型名, 模式名)
+        if 键 not in 临时收集:
+            临时收集[键] = []
 
-            键 = (类型名, 模式名)
-            if 键 not in 临时收集:
-                临时收集[键] = []
-
-            临时收集[键].append(歌)
+        临时收集[键].append(歌)
 
     def _排序键(歌: 歌曲信息):
         try:
@@ -2894,27 +3138,21 @@ def 扫描songs_指定路径(
 
     收集: List[歌曲信息] = []
 
-    for 根, 目录列表, 文件列表 in os.walk(模式目录):
-        for 文件名 in 文件列表:
-            低 = 文件名.lower()
-            if not (低.endswith(".sm") or 低.endswith(".json")):
-                continue
+    for sm路径 in _收集候选谱面文件(模式目录):
+        try:
+            相对 = os.path.relpath(sm路径, songs根目录)
+            parts = 相对.split(os.sep)
+        except Exception:
+            continue
 
-            sm路径 = os.path.join(根, 文件名)
-            try:
-                相对 = os.path.relpath(sm路径, songs根目录)
-                parts = 相对.split(os.sep)
-            except Exception:
-                continue
+        if len(parts) < 4:
+            continue
 
-            if len(parts) < 4:
-                continue
-
-            类型名_实际 = parts[0]
-            模式名_实际 = parts[1]
-            歌 = 解析歌曲元数据(sm路径, 类型名_实际, 模式名_实际)
-            if 歌 is not None:
-                收集.append(歌)
+        类型名_实际 = parts[0]
+        模式名_实际 = parts[1]
+        歌 = 解析歌曲元数据(sm路径, 类型名_实际, 模式名_实际)
+        if 歌 is not None:
+            收集.append(歌)
 
     def _排序键(歌: 歌曲信息):
         try:
@@ -3573,11 +3811,16 @@ class 图片按钮:
         矩形: pygame.Rect,
         是否水平翻转: bool = False,
         是否垂直翻转: bool = False,
+        透明度: int = 255,
     ):
         self.图片路径 = str(图片路径 or "")
         self.矩形 = 矩形
         self.是否水平翻转 = bool(是否水平翻转)
         self.是否垂直翻转 = bool(是否垂直翻转)
+        try:
+            self.透明度 = max(0, min(255, int(透明度)))
+        except Exception:
+            self.透明度 = 255
 
         self.悬停 = False
         self.按下 = False
@@ -3585,7 +3828,7 @@ class 图片按钮:
         self._原图: Optional[pygame.Surface] = None
         self._缓存图: Optional[pygame.Surface] = None
         # ✅ 缓存键包含翻转状态
-        self._缓存键: Tuple[int, int, bool, bool] = (0, 0, False, False)
+        self._缓存键: Tuple[int, int, bool, bool, int] = (0, 0, False, False, 255)
 
         self._加载原图()
 
@@ -3597,7 +3840,7 @@ class 图片按钮:
             self._原图 = None
 
         self._缓存图 = None
-        self._缓存键 = (0, 0, False, False)
+        self._缓存键 = (0, 0, False, False, 255)
 
     def _获取缩放图(self) -> Optional[pygame.Surface]:
         if self._原图 is None:
@@ -3605,7 +3848,13 @@ class 图片按钮:
 
         目标宽 = max(1, int(self.矩形.w))
         目标高 = max(1, int(self.矩形.h))
-        键 = (目标宽, 目标高, bool(self.是否水平翻转), bool(self.是否垂直翻转))
+        键 = (
+            目标宽,
+            目标高,
+            bool(self.是否水平翻转),
+            bool(self.是否垂直翻转),
+            int(self.透明度),
+        )
 
         if self._缓存图 is not None and self._缓存键 == 键:
             return self._缓存图
@@ -3617,6 +3866,9 @@ class 图片按钮:
                 图 = pygame.transform.flip(图, self.是否水平翻转, self.是否垂直翻转)
 
             缩放图 = pygame.transform.smoothscale(图, (目标宽, 目标高)).convert_alpha()
+            if int(self.透明度) < 255:
+                缩放图 = 缩放图.copy()
+                缩放图.set_alpha(int(self.透明度))
         except Exception:
             缩放图 = None
 
@@ -4289,7 +4541,7 @@ class 选歌游戏:
         self.安排预加载(基准页=self.当前页)
 
     def _布局配置文件路径(self) -> str:
-        return os.path.join(_取项目根目录(), "json", "选歌布局.json")
+        return _公共取布局配置路径("选歌布局.json", 根目录=_取项目根目录())
 
     def _加载布局配置(self, 是否提示: bool = False) -> dict:
         try:
@@ -4474,7 +4726,7 @@ class 选歌游戏:
         )
 
     def _收藏夹文件路径(self) -> str:
-        return os.path.join(self._取歌曲数据根目录(), "json", "收藏夹.json")
+        return _取运行存储路径()
 
     def _遍历全部歌曲(self) -> List[歌曲信息]:
         缓存 = getattr(self, "_全部歌曲缓存", None)
@@ -4509,16 +4761,9 @@ class 选歌游戏:
                 pass
 
     def _加载收藏夹(self):
-        数据 = {}
-        路径 = self._收藏夹文件路径()
-        if 路径 and os.path.isfile(路径):
-            for 编码 in ("utf-8-sig", "utf-8", "gbk"):
-                try:
-                    with open(路径, "r", encoding=编码) as 文件:
-                        数据 = json.load(文件)
-                    break
-                except Exception:
-                    continue
+        数据 = _读取存储作用域(_收藏夹存储作用域)
+        if not isinstance(数据, dict):
+            数据 = {}
 
         收藏列表 = []
         if isinstance(数据, dict):
@@ -4531,15 +4776,7 @@ class 选歌游戏:
         self._同步歌曲收藏状态()
 
     def _写入收藏夹数据(self) -> bool:
-        临时路径 = ""
         try:
-            路径 = self._收藏夹文件路径()
-            if not 路径:
-                return False
-
-            目录 = os.path.dirname(路径)
-            os.makedirs(目录, exist_ok=True)
-            临时路径 = f"{路径}.tmp"
             载荷 = {
                 "版本": 1,
                 "收藏歌曲键列表": sorted(
@@ -4548,16 +4785,9 @@ class 选歌游戏:
                     if str(键).strip()
                 ),
             }
-            with open(临时路径, "w", encoding="utf-8") as 文件:
-                json.dump(载荷, 文件, ensure_ascii=False, indent=2)
-            os.replace(临时路径, 路径)
+            _覆盖存储作用域(_收藏夹存储作用域, 载荷)
             return True
         except Exception:
-            try:
-                if 临时路径 and os.path.isfile(临时路径):
-                    os.remove(临时路径)
-            except Exception:
-                pass
             return False
 
     def _获取收藏歌曲列表(self) -> List[歌曲信息]:
@@ -5907,6 +6137,76 @@ class 选歌游戏:
                 是否垂直翻转=False,
             )
 
+        列表翻页图路径 = _资源路径("UI-img", "选歌界面资源", "下一首-选歌.png")
+        if (not hasattr(self, "按钮_列表上一页")) or (
+            not isinstance(self.按钮_列表上一页, 图片按钮)
+        ):
+            self.按钮_列表上一页 = 图片按钮(
+                图片路径=列表翻页图路径,
+                矩形=pygame.Rect(0, 0, 0, 0),
+                是否水平翻转=True,
+                是否垂直翻转=False,
+                透明度=176,
+            )
+        else:
+            if str(getattr(self.按钮_列表上一页, "图片路径", "") or "") != 列表翻页图路径:
+                self.按钮_列表上一页.图片路径 = str(列表翻页图路径)
+                self.按钮_列表上一页._加载原图()
+            self.按钮_列表上一页.是否水平翻转 = True
+            self.按钮_列表上一页.是否垂直翻转 = False
+            self.按钮_列表上一页.透明度 = 176
+
+        if (not hasattr(self, "按钮_列表下一页")) or (
+            not isinstance(self.按钮_列表下一页, 图片按钮)
+        ):
+            self.按钮_列表下一页 = 图片按钮(
+                图片路径=列表翻页图路径,
+                矩形=pygame.Rect(0, 0, 0, 0),
+                是否水平翻转=False,
+                是否垂直翻转=False,
+                透明度=176,
+            )
+        else:
+            if str(getattr(self.按钮_列表下一页, "图片路径", "") or "") != 列表翻页图路径:
+                self.按钮_列表下一页.图片路径 = str(列表翻页图路径)
+                self.按钮_列表下一页._加载原图()
+            self.按钮_列表下一页.是否水平翻转 = False
+            self.按钮_列表下一页.是否垂直翻转 = False
+            self.按钮_列表下一页.透明度 = 176
+
+        翻页按钮原图 = getattr(self.按钮_列表下一页, "_原图", None)
+        if not isinstance(翻页按钮原图, pygame.Surface):
+            翻页按钮原图 = getattr(self.按钮_列表上一页, "_原图", None)
+        if isinstance(翻页按钮原图, pygame.Surface):
+            原宽 = max(1, int(翻页按钮原图.get_width()))
+            原高 = max(1, int(翻页按钮原图.get_height()))
+        else:
+            原宽, 原高 = 157, 238
+
+        列表翻页按钮高 = max(96, min(int(self.中间区域.h * 0.28), 176))
+        列表翻页按钮宽 = max(
+            48, int(round(float(列表翻页按钮高) * float(原宽) / float(max(1, 原高))))
+        )
+        列表翻页按钮边距 = max(12, int(self.宽 * 0.016))
+        列表翻页按钮y = self.中间区域.centery - 列表翻页按钮高 // 2
+        列表翻页按钮y = max(
+            self.中间区域.top + 12,
+            min(self.中间区域.bottom - 列表翻页按钮高 - 12, 列表翻页按钮y),
+        )
+
+        self.按钮_列表上一页.矩形 = pygame.Rect(
+            列表翻页按钮边距,
+            列表翻页按钮y,
+            列表翻页按钮宽,
+            列表翻页按钮高,
+        )
+        self.按钮_列表下一页.矩形 = pygame.Rect(
+            self.宽 - 列表翻页按钮边距 - 列表翻页按钮宽,
+            列表翻页按钮y,
+            列表翻页按钮宽,
+            列表翻页按钮高,
+        )
+
     def _加载背景图(self):
         try:
             脚本目录 = _取项目根目录()
@@ -6645,6 +6945,14 @@ class 选歌游戏:
 
     def _停止连续翻页(self):
         self._确保翻页交互状态()
+        来源 = str(getattr(self, "_连续翻页来源", "") or "")
+        if 来源 in ("list_page_button_left", "list_page_button_right"):
+            for 按钮对象 in (
+                getattr(self, "按钮_列表上一页", None),
+                getattr(self, "按钮_列表下一页", None),
+            ):
+                if isinstance(按钮对象, 图片按钮):
+                    按钮对象.按下 = False
         self._连续翻页激活 = False
         self._连续翻页方向 = 0
         self._连续翻页来源 = ""
@@ -6689,7 +6997,8 @@ class 选歌游戏:
         self._确保翻页交互状态()
         if not bool(getattr(self, "_连续翻页激活", False)):
             return
-        if str(getattr(self, "_连续翻页来源", "") or "") == "keyboard":
+        来源 = str(getattr(self, "_连续翻页来源", "") or "")
+        if 来源 == "keyboard":
             try:
                 按键状态 = pygame.key.get_pressed()
             except Exception:
@@ -6704,6 +7013,14 @@ class 选歌游戏:
                 )
             )
             if not bool(是否仍按住):
+                self._停止连续翻页()
+                return
+        elif 来源 in ("list_page_button_left", "list_page_button_right"):
+            try:
+                鼠标状态 = pygame.mouse.get_pressed(3)
+            except Exception:
+                鼠标状态 = None
+            if not bool(鼠标状态 and 鼠标状态[0]):
                 self._停止连续翻页()
                 return
         if bool(getattr(self, "动画中", False)):
@@ -6726,6 +7043,64 @@ class 选歌游戏:
             getattr(self, "_连续翻页间隔秒", 0.03)
         )
 
+    def _列表翻页按钮项(self):
+        return (
+            (-1, getattr(self, "按钮_列表上一页", None), "list_page_button_left"),
+            (+1, getattr(self, "按钮_列表下一页", None), "list_page_button_right"),
+        )
+
+    def _列表翻页按钮应显示(self) -> bool:
+        try:
+            return (
+                int(self.总页数()) > 1
+                and (not bool(getattr(self, "是否详情页", False)))
+                and (not bool(getattr(self, "是否星级筛选页", False)))
+                and (not bool(getattr(self, "是否设置页", False)))
+            )
+        except Exception:
+            return False
+
+    def _绘制列表翻页按钮(self):
+        if not self._列表翻页按钮应显示():
+            return
+        for _方向, 按钮对象, _来源 in self._列表翻页按钮项():
+            if isinstance(按钮对象, 图片按钮):
+                按钮对象.绘制(self.屏幕)
+
+    def _处理列表翻页按钮事件(self, 事件) -> bool:
+        按钮项 = tuple(self._列表翻页按钮项())
+        if not 按钮项:
+            return False
+
+        for _方向, 按钮对象, _来源 in 按钮项:
+            if isinstance(按钮对象, 图片按钮):
+                try:
+                    按钮对象.处理事件(事件)
+                except Exception:
+                    pass
+
+        if not self._列表翻页按钮应显示():
+            return False
+
+        if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
+            for 方向, 按钮对象, 来源 in 按钮项:
+                if isinstance(按钮对象, 图片按钮) and 按钮对象.矩形.collidepoint(事件.pos):
+                    self._滑动_按下 = False
+                    self._滑动_已触发 = False
+                    self._滑动_已移动 = False
+                    self._开始连续翻页(int(方向), 来源=来源, 立即触发=True)
+                    return True
+
+        if 事件.type == pygame.MOUSEBUTTONUP and 事件.button == 1:
+            if str(getattr(self, "_连续翻页来源", "") or "") in (
+                "list_page_button_left",
+                "list_page_button_right",
+            ):
+                self._停止连续翻页()
+                return True
+
+        return False
+
     def _处理列表页点击进入详情(self, 点击位置) -> bool:
         if not self.中间区域.collidepoint(点击位置):
             return False
@@ -6746,6 +7121,9 @@ class 选歌游戏:
 
     def _处理列表页输入(self, 事件) -> bool:
         self._确保翻页交互状态()
+
+        if self._处理列表翻页按钮事件(事件):
+            return True
 
         if 事件.type == pygame.MOUSEMOTION:
             self._踏板选中视图索引 = None
@@ -8115,6 +8493,9 @@ class 选歌游戏:
             else:
                 self.绘制列表页()
 
+            if not self.是否详情页:
+                self._绘制列表翻页按钮()
+
             if self.是否详情页:
                 self.绘制详情浮层()
                 # ✅ 大图角标（不改绘制详情浮层巨型函数）
@@ -9152,8 +9533,8 @@ def 设置菜单行键列表() -> List[str]:
 
 
 def 设置菜单默认调速选项() -> List[str]:
-    # 固定档位：3.0 ~ 7.0（步进 0.5）
-    return ["3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0"]
+    # 固定档位：1.0 ~ 7.0（保留低速档与原有 0.5 步进）
+    return get_select_scroll_speed_options()
 
 
 
@@ -9189,7 +9570,7 @@ def 设置菜单行值(
     if 键 == "大小":
         return str(参数.get("大小", "正常") or "正常")
     if 键 == "调速":
-        return str(参数.get("调速", "X4.0") or "X4.0")
+        return format_select_scroll_speed(参数.get("调速", ""), prefix="X")
     return ""
 
 
@@ -9605,6 +9986,9 @@ def 选歌_帧绘制(self):
             self.绘制列表页_动画()
         else:
             self.绘制列表页()
+
+        if not bool(getattr(self, "是否详情页", False)):
+            self._绘制列表翻页按钮()
 
         if bool(getattr(self, "是否详情页", False)):
             self.绘制详情浮层()

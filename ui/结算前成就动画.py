@@ -7,7 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pygame
 
-from core.常量与路径 import 取项目根目录 as _公共取项目根目录
+from core.常量与路径 import (
+    取动画配置路径 as _公共取动画配置路径,
+    取项目根目录 as _公共取项目根目录,
+)
 from ui.准备动画 import 计算透明控件组倒放参数
 from ui.圆环频谱叠加 import 圆环频谱控件, 圆环频谱样式
 
@@ -234,7 +237,10 @@ class 结算前成就动画控制器:
 
     def __init__(self, 项目根: Optional[str] = None):
         self._项目根 = str(项目根 or _取项目根目录())
-        self._设置路径 = os.path.join(self._项目根, "json", "结算前成就动画_设置.json")
+        self._设置路径 = _公共取动画配置路径(
+            "结算前成就动画_设置.json",
+            根目录=self._项目根,
+        )
         self._设置: Dict[str, float] = 读取结算前成就动画设置(self._设置路径)
         self._主题资源缓存: Dict[str, Optional[成就动画资源]] = {}
         self._当前主题id: str = ""

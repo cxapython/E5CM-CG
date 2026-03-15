@@ -6,6 +6,8 @@ from typing import Optional, Tuple, List, Dict
 import pygame
 
 from core.常量与路径 import (
+    取个人资料头像目录 as _公共取个人资料头像目录,
+    取个人资料路径 as _公共取个人资料路径,
     取项目根目录 as _公共取项目根目录,
     取运行根目录 as _公共取运行根目录,
 )
@@ -20,6 +22,13 @@ from core.软件版本 import 读取当前版本展示文本
 from core.踏板控制 import 踏板动作_确认
 from ui.按钮特效 import 公用按钮点击特效, 公用按钮音效
 from ui.场景过渡 import 公用放大过渡器
+
+
+_个人资料头像相对前缀 = "userdata/profile/avatars"
+
+
+def _个人资料头像相对路径(文件名: str) -> str:
+    return f"{_个人资料头像相对前缀}/{str(文件名 or '').strip()}"
 
 
 class 场景_个人资料:
@@ -118,8 +127,8 @@ class 场景_个人资料:
         self._个人资料目录路径 = os.path.join(
             self._资源根, "UI-img", "个人中心-个人资料"
         )
-        self._个人资料数据目录路径 = os.path.join(self._运行根, "json", "个人资料")
-        self._个人资料json路径 = os.path.join(self._运行根, "json", "个人资料.json")
+        self._个人资料数据目录路径 = _公共取个人资料头像目录(self._运行根)
+        self._个人资料json路径 = _公共取个人资料路径(self._运行根)
 
         self._默认头像路径 = os.path.join(self._个人资料目录路径, "默认头像.png")
         if not os.path.isfile(self._默认头像路径):
@@ -1377,7 +1386,7 @@ class 场景_个人资料:
                         or 小写.endswith(".webp")
                     ):
                         continue
-                    _加入候选(f"json/个人资料/{文件名}")
+                    _加入候选(_个人资料头像相对路径(文件名))
         except Exception:
             pass
 
@@ -1482,14 +1491,16 @@ class 场景_个人资料:
             当前头像值 = str((self._个人资料数据 or {}).get("头像文件", "") or "")
             当前头像值 = 当前头像值.replace("\\", "/")
             旧文件名 = os.path.basename(当前头像值)
-            if 当前头像值.startswith("json/个人资料/") and 旧文件名 != 新文件名:
+            if 当前头像值.startswith(
+                ("json/个人资料/", f"{_个人资料头像相对前缀}/")
+            ) and 旧文件名 != 新文件名:
                 旧路径 = os.path.join(self._个人资料数据目录路径, 旧文件名)
                 if os.path.isfile(旧路径):
                     os.remove(旧路径)
         except Exception:
             pass
 
-        self._应用头像路径(f"json/个人资料/{新文件名}")
+        self._应用头像路径(_个人资料头像相对路径(新文件名))
         return True
 
     def _应用昵称(self, 新昵称: str):
@@ -2130,12 +2141,16 @@ class 场景_个人资料:
             return "UI-img/个人中心-个人资料/默认头像.png"
         if os.path.isabs(文本):
             return 文本
-        if 文本.startswith("UI-img/") or 文本.startswith("json/"):
+        if (
+            文本.startswith("UI-img/")
+            or 文本.startswith("json/")
+            or 文本.startswith(f"{_个人资料头像相对前缀}/")
+        ):
             return 文本
 
         文件名 = os.path.basename(文本)
         if 文件名.lower().startswith("头像_"):
-            return f"json/个人资料/{文件名}"
+            return _个人资料头像相对路径(文件名)
 
         return f"UI-img/个人中心-个人资料/{文件名}"
 
@@ -2166,14 +2181,16 @@ class 场景_个人资料:
         运行根 = str(getattr(self, "_运行根", _公共取运行根目录()) or _公共取运行根目录())
         资源根 = str(getattr(self, "_资源根", _公共取项目根目录()) or _公共取项目根目录())
 
-        if 文本.startswith(f"json{os.sep}"):
+        if 文本.startswith(f"json{os.sep}") or 文本.startswith(
+            f"userdata{os.sep}profile{os.sep}avatars{os.sep}"
+        ):
             return os.path.join(运行根, 文本)
         if 文本.startswith(f"UI-img{os.sep}"):
             return os.path.join(资源根, 文本)
 
         文件名 = os.path.basename(文本)
         if 文件名.lower().startswith("头像_"):
-            return os.path.join(运行根, "json", "个人资料", 文件名)
+            return os.path.join(_公共取个人资料头像目录(运行根), 文件名)
         return os.path.join(资源根, "UI-img", "个人中心-个人资料", 文件名)
 
     def _个人资料_计算段位(self, 等级: int) -> int:

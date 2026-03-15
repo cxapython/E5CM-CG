@@ -1,0 +1,47 @@
+{
+  "show_bounds": true,
+  "show_names": true,
+  "show_help": true,
+  "panels": {
+    "visual": {
+      "rect": [
+        1266,
+        11,
+        280,
+        126
+      ],
+      "collapsed": false,
+      "hidden": false
+    },
+    "badge": {
+      "rect": [
+        1627,
+        395,
+        280,
+        126
+      ],
+      "collapsed": false,
+      "hidden": false
+    },
+    "function": {
+      "rect": [
+        1604,
+        538,
+        320,
+        150
+      ],
+      "collapsed": false,
+      "hidden": false
+    },
+    "layers": {
+      "rect": [
+        1557,
+        9,
+        352,
+        384
+      ],
+      "collapsed": false,
+      "hidden": false
+    }
+  }
+}

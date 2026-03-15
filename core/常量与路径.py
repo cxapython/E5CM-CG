@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 
 
@@ -13,6 +14,140 @@ def _规范目录路径(路径: object) -> str:
         return os.path.abspath(文本)
     except Exception:
         return ""
+
+
+def _取根目录(根目录: object = "") -> str:
+    规范后 = _规范目录路径(根目录)
+    if 规范后:
+        return 规范后
+    return 取运行根目录()
+
+
+def _确保父目录存在(路径: str) -> None:
+    父目录 = os.path.dirname(os.path.abspath(str(路径 or "").strip()))
+    if 父目录:
+        os.makedirs(父目录, exist_ok=True)
+
+
+def _回退到现有路径(目标路径: str, 旧路径列表: list[str]) -> str:
+    if 目标路径 and os.path.exists(目标路径):
+        return os.path.abspath(目标路径)
+    for 旧路径 in 旧路径列表:
+        if 旧路径 and os.path.exists(旧路径):
+            return os.path.abspath(旧路径)
+    return os.path.abspath(目标路径) if str(目标路径 or "").strip() else ""
+
+
+def _尝试迁移文件(目标路径: str, *旧路径列表: str) -> str:
+    目标绝对路径 = os.path.abspath(str(目标路径 or "").strip()) if str(目标路径 or "").strip() else ""
+    if not 目标绝对路径:
+        return ""
+
+    if os.path.isfile(目标绝对路径):
+        return 目标绝对路径
+
+    有效旧路径列表 = [
+        os.path.abspath(str(旧路径 or "").strip())
+        for 旧路径 in 旧路径列表
+        if str(旧路径 or "").strip()
+    ]
+
+    for 旧路径 in 有效旧路径列表:
+        if (not os.path.isfile(旧路径)) or (旧路径 == 目标绝对路径):
+            continue
+
+        try:
+            _确保父目录存在(目标绝对路径)
+            os.replace(旧路径, 目标绝对路径)
+            return 目标绝对路径
+        except Exception:
+            pass
+
+        try:
+            _确保父目录存在(目标绝对路径)
+            shutil.copy2(旧路径, 目标绝对路径)
+            try:
+                os.remove(旧路径)
+            except Exception:
+                pass
+            return 目标绝对路径
+        except Exception:
+            continue
+
+    return _回退到现有路径(目标绝对路径, 有效旧路径列表)
+
+
+def _尝试迁移目录(目标目录: str, *旧目录列表: str) -> str:
+    目标绝对目录 = os.path.abspath(str(目标目录 or "").strip()) if str(目标目录 or "").strip() else ""
+    if not 目标绝对目录:
+        return ""
+
+    if os.path.isdir(目标绝对目录):
+        return 目标绝对目录
+
+    有效旧目录列表 = [
+        os.path.abspath(str(旧目录 or "").strip())
+        for 旧目录 in 旧目录列表
+        if str(旧目录 or "").strip()
+    ]
+
+    for 旧目录 in 有效旧目录列表:
+        if (not os.path.isdir(旧目录)) or (旧目录 == 目标绝对目录):
+            continue
+
+        try:
+            os.makedirs(os.path.dirname(目标绝对目录), exist_ok=True)
+        except Exception:
+            pass
+
+        try:
+            os.replace(旧目录, 目标绝对目录)
+            return 目标绝对目录
+        except Exception:
+            pass
+
+        try:
+            for 当前根, 目录列表, 文件列表 in os.walk(旧目录):
+                相对路径 = os.path.relpath(当前根, 旧目录)
+                if 相对路径 in (".", ""):
+                    目标当前根 = 目标绝对目录
+                else:
+                    目标当前根 = os.path.join(目标绝对目录, 相对路径)
+                os.makedirs(目标当前根, exist_ok=True)
+
+                for 目录名 in 目录列表:
+                    os.makedirs(os.path.join(目标当前根, 目录名), exist_ok=True)
+
+                for 文件名 in 文件列表:
+                    源路径 = os.path.join(当前根, 文件名)
+                    目标路径 = os.path.join(目标当前根, 文件名)
+                    if os.path.exists(目标路径):
+                        continue
+                    try:
+                        os.replace(源路径, 目标路径)
+                    except Exception:
+                        shutil.copy2(源路径, 目标路径)
+                        try:
+                            os.remove(源路径)
+                        except Exception:
+                            pass
+
+            for 当前根, 目录列表, 文件列表 in os.walk(旧目录, topdown=False):
+                if 目录列表 or 文件列表:
+                    continue
+                try:
+                    os.rmdir(当前根)
+                except Exception:
+                    pass
+            try:
+                os.rmdir(旧目录)
+            except Exception:
+                pass
+            return 目标绝对目录
+        except Exception:
+            continue
+
+    return _回退到现有路径(目标绝对目录, 有效旧目录列表)
 
 
 def 取运行根目录() -> str:
@@ -57,6 +192,82 @@ def 取项目根目录(资源: dict | None = None) -> str:
 
 def 取资源根目录(资源: dict | None = None) -> str:
     return 取项目根目录(资源)
+
+
+def 取配置根目录(根目录: str | None = None) -> str:
+    return os.path.join(_取根目录(根目录), "config")
+
+
+def 取布局配置路径(文件名: str, 根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移文件(
+        os.path.join(根, "config", "layout", str(文件名 or "").strip()),
+        os.path.join(根, "json", str(文件名 or "").strip()),
+    )
+
+
+def 取动画配置路径(文件名: str, 根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移文件(
+        os.path.join(根, "config", "animation", str(文件名 or "").strip()),
+        os.path.join(根, "json", str(文件名 or "").strip()),
+    )
+
+
+def 取调试配置路径(文件名: str, 根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移文件(
+        os.path.join(根, "config", "debug", str(文件名 or "").strip()),
+        os.path.join(根, "json", str(文件名 or "").strip()),
+    )
+
+
+def 取应用配置路径(文件名: str, 根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移文件(
+        os.path.join(根, "config", "app", str(文件名 or "").strip()),
+        os.path.join(根, "json", str(文件名 or "").strip()),
+    )
+
+
+def 取状态根目录(根目录: str | None = None) -> str:
+    return os.path.join(_取根目录(根目录), "state")
+
+
+def 取状态数据库路径(
+    文件名: str = "runtime_state.sqlite3",
+    根目录: str | None = None,
+) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移文件(
+        os.path.join(根, "state", str(文件名 or "").strip()),
+        os.path.join(根, "json", str(文件名 or "").strip()),
+    )
+
+
+def 取用户数据根目录(根目录: str | None = None) -> str:
+    return os.path.join(_取根目录(根目录), "userdata")
+
+
+def 取个人资料目录(根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return os.path.join(根, "userdata", "profile")
+
+
+def 取个人资料路径(根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移文件(
+        os.path.join(根, "userdata", "profile", "个人资料.json"),
+        os.path.join(根, "json", "个人资料.json"),
+    )
+
+
+def 取个人资料头像目录(根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移目录(
+        os.path.join(根, "userdata", "profile", "avatars"),
+        os.path.join(根, "json", "个人资料"),
+    )
 
 
 def 拼资源路径(*片段: str, 资源: dict | None = None) -> str:

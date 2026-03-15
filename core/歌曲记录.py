@@ -8,6 +8,11 @@ from core.常量与路径 import (
     取资源根目录 as _公共取资源根目录,
     取songs根目录 as _公共取songs根目录,
 )
+from core.sqlite_store import (
+    SCOPE_SONG_RECORDS as _歌曲记录存储作用域,
+    read_scope as _读取存储作用域,
+    replace_scope as _替换存储作用域,
+)
 
 
 def _规范路径(路径: str) -> str:
@@ -219,16 +224,7 @@ def _合并歌曲记录项(旧项: dict, 新项: dict, 项目根: str, 默认键
 
 
 def 读取歌曲记录索引(项目根: str) -> Dict[str, dict]:
-    主路径 = _索引路径(项目根)
-    数据 = _读取json文件(主路径)
-
-    if not isinstance(数据, dict):
-        for 候选路径 in _兼容索引路径列表(项目根):
-            if 候选路径 == 主路径:
-                continue
-            数据 = _读取json文件(候选路径)
-            if isinstance(数据, dict):
-                break
+    数据 = _读取存储作用域(_歌曲记录存储作用域, 根目录=项目根)
 
     if not isinstance(数据, dict):
         return {}
@@ -289,8 +285,11 @@ def 保存歌曲记录索引(项目根: str, 数据: Dict[str, dict]):
         else:
             结果[新键] = dict(新项)
 
-    主路径 = _主索引路径(项目根)
-    _写入json文件(主路径, 结果)
+    try:
+        _替换存储作用域(_歌曲记录存储作用域, 结果, 根目录=项目根)
+    except Exception:
+        主路径 = _主索引路径(项目根)
+        _写入json文件(主路径, 结果)
 
 
 def 取歌曲记录(项目根: str, sm路径: str, 歌名: str = "") -> dict:

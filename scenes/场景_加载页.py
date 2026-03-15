@@ -6,6 +6,7 @@ from typing import Dict, Optional, List
 
 import pygame
 from core.常量与路径 import (
+    取个人资料路径 as _公共取个人资料路径,
     取项目根目录 as _公共取项目根目录,
     取运行根目录 as _公共取运行根目录,
 )
@@ -154,7 +155,7 @@ class 场景_加载页(场景基类):
 
         try:
             运行根目录 = _取运行根目录()
-            self._个人资料路径 = os.path.join(运行根目录, "json", "个人资料.json")
+            self._个人资料路径 = _公共取个人资料路径(运行根目录)
 
             try:
                 联网图路径 = str(

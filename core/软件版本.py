@@ -1,7 +1,7 @@
 import json
 import os
 
-from core.常量与路径 import 取运行根目录
+from core.常量与路径 import 取应用配置路径, 取运行根目录
 
 
 版本文件名 = "客户端版本.json"
@@ -10,7 +10,7 @@ from core.常量与路径 import 取运行根目录
 
 def 获取版本文件路径(根目录: str | None = None) -> str:
     目标根目录 = str(根目录 or "").strip() or 取运行根目录()
-    return os.path.join(os.path.abspath(目标根目录), "json", 版本文件名)
+    return 取应用配置路径(版本文件名, 根目录=os.path.abspath(目标根目录))
 
 
 def 规范版本号(值: object, 默认值: str = "") -> str:

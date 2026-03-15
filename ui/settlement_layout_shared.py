@@ -812,7 +812,6 @@ class SettlementLayoutStore:
         screen_w, screen_h = int(screen_size[0]), int(screen_size[1])
         sx = screen_w / float(DESIGN_SIZE[0])
         sy = screen_h / float(DESIGN_SIZE[1])
-        scale = min(sx, sy)
         default_runtime = self.runtime_defaults((screen_w, screen_h), player_index)
         runtime_layers: Dict[str, Dict[str, Any]] = {}
         for layer_id, design_layer in self.layers.items():
@@ -823,33 +822,45 @@ class SettlementLayoutStore:
             if base_design is not None:
                 base_design_rect = _layer_rect(base_design)
                 default_runtime_rect = _layer_rect(base_runtime)
+                rect_sx = (
+                    float(default_runtime_rect.w) / float(base_design_rect.w)
+                    if int(base_design_rect.w) > 0
+                    else sx
+                )
+                rect_sy = (
+                    float(default_runtime_rect.h) / float(base_design_rect.h)
+                    if int(base_design_rect.h) > 0
+                    else sy
+                )
                 runtime_rect = pygame.Rect(
                     int(
                         round(
                             default_runtime_rect.x
-                            + (design_rect.x - base_design_rect.x) * sx
+                            + (design_rect.x - base_design_rect.x) * rect_sx
                         )
                     ),
                     int(
                         round(
                             default_runtime_rect.y
-                            + (design_rect.y - base_design_rect.y) * sy
+                            + (design_rect.y - base_design_rect.y) * rect_sy
                         )
                     ),
                     int(
                         round(
                             default_runtime_rect.w
-                            + (design_rect.w - base_design_rect.w) * sx
+                            + (design_rect.w - base_design_rect.w) * rect_sx
                         )
                     ),
                     int(
                         round(
                             default_runtime_rect.h
-                            + (design_rect.h - base_design_rect.h) * sy
+                            + (design_rect.h - base_design_rect.h) * rect_sy
                         )
                     ),
                 )
             else:
+                rect_sx = sx
+                rect_sy = sy
                 runtime_rect = pygame.Rect(
                     int(round(design_rect.x * sx)),
                     int(round(design_rect.y * sy)),
@@ -860,20 +871,31 @@ class SettlementLayoutStore:
             content_offset = layer.get("content_offset", [0.0, 0.0])
             if isinstance(content_offset, (list, tuple)) and len(content_offset) == 2:
                 layer["content_offset"] = [
-                    float(content_offset[0]) * sx,
-                    float(content_offset[1]) * sy,
+                    float(content_offset[0]) * rect_sx,
+                    float(content_offset[1]) * rect_sy,
                 ]
             text_style = layer.get("text_style")
             if isinstance(text_style, dict):
                 runtime_style = copy.deepcopy(text_style)
+                text_scale = min(float(rect_sx), float(rect_sy))
                 runtime_style["font_size"] = max(
-                    8, int(round(float(text_style.get("font_size", 24) or 24) * scale))
+                    8,
+                    int(
+                        round(
+                            float(text_style.get("font_size", 24) or 24) * text_scale
+                        )
+                    ),
                 )
                 runtime_style["stroke_width"] = max(
-                    0, int(round(float(text_style.get("stroke_width", 0) or 0) * scale))
+                    0,
+                    int(
+                        round(
+                            float(text_style.get("stroke_width", 0) or 0) * text_scale
+                        )
+                    ),
                 )
                 runtime_style["letter_spacing"] = int(
-                    round(float(text_style.get("letter_spacing", 0) or 0) * scale)
+                    round(float(text_style.get("letter_spacing", 0) or 0) * text_scale)
                 )
                 layer["text_style"] = runtime_style
             runtime_layers[layer_id] = layer

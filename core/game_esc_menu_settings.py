@@ -17,6 +17,11 @@ from core.sqlite_store import (
 
 GAME_ESC_SETTINGS_KEY_AUTOPLAY = "自动播放"
 GAME_ESC_SETTINGS_KEY_BINDINGS = "键位绑定"
+GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS = "谱面偏移毫秒"
+
+CHART_VISUAL_OFFSET_STEP_MS = 10
+CHART_VISUAL_OFFSET_MIN_MS = -500
+CHART_VISUAL_OFFSET_MAX_MS = 500
 
 PROFILE_SINGLE = "single"
 PROFILE_DOUBLE = "double"
@@ -128,6 +133,26 @@ def read_game_esc_settings_scope() -> Dict[str, object]:
 def write_game_esc_settings_scope_patch(patch: Dict[str, object]) -> Dict[str, object]:
     data = write_scope_patch(SCOPE_GAME_ESC_MENU_SETTINGS, dict(patch or {}))
     return dict(data) if isinstance(data, dict) else {}
+
+
+def clamp_chart_visual_offset_ms(value: object, default: int = 0) -> int:
+    try:
+        number = int(round(float(value)))
+    except Exception:
+        number = int(default)
+    return int(
+        max(
+            int(CHART_VISUAL_OFFSET_MIN_MS),
+            min(int(CHART_VISUAL_OFFSET_MAX_MS), int(number)),
+        )
+    )
+
+
+def format_chart_visual_offset_ms(value: object) -> str:
+    offset_ms = int(clamp_chart_visual_offset_ms(value, 0))
+    if offset_ms > 0:
+        return f"+{offset_ms} ms"
+    return f"{offset_ms} ms"
 
 
 def iter_profile_slots(profile_id: str) -> List[Tuple[str, str]]:
@@ -499,3 +524,15 @@ def read_saved_autoplay(scope_data: Optional[Dict[str, object]] = None) -> Optio
         except Exception:
             return None
     return None
+
+
+def read_saved_chart_visual_offset_ms(
+    scope_data: Optional[Dict[str, object]] = None,
+) -> int:
+    data = dict(scope_data or {}) if isinstance(scope_data, dict) else read_game_esc_settings_scope()
+    return int(
+        clamp_chart_visual_offset_ms(
+            data.get(GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS, 0),
+            0,
+        )
+    )

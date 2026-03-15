@@ -9,6 +9,10 @@ from pathlib import Path
 
 版本文件名 = "客户端版本.json"
 默认版本号 = "v1.0.0"
+SONGS目录骨架清单文件名 = "_目录骨架清单.txt"
+DIY导入教程文件名 = "DIY导入教程.txt"
+SONGS骨架顶级目录 = ("diy", "花式", "竞速")
+SONGS骨架来源目录 = ("花式", "竞速")
 
 
 def 获取项目根目录() -> Path:
@@ -25,8 +29,7 @@ def 获取主程序路径(项目根目录: Path) -> Path:
 
 def 获取版本文件路径列表(项目根目录: Path) -> list[Path]:
     return [
-        项目根目录 / "json" / 版本文件名,
-        项目根目录 / "打包专用资源" / "json" / 版本文件名,
+        项目根目录 / "config" / "app" / 版本文件名,
     ]
 
 
@@ -150,10 +153,11 @@ def 获取需要复制的目录列表(项目根目录: Path) -> list[tuple[Path,
     这里采用“外部目录整体复制”策略：
     - exe 只负责把 Python 代码编译出来
     - 代码目录、资源目录全部复制到编译结果目录
-    - songs 只认：打包专用资源/songs
-    - json 只认：打包专用资源/json
+    - 不打包开发机上的运行态、用户资料、收藏夹、投币数
+    - songs 改为在编译结果中生成空目录骨架
     """
     目录名列表 = [
+        "config",
         "core",
         "scenes",
         "ui",
@@ -171,18 +175,6 @@ def 获取需要复制的目录列表(项目根目录: Path) -> list[tuple[Path,
         else:
             print(f"⚠ 缺少目录，稍后跳过: {源目录}")
 
-    打包专用歌曲目录 = 项目根目录 / "打包专用资源" / "songs"
-    if 打包专用歌曲目录.exists():
-        复制列表.append((打包专用歌曲目录, "songs"))
-    else:
-        print(f"⚠ 未找到打包专用 songs 目录，已跳过: {打包专用歌曲目录}")
-
-    打包专用配置目录 = 项目根目录 / "打包专用资源" / "json"
-    if 打包专用配置目录.exists():
-        复制列表.append((打包专用配置目录, "json"))
-    else:
-        print(f"⚠ 未找到打包专用 json 目录，已跳过: {打包专用配置目录}")
-
     return 复制列表
 
 
@@ -195,6 +187,104 @@ def 显示复制计划(复制列表: list[tuple[Path, str]]):
 
     for 源目录, 目标目录名 in 复制列表:
         print(f"  ✓ {源目录.name} -> 编译结果\\{目标目录名}")
+    print("  ✓ 生成 songs 空目录骨架 -> 编译结果\\songs")
+    print()
+
+
+def _目录相对路径排序键(相对路径: str) -> tuple[int, tuple[str, ...]]:
+    文本 = str(相对路径 or "").replace("\\", "/").strip("/")
+    片段 = tuple(文本.split("/")) if 文本 else tuple()
+    return (len(片段), 片段)
+
+
+def 收集songs目录骨架(项目根目录: Path) -> list[str]:
+    songs源目录 = 项目根目录 / "songs"
+    结果集合: set[str] = set(SONGS骨架顶级目录)
+
+    if not songs源目录.exists():
+        print(f"⚠ 未找到 songs 目录，将仅创建顶级目录: {songs源目录}")
+        return sorted(结果集合, key=_目录相对路径排序键)
+
+    for 顶级目录名 in SONGS骨架来源目录:
+        顶级目录 = songs源目录 / 顶级目录名
+        if not 顶级目录.exists():
+            print(f"⚠ songs 子目录缺失，已跳过: {顶级目录}")
+            continue
+
+        结果集合.add(顶级目录名)
+        for 当前目录 in 顶级目录.rglob("*"):
+            if not 当前目录.is_dir():
+                continue
+            try:
+                相对路径 = 当前目录.relative_to(songs源目录).as_posix()
+            except Exception:
+                continue
+            if not 相对路径:
+                continue
+            if len(Path(相对路径).parts) <= 3:
+                结果集合.add(相对路径)
+
+    return sorted(结果集合, key=_目录相对路径排序键)
+
+
+def 生成DIY导入教程内容() -> str:
+    return "\n".join(
+        [
+            "DIY 歌曲导入教程",
+            "",
+            "1. 打开 songs\\diy 文件夹。",
+            "2. 在里面新建一个你的曲包文件夹，例如：songs\\diy\\Kpop。",
+            "3. 把你下载好的整包歌曲文件夹放进这个曲包文件夹里。",
+            "   正确示例：songs\\diy\\Kpop\\A-Cha\\A-Cha.ssc",
+            "   也可以是：songs\\diy\\Kpop\\A-Cha\\A-Cha.sm",
+            "4. 不要把 .ssc / .sm / .sma 文件直接丢在 songs\\diy 根目录。",
+            "5. 一首歌通常应该和它的音频放在同一个歌曲文件夹里。",
+            "   常见音频格式：.ogg  .mp3  .wav",
+            "6. 导入完成后，重启游戏，再进入 DIY 模式刷新列表。",
+            "",
+            "当前 DIY 支持的谱面格式：.json  .ssc  .sm  .sma",
+            "",
+            "如果你下载的是整包压缩包：",
+            "- 先解压",
+            "- 确认不是“文件夹套文件夹”",
+            "- 看到歌曲文件夹里有 .ssc / .sm / .sma 和音频文件就对了",
+            "",
+            "示例目录结构：",
+            "songs\\diy",
+            "└─ Kpop",
+            "   ├─ A-Cha",
+            "   │  ├─ A-Cha.ssc",
+            "   │  └─ audio.ogg",
+            "   └─ Trouble maker",
+            "      ├─ Hyunaaaaaaaaaaaaaa S2.sm",
+            "      └─ music.mp3",
+            "",
+        ]
+    )
+
+
+def 生成songs目录骨架(项目根目录: Path):
+    编译结果目录 = 获取编译结果目录(项目根目录)
+    程序目录 = 编译结果目录 / "E5CM-CG"
+    songs输出目录 = 程序目录 / "songs"
+
+    if songs输出目录.exists():
+        shutil.rmtree(songs输出目录)
+    songs输出目录.mkdir(parents=True, exist_ok=True)
+
+    目录骨架列表 = 收集songs目录骨架(项目根目录)
+    for 相对路径 in 目录骨架列表:
+        (songs输出目录 / Path(相对路径)).mkdir(parents=True, exist_ok=True)
+
+    骨架清单路径 = songs输出目录 / SONGS目录骨架清单文件名
+    骨架清单路径.write_text("\n".join(目录骨架列表) + "\n", encoding="utf-8")
+
+    教程路径 = songs输出目录 / "diy" / DIY导入教程文件名
+    教程路径.write_text(生成DIY导入教程内容(), encoding="utf-8")
+
+    print(f"  ✓ 已生成 songs 目录骨架: {songs输出目录}")
+    print(f"  ✓ 已写入 DIY 导入教程: {教程路径}")
+    print(f"  ✓ 已写入目录骨架清单: {骨架清单路径}")
     print()
 
 
@@ -299,7 +389,9 @@ def 复制说明文件(项目根目录: Path):
             "1. 请从当前目录运行 E5CM-CG.exe",
             "2. 不要单独拿走 exe 文件，需保持整个目录结构完整",
             "3. 本打包方式为 onedir，目的是尽量保持与开发环境一致",
-            "4. 若仍有路径错误，请优先检查项目代码里是否写死了 __file__ / cwd / 根目录推断逻辑",
+            "4. 安装包不再携带开发机运行态、收藏夹、投币数、个人资料",
+            "5. songs\\diy 内附带 DIY 导入教程，请按教程自行导入歌曲",
+            "6. 若仍有路径错误，请优先检查项目代码里是否写死了 __file__ / cwd / 根目录推断逻辑",
             "",
         ]
     )
@@ -329,6 +421,35 @@ def 验证编译结果(项目根目录: Path, 复制列表: list[tuple[Path, str
         else:
             print(f"  ✗ 目录缺失: {目标目录}")
             全部正常 = False
+
+    songs目录 = 程序目录 / "songs"
+    diy目录 = songs目录 / "diy"
+    教程路径 = diy目录 / DIY导入教程文件名
+    骨架清单路径 = songs目录 / SONGS目录骨架清单文件名
+
+    if songs目录.exists():
+        print(f"  ✓ 目录存在: {songs目录}")
+    else:
+        print(f"  ✗ 目录缺失: {songs目录}")
+        全部正常 = False
+
+    if diy目录.exists():
+        print(f"  ✓ 目录存在: {diy目录}")
+    else:
+        print(f"  ✗ 目录缺失: {diy目录}")
+        全部正常 = False
+
+    if 教程路径.exists():
+        print(f"  ✓ 文件存在: {教程路径}")
+    else:
+        print(f"  ✗ 文件缺失: {教程路径}")
+        全部正常 = False
+
+    if 骨架清单路径.exists():
+        print(f"  ✓ 文件存在: {骨架清单路径}")
+    else:
+        print(f"  ✗ 文件缺失: {骨架清单路径}")
+        全部正常 = False
 
     print()
     return 全部正常
@@ -382,6 +503,7 @@ def 主程序():
         sys.exit(1)
 
     复制外部目录到输出目录(项目根目录, 复制列表)
+    生成songs目录骨架(项目根目录)
     复制说明文件(项目根目录)
 
     验证通过 = 验证编译结果(项目根目录, 复制列表)

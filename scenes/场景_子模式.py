@@ -1,8 +1,10 @@
 import math
+import os
+
 import pygame
 
-from core.常量与路径 import 拼资源路径
-from core.工具 import cover缩放, 安全加载图片
+from core.常量与路径 import 拼资源路径, 取songs根目录
+from core.工具 import cover缩放, 安全加载图片, 获取字体, 绘制文本
 from core.踏板控制 import (
     踏板动作_左,
     踏板动作_右,
@@ -35,6 +37,7 @@ class 场景_子模式(场景基类):
         self._按钮目标矩形: dict[str, pygame.Rect] = {}
         self._按钮当前偏移y: dict[str, float] = {}
         self._按钮当前偏移x: dict[str, float] = {}
+        self._按钮标签中心点: dict[str, tuple[int, int]] = {}
 
         self._当前选中模式名: str | None = None
         self._选中开始毫秒: int = 0
@@ -71,6 +74,18 @@ class 场景_子模式(场景基类):
 
         self._全屏放大过渡 = 公用放大过渡器(总时长毫秒=320)
         self._待进入选歌模式名: str | None = None
+
+        self._每行最大数量 = 6
+        self._每页最大行数 = 3
+        self._当前页码 = 0
+        self._总页数 = 1
+        self._当前按钮边长 = 0
+        self._空状态提示 = ""
+        self._DIY滚动偏移x = 0.0
+        self._DIY最大滚动偏移x = 0.0
+        self._DIY起始x = 0
+        self._DIY可视基准宽 = 0
+        self._DIY内容总宽 = 0
 
     def _夹紧(self, 值: float, 最小值: float, 最大值: float) -> float:
         return max(最小值, min(最大值, 值))
@@ -110,9 +125,151 @@ class 场景_子模式(场景基类):
     def _取资源路径(self, *片段: str) -> str:
         return 拼资源路径(*片段, 资源=self._资源)
 
+    def _当前是否DIY模式(self) -> bool:
+        状态 = self.上下文.get("状态", {})
+        if not isinstance(状态, dict):
+            return False
+        return str(状态.get("大模式", "") or "").strip().lower() == "diy"
+
+    def _DIY可滚动(self) -> bool:
+        return self._当前是否DIY模式() and float(self._DIY最大滚动偏移x) > 0.0
+
+    def _取DIY滚轮步长(self) -> float:
+        return float(max(96, int(self._当前按钮边长 * 0.90)))
+
+    def _设置DIY滚动偏移(self, 偏移x: float):
+        self._DIY滚动偏移x = float(
+            self._夹紧(float(偏移x), 0.0, float(self._DIY最大滚动偏移x))
+        )
+
+    def _滚动DIY列表(self, 偏移量: float, *, 播放音效: bool = False) -> bool:
+        if not self._DIY可滚动():
+            return False
+
+        旧值 = float(self._DIY滚动偏移x)
+        self._设置DIY滚动偏移(旧值 + float(偏移量))
+        if abs(float(self._DIY滚动偏移x) - 旧值) < 0.5:
+            return False
+
+        if 播放音效:
+            self._按钮音效.播放()
+        return True
+
+    def _确保DIY模式可见(self, 模式名: str | None):
+        if (not self._当前是否DIY模式()) or (not 模式名):
+            return
+
+        目标矩形 = self._按钮目标矩形.get(str(模式名))
+        if not isinstance(目标矩形, pygame.Rect):
+            return
+
+        视口左 = int(self._DIY起始x)
+        视口右 = int(self._DIY起始x + self._DIY可视基准宽)
+        if 视口右 <= 视口左:
+            return
+
+        当前左 = float(目标矩形.left) - float(self._DIY滚动偏移x)
+        当前右 = float(目标矩形.right) - float(self._DIY滚动偏移x)
+        边距 = max(16, int(目标矩形.w * 0.18))
+
+        新偏移 = float(self._DIY滚动偏移x)
+        if 当前左 < float(视口左 + 边距):
+            新偏移 -= float(视口左 + 边距) - 当前左
+        elif 当前右 > float(视口右 - 边距):
+            新偏移 += 当前右 - float(视口右 - 边距)
+
+        self._设置DIY滚动偏移(新偏移)
+
+    def _每页容量(self) -> int:
+        return int(self._每行最大数量 * self._每页最大行数)
+
+    def _取当前页范围(self) -> tuple[int, int]:
+        if self._当前是否DIY模式():
+            return 0, len(self.子模式按钮列表)
+        每页容量 = max(1, self._每页容量())
+        起始 = max(0, int(self._当前页码) * 每页容量)
+        结束 = min(len(self.子模式按钮列表), 起始 + 每页容量)
+        return 起始, 结束
+
+    def _取当前页按钮项(self) -> list[tuple[图片按钮, str, str, str]]:
+        起始, 结束 = self._取当前页范围()
+        return self.子模式按钮列表[起始:结束]
+
+    def _取模式所在页(self, 模式名: str | None) -> int | None:
+        if not 模式名:
+            return None
+        if self._当前是否DIY模式():
+            for _索引, (_按钮, 当前模式名, _小图, _大图) in enumerate(self.子模式按钮列表):
+                if 当前模式名 == 模式名:
+                    return 0
+            return None
+        每页容量 = max(1, self._每页容量())
+        for 索引, (_按钮, 当前模式名, _小图, _大图) in enumerate(self.子模式按钮列表):
+            if 当前模式名 == 模式名:
+                return 索引 // 每页容量
+        return None
+
+    def _取当前页起始索引(self) -> int:
+        if not self.子模式按钮列表:
+            return 0
+        if self._当前是否DIY模式():
+            return 0
+        起始, _ = self._取当前页范围()
+        return max(0, min(len(self.子模式按钮列表) - 1, 起始))
+
+    def _清空当前选中(self):
+        self._当前选中模式名 = None
+        self._选中开始毫秒 = 0
+        self._隐藏按钮模式名 = None
+        self._待进入选歌模式名 = None
+        self._大图标表面 = None
+        self._大图标矩形 = None
+        self._大图标路径缓存 = None
+
+    def _截断DIY标签(self, 文本: str, 最大字符数: int = 7) -> str:
+        文本 = str(文本 or "").strip()
+        if len(文本) <= int(最大字符数):
+            return 文本
+        可见字符数 = max(1, int(最大字符数) - 1)
+        return f"{文本[:可见字符数]}…"
+
+    def _取DIY标签字体(self) -> pygame.font.Font:
+        字号 = max(18, min(30, int(self._当前按钮边长 * 0.13)))
+        return 获取字体(字号)
+
+    def _取DIY曲包目录列表(self) -> list[str]:
+        状态 = self.上下文.get("状态", {})
+        if not isinstance(状态, dict):
+            状态 = {}
+
+        songs根目录 = 取songs根目录(资源=self._资源, 状态=状态)
+        diy目录 = os.path.join(songs根目录, "diy")
+        if not os.path.isdir(diy目录):
+            self._空状态提示 = "请将曲包文件夹放到 songs/diy 目录"
+            return []
+
+        目录列表: list[str] = []
+        try:
+            for 名称 in os.listdir(diy目录):
+                if not str(名称 or "").strip():
+                    continue
+                完整路径 = os.path.join(diy目录, str(名称))
+                if os.path.isdir(完整路径):
+                    目录列表.append(str(名称))
+        except Exception:
+            self._空状态提示 = "读取 songs/diy 目录失败"
+            return []
+
+        目录列表.sort(key=lambda 名称: str(名称).casefold())
+        if not 目录列表:
+            self._空状态提示 = "请将曲包文件夹放到 songs/diy 目录"
+        return 目录列表
+
     def _取模式配置列表(self) -> list[tuple[str, str, str]]:
         状态 = self.上下文.get("状态", {})
-        大模式 = str(状态.get("大模式", "") or "")
+        大模式 = str(状态.get("大模式", "") or "").strip()
+        大模式小写 = 大模式.lower()
+        self._空状态提示 = ""
 
         if 大模式 == "花式":
             return [
@@ -172,9 +329,22 @@ class 场景_子模式(场景基类):
                 ),
             ]
 
+        if 大模式小写 == "diy":
+            曲包目录列表 = self._取DIY曲包目录列表()
+            if not 曲包目录列表:
+                return []
+
+            按钮图路径 = self._取资源路径(
+                "UI-img/玩法选择界面/按钮/diy模式按钮.png"
+            )
+            大图路径 = self._取资源路径("UI-img/玩法选择界面/diy模式.png")
+            return [(曲包名, 按钮图路径, 大图路径) for 曲包名 in 曲包目录列表]
+
         return []
 
     def 子模式对应选歌BGM(self, 子模式名: str) -> str:
+        if self._当前是否DIY模式():
+            return str(self._资源.get("音乐_show", "") or "")
         if "表演" in 子模式名:
             return str(self._资源.get("音乐_show", "") or "")
         if "疯狂" in 子模式名:
@@ -195,17 +365,19 @@ class 场景_子模式(场景基类):
             self.上下文["音乐"].播放循环(背景音乐)
 
         self._进入开始毫秒 = pygame.time.get_ticks()
-        self._当前选中模式名 = None
-        self._选中开始毫秒 = 0
-        self._隐藏按钮模式名 = None
-        self._大图标表面 = None
-        self._大图标矩形 = None
-        self._大图标路径缓存 = None
-
+        self._清空当前选中()
         self._按钮缩放缓存.clear()
         self._纯色遮罩缓存.clear()
         self._全屏放大过渡 = 公用放大过渡器(总时长毫秒=320)
-        self._待进入选歌模式名 = None
+        self._当前页码 = 0
+        self._总页数 = 1
+        self._当前按钮边长 = 0
+        self._空状态提示 = ""
+        self._DIY滚动偏移x = 0.0
+        self._DIY最大滚动偏移x = 0.0
+        self._DIY起始x = 0
+        self._DIY可视基准宽 = 0
+        self._DIY内容总宽 = 0
 
         self._预加载固定UI()
         self.重算布局()
@@ -257,59 +429,272 @@ class 场景_子模式(场景基类):
             标题上移比例=0.1,
         )
 
-    def 重算布局(self):
+    def _更新当前页布局(
+        self,
+        *,
+        重置入场: bool = False,
+        重置水平偏移: bool = False,
+    ):
+        self._确保top栏缓存()
+
         屏幕 = self.上下文["屏幕"]
         宽, 高 = 屏幕.get_size()
+        基准缩放 = min(宽 / max(1, self._设计宽), 高 / max(1, self._设计高))
+
+        self._按钮标签中心点.clear()
+        不可见矩形 = pygame.Rect(-20000, -20000, 1, 1)
+        for 按钮, 模式名, _小图, _大图 in self.子模式按钮列表:
+            self._按钮目标矩形[模式名] = 不可见矩形.copy()
+            按钮.设置矩形(不可见矩形.copy())
+            if 重置水平偏移:
+                self._按钮当前偏移x[模式名] = 0.0
+            if 重置入场:
+                self._按钮当前偏移y[模式名] = 0.0
+
+        可见按钮项 = self._取当前页按钮项()
+        if not 可见按钮项:
+            self._当前按钮边长 = 0
+            self._DIY最大滚动偏移x = 0.0
+            self._DIY可视基准宽 = 0
+            self._DIY内容总宽 = 0
+            return
+
+        if self._当前是否DIY模式():
+            可见数量 = len(可见按钮项)
+            标签高度 = max(24, int(34 * 基准缩放))
+            标签间距 = max(8, int(14 * 基准缩放))
+
+            if 可见数量 == 1:
+                按钮边长 = int(min(宽, 高) * 0.28)
+                按钮边长 = max(150, min(360, 按钮边长))
+            else:
+                按钮边长 = int(min(宽, 高) * 0.22)
+                按钮边长 = max(120, min(280, 按钮边长))
+
+            间距x = int(宽 * 0.025)
+            间距x = max(8, min(36, 间距x))
+
+            基准显示数量 = max(1, min(self._每行最大数量, 可见数量))
+            基准宽 = 基准显示数量 * 按钮边长 + max(0, 基准显示数量 - 1) * 间距x
+            起始x = (宽 - 基准宽) // 2
+            起始y = (高 // 2) - (按钮边长 // 2) + int(self._top_rect.h * 0.20)
+            起始y = max(
+                self._top_rect.bottom + max(18, int(20 * 基准缩放)),
+                min(
+                    起始y,
+                    高 - 按钮边长 - 标签间距 - 标签高度 - max(24, int(20 * 基准缩放)),
+                ),
+            )
+
+            总宽 = 可见数量 * 按钮边长 + max(0, 可见数量 - 1) * 间距x
+            self._当前按钮边长 = int(按钮边长)
+            self._DIY起始x = int(起始x)
+            self._DIY可视基准宽 = int(基准宽)
+            self._DIY内容总宽 = int(总宽)
+            self._DIY最大滚动偏移x = float(max(0, int(总宽 - 基准宽)))
+            self._设置DIY滚动偏移(self._DIY滚动偏移x)
+
+            for 列索引, (按钮, 模式名, _小图, _大图) in enumerate(可见按钮项):
+                目标矩形 = pygame.Rect(
+                    起始x + 列索引 * (按钮边长 + 间距x),
+                    起始y,
+                    按钮边长,
+                    按钮边长,
+                )
+                按钮.设置矩形(目标矩形)
+
+                self._按钮目标矩形[模式名] = 目标矩形
+                self._按钮标签中心点[模式名] = (
+                    目标矩形.centerx,
+                    目标矩形.bottom + 标签间距 + 标签高度 // 2,
+                )
+
+                if 重置入场:
+                    self._按钮当前偏移y[模式名] = float(
+                        高 - 起始y + 按钮边长 + 80
+                    )
+                else:
+                    self._按钮当前偏移y[模式名] = float(
+                        self._按钮当前偏移y.get(模式名, 0.0)
+                    )
+
+                if 重置水平偏移:
+                    self._按钮当前偏移x[模式名] = 0.0
+                else:
+                    self._按钮当前偏移x[模式名] = float(
+                        self._按钮当前偏移x.get(模式名, 0.0)
+                    )
+            return
+
+        可见数量 = len(可见按钮项)
+        行数 = max(1, math.ceil(可见数量 / max(1, self._每行最大数量)))
+        标签高度 = max(24, int(34 * 基准缩放))
+        标签间距 = max(8, int(14 * 基准缩放))
+        行间距 = max(18, int(30 * 基准缩放))
+
+        if 行数 == 1:
+            if 可见数量 == 1:
+                按钮边长 = int(min(宽, 高) * 0.28)
+                按钮边长 = max(150, min(360, 按钮边长))
+            else:
+                按钮边长 = int(min(宽, 高) * 0.22)
+                按钮边长 = max(120, min(280, 按钮边长))
+        else:
+            容器顶 = self._top_rect.bottom + max(24, int(36 * 基准缩放))
+            容器底 = 高 - max(120, int(140 * 基准缩放))
+            可用高 = max(1, 容器底 - 容器顶)
+            高度限制 = int(
+                (
+                    可用高
+                    - 行数 * (标签高度 + 标签间距)
+                    - max(0, 行数 - 1) * 行间距
+                )
+                / max(1, 行数)
+            )
+            默认多行边长 = int(min(宽, 高) * (0.20 if 行数 == 2 else 0.18))
+            按钮边长 = max(110, min(240, 默认多行边长, max(110, 高度限制)))
+
+        间距x = int(宽 * (0.025 if 行数 == 1 else 0.018))
+        间距x = max(8, min(36 if 行数 == 1 else 28, 间距x))
+
+        if 行数 == 1:
+            起始y = (高 // 2) - (按钮边长 // 2) + int(self._top_rect.h * 0.20)
+            起始y = max(
+                self._top_rect.bottom + max(18, int(20 * 基准缩放)),
+                min(
+                    起始y,
+                    高 - 按钮边长 - 标签间距 - 标签高度 - max(24, int(20 * 基准缩放)),
+                ),
+            )
+        else:
+            容器顶 = self._top_rect.bottom + max(24, int(30 * 基准缩放))
+            容器底 = 高 - max(120, int(140 * 基准缩放))
+            总高 = (
+                行数 * 按钮边长
+                + 行数 * (标签间距 + 标签高度)
+                + max(0, 行数 - 1) * 行间距
+            )
+            起始y = 容器顶 + max(0, (容器底 - 容器顶 - 总高) // 2)
+
+        self._当前按钮边长 = int(按钮边长)
+
+        for 行索引 in range(行数):
+            行起始 = 行索引 * self._每行最大数量
+            行按钮项 = 可见按钮项[行起始 : 行起始 + self._每行最大数量]
+            行内数量 = len(行按钮项)
+            if 行内数量 <= 0:
+                continue
+
+            总宽 = 行内数量 * 按钮边长 + (行内数量 - 1) * 间距x
+            起始x = (宽 - 总宽) // 2
+            按钮y = 起始y + 行索引 * (
+                按钮边长 + 标签间距 + 标签高度 + 行间距
+            )
+
+            for 列索引, (按钮, 模式名, _小图, _大图) in enumerate(行按钮项):
+                目标矩形 = pygame.Rect(
+                    起始x + 列索引 * (按钮边长 + 间距x),
+                    按钮y,
+                    按钮边长,
+                    按钮边长,
+                )
+                按钮.设置矩形(目标矩形)
+
+                self._按钮目标矩形[模式名] = 目标矩形
+                self._按钮标签中心点[模式名] = (
+                    目标矩形.centerx,
+                    目标矩形.bottom + 标签间距 + 标签高度 // 2,
+                )
+
+                if 重置入场:
+                    self._按钮当前偏移y[模式名] = float(
+                        高 - 按钮y + 按钮边长 + 80
+                    )
+                else:
+                    self._按钮当前偏移y[模式名] = float(
+                        self._按钮当前偏移y.get(模式名, 0.0)
+                    )
+
+                if 重置水平偏移:
+                    self._按钮当前偏移x[模式名] = 0.0
+                else:
+                    self._按钮当前偏移x[模式名] = float(
+                        self._按钮当前偏移x.get(模式名, 0.0)
+                    )
+
+    def 重算布局(self):
+        self._确保top栏缓存()
 
         self.子模式按钮列表.clear()
         self._按钮目标矩形.clear()
         self._按钮当前偏移y.clear()
         self._按钮当前偏移x.clear()
+        self._按钮标签中心点.clear()
         self._按钮缩放缓存.clear()
 
         模式列表 = self._取模式配置列表()
-        if not 模式列表:
-            return
-
-        数量 = len(模式列表)
-        if 数量 == 1:
-            按钮边长 = int(min(宽, 高) * 0.28)
-            按钮边长 = max(150, min(360, 按钮边长))
+        if self._当前是否DIY模式():
+            self._总页数 = 1
         else:
-            按钮边长 = int(min(宽, 高) * 0.22)
-            按钮边长 = max(120, min(280, 按钮边长))
+            self._总页数 = (
+                max(1, math.ceil(len(模式列表) / max(1, self._每页容量())))
+                if 模式列表
+                else 1
+            )
 
-        间距x = int(宽 * 0.025)
-        间距x = max(6, min(36, 间距x))
-
-        总宽 = 数量 * 按钮边长 + (数量 - 1) * 间距x
-        起始x = (宽 - 总宽) // 2
-
-        顶栏占用 = 150
-        目标y = (高 // 2) - (按钮边长 // 2) + int(顶栏占用 * 0.20)
-        目标y = max(int(顶栏占用 * 0.90), min(目标y, 高 - 按钮边长 - 24))
-
-        for 索引, (模式名, 小按钮图路径, 大图路径) in enumerate(模式列表):
+        for 模式名, 小按钮图路径, 大图路径 in 模式列表:
             按钮 = 图片按钮(模式名, 小按钮图路径)
             按钮.重新加载图片()
 
-            目标矩形 = pygame.Rect(
-                起始x + 索引 * (按钮边长 + 间距x),
-                目标y,
-                按钮边长,
-                按钮边长,
-            )
-            按钮.设置矩形(目标矩形)
-
             self.子模式按钮列表.append((按钮, 模式名, 小按钮图路径, 大图路径))
-            self._按钮目标矩形[模式名] = 目标矩形
-            self._按钮当前偏移y[模式名] = float(高 - 目标y + 按钮边长 + 80)
+            self._按钮目标矩形[模式名] = pygame.Rect(-20000, -20000, 1, 1)
+            self._按钮当前偏移y[模式名] = 0.0
             self._按钮当前偏移x[模式名] = 0.0
 
-        self._top缓存尺寸 = (0, 0)
-        self._确保top栏缓存()
+        if self._当前选中模式名:
+            选中页码 = self._取模式所在页(self._当前选中模式名)
+            if 选中页码 is not None:
+                self._当前页码 = int(选中页码)
+
+        self._当前页码 = max(0, min(self._当前页码, self._总页数 - 1))
+
+        if not self.子模式按钮列表:
+            self._当前按钮边长 = 0
+            return
+
+        self._更新当前页布局(重置入场=True, 重置水平偏移=True)
+
+    def _切换到页(
+        self,
+        目标页码: int,
+        *,
+        保留当前选中: bool = False,
+        播放音效: bool = False,
+    ) -> bool:
+        if self._当前是否DIY模式():
+            return False
+        if self._总页数 <= 1:
+            return False
+
+        新页码 = max(0, min(int(目标页码), self._总页数 - 1))
+        if 新页码 == self._当前页码:
+            return False
+
+        self._当前页码 = int(新页码)
+        if (not 保留当前选中) and (
+            self._取模式所在页(self._当前选中模式名) != self._当前页码
+        ):
+            self._清空当前选中()
+
+        self._更新当前页布局(重置入场=False, 重置水平偏移=True)
+
+        if 播放音效:
+            self._按钮音效.播放()
+        return True
 
     def _应用模式选中(self, 模式名: str):
+        if self._当前是否DIY模式():
+            self._确保DIY模式可见(模式名)
         self._当前选中模式名 = 模式名
         self._选中开始毫秒 = pygame.time.get_ticks()
         self._隐藏按钮模式名 = 模式名
@@ -334,9 +719,14 @@ class 场景_子模式(场景基类):
             self._取当前选中索引(),
             len(self.子模式按钮列表),
             int(步进),
-            初始索引=0,
+            初始索引=self._取当前页起始索引(),
         )
         _按钮, 模式名, _小图, _大图 = self.子模式按钮列表[int(新索引)]
+
+        目标页码 = self._取模式所在页(模式名)
+        if (not self._当前是否DIY模式()) and 目标页码 is not None and 目标页码 != self._当前页码:
+            self._切换到页(目标页码, 保留当前选中=False, 播放音效=False)
+
         if self._当前选中模式名 == 模式名:
             return None
 
@@ -414,8 +804,9 @@ class 场景_子模式(场景基类):
         当前毫秒 = pygame.time.get_ticks()
         入场时长 = int(self._入场时长毫秒)
         每个延迟 = int(self._入场每个延迟毫秒)
+        当前页按钮项 = self._取当前页按钮项()
 
-        for 索引, (_按钮, 模式名, _小图, _大图) in enumerate(self.子模式按钮列表):
+        for 索引, (_按钮, 模式名, _小图, _大图) in enumerate(当前页按钮项):
             起始毫秒 = self._进入开始毫秒 + 索引 * 每个延迟
             进度 = (当前毫秒 - 起始毫秒) / max(1, 入场时长)
 
@@ -431,12 +822,17 @@ class 场景_子模式(场景基类):
         if 当前毫秒 - self._进入开始毫秒 > 入场时长 and (self._当前选中模式名 is None):
             波浪幅度 = 6.0
             波浪周期 = 1100.0
-            for 索引, (_按钮, 模式名, _小图, _大图) in enumerate(self.子模式按钮列表):
+            for 索引, (_按钮, 模式名, _小图, _大图) in enumerate(当前页按钮项):
                 相位 = 索引 * 0.55
                 偏移y = math.sin((当前毫秒 / 波浪周期) * 2 * math.pi + 相位) * 波浪幅度
                 self._按钮当前偏移y[模式名] = 偏移y
 
         if self._当前选中模式名:
+            if self._当前是否DIY模式():
+                for _按钮, 模式名, _小图, _大图 in 当前页按钮项:
+                    self._按钮当前偏移x[模式名] = 0.0
+                return
+
             from core.工具 import 计算推开偏移字典
 
             推开时长 = int(self._推开时长毫秒)
@@ -445,14 +841,14 @@ class 场景_子模式(场景基类):
             缓动值 = self._缓出(进度)
 
             选中索引 = 0
-            for 索引, (_按钮, 模式名, _小图, _大图) in enumerate(self.子模式按钮列表):
+            for 索引, (_按钮, 模式名, _小图, _大图) in enumerate(当前页按钮项):
                 if 模式名 == self._当前选中模式名:
                     选中索引 = 索引
                     break
 
             目标矩形列表: list[pygame.Rect] = []
             模式名列表: list[str] = []
-            for _按钮, 模式名, _小图, _大图 in self.子模式按钮列表:
+            for _按钮, 模式名, _小图, _大图 in 当前页按钮项:
                 目标矩形列表.append(self._按钮目标矩形[模式名])
                 模式名列表.append(模式名)
 
@@ -474,13 +870,14 @@ class 场景_子模式(场景基类):
 
     def _画子模式按钮(self):
         屏幕 = self.上下文["屏幕"]
+        DIY滚动偏移x = -float(self._DIY滚动偏移x) if self._当前是否DIY模式() else 0.0
 
-        for 按钮, 模式名, _小图, _大图 in self.子模式按钮列表:
+        for 按钮, 模式名, _小图, _大图 in self._取当前页按钮项():
             if self._隐藏按钮模式名 and 模式名 == self._隐藏按钮模式名:
                 continue
 
             目标矩形 = self._按钮目标矩形[模式名]
-            偏移x = self._按钮当前偏移x.get(模式名, 0.0)
+            偏移x = self._按钮当前偏移x.get(模式名, 0.0) + DIY滚动偏移x
             偏移y = self._按钮当前偏移y.get(模式名, 0.0)
 
             当前矩形 = pygame.Rect(
@@ -507,12 +904,53 @@ class 场景_子模式(场景基类):
 
             屏幕.blit(缓存图, 当前矩形.topleft)
 
+    def _画DIY标签(self):
+        if not self._当前是否DIY模式():
+            return
+
+        屏幕 = self.上下文["屏幕"]
+        字体 = self._取DIY标签字体()
+        DIY滚动偏移x = -float(self._DIY滚动偏移x)
+
+        for _按钮, 模式名, _小图, _大图 in self._取当前页按钮项():
+            标签中心点 = self._按钮标签中心点.get(模式名)
+            if 标签中心点 is None:
+                continue
+
+            偏移x = self._按钮当前偏移x.get(模式名, 0.0) + DIY滚动偏移x
+            偏移y = self._按钮当前偏移y.get(模式名, 0.0)
+            文本位置 = (
+                int(标签中心点[0] + 偏移x),
+                int(标签中心点[1] + 偏移y),
+            )
+            标签文本 = self._截断DIY标签(模式名, 最大字符数=7)
+            文字颜色 = (
+                (251, 200, 106)
+                if 模式名 == self._当前选中模式名
+                else (255, 255, 255)
+            )
+
+            绘制文本(
+                屏幕,
+                标签文本,
+                字体,
+                (0, 0, 0),
+                (文本位置[0] + 2, 文本位置[1] + 3),
+                "center",
+            )
+            绘制文本(屏幕, 标签文本, 字体, 文字颜色, 文本位置, "center")
+
     def _取选中模式大图路径(self) -> tuple[str | None, int | None, pygame.Rect | None]:
         if not self._当前选中模式名:
             return None, None, None
 
-        目标矩形 = self._按钮目标矩形[self._当前选中模式名]
+        目标矩形 = self._按钮目标矩形.get(self._当前选中模式名)
+        if not isinstance(目标矩形, pygame.Rect):
+            return None, None, None
+
         偏移x = self._按钮当前偏移x.get(self._当前选中模式名, 0.0)
+        if self._当前是否DIY模式():
+            偏移x += -float(self._DIY滚动偏移x)
         偏移y = self._按钮当前偏移y.get(self._当前选中模式名, 0.0)
         当前矩形 = pygame.Rect(
             int(目标矩形.x + 偏移x),
@@ -521,7 +959,7 @@ class 场景_子模式(场景基类):
             目标矩形.h,
         )
 
-        for _按钮, 模式名, _小图, 大图路径 in self.子模式按钮列表:
+        for _按钮, 模式名, _小图, 大图路径 in self._取当前页按钮项():
             if 模式名 == self._当前选中模式名:
                 return 大图路径, self._按钮目标矩形[模式名].w, 当前矩形
 
@@ -585,6 +1023,57 @@ class 场景_子模式(场景基类):
         self._大图标矩形 = pygame.Rect(绘制x, 绘制y, 目标宽, 目标高)
         屏幕.blit(绘制图, (绘制x, 绘制y))
 
+    def _画DIY翻页提示(self):
+        if not self._当前是否DIY模式():
+            return
+
+        屏幕 = self.上下文["屏幕"]
+        宽, 高 = 屏幕.get_size()
+        字体 = 获取字体(max(16, min(24, int(self._当前按钮边长 * 0.10))))
+        if self._DIY可滚动():
+            提示文本 = "滚轮左右平移曲包列表"
+        else:
+            提示文本 = "点击曲包进入选歌"
+        提示位置 = (宽 // 2, 高 - max(72, int(86 * min(宽 / self._设计宽, 高 / self._设计高))))
+
+        绘制文本(
+            屏幕,
+            提示文本,
+            字体,
+            (0, 0, 0),
+            (提示位置[0] + 2, 提示位置[1] + 3),
+            "center",
+        )
+        绘制文本(屏幕, 提示文本, 字体, (255, 255, 255), 提示位置, "center")
+
+    def _画空状态提示(self):
+        if self.子模式按钮列表 or (not self._空状态提示):
+            return
+
+        屏幕 = self.上下文["屏幕"]
+        宽, 高 = 屏幕.get_size()
+        字体 = self.上下文["字体"]["小字"]
+        标题 = "DIY 曲包列表为空" if self._当前是否DIY模式() else "暂无可选模式"
+        标题位置 = (宽 // 2, int(高 * 0.46))
+        说明位置 = (宽 // 2, int(高 * 0.52))
+
+        绘制文本(
+            屏幕,
+            标题,
+            字体,
+            (255, 255, 255),
+            标题位置,
+            "center",
+        )
+        绘制文本(
+            屏幕,
+            self._空状态提示,
+            字体,
+            (251, 200, 106),
+            说明位置,
+            "center",
+        )
+
     def 绘制(self):
         self._更新动画()
         self._画背景()
@@ -593,6 +1082,9 @@ class 场景_子模式(场景基类):
         if self._当前选中模式名:
             self._绘制大图标()
 
+        self._画DIY标签()
+        self._画DIY翻页提示()
+        self._画空状态提示()
         self._画底部联网与credit()
         self._画顶栏()
 
@@ -616,6 +1108,53 @@ class 场景_子模式(场景基类):
         if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_ESCAPE:
             return 场景切换请求("大模式", 动作="REPLACE")
 
+        if self._DIY可滚动():
+            if 事件.type == pygame.MOUSEWHEEL:
+                横向步数 = int(getattr(事件, "x", 0) or 0)
+                if 横向步数 != 0:
+                    if self._滚动DIY列表(
+                        -float(横向步数) * self._取DIY滚轮步长(),
+                        播放音效=True,
+                    ):
+                        return None
+                纵向步数 = int(getattr(事件, "y", 0) or 0)
+                if 纵向步数 != 0:
+                    if self._滚动DIY列表(
+                        -float(纵向步数) * self._取DIY滚轮步长(),
+                        播放音效=True,
+                    ):
+                        return None
+            if 事件.type == pygame.MOUSEBUTTONDOWN:
+                if int(getattr(事件, "button", 0) or 0) == 4:
+                    if self._滚动DIY列表(
+                        -self._取DIY滚轮步长(),
+                        播放音效=True,
+                    ):
+                        return None
+                if int(getattr(事件, "button", 0) or 0) == 5:
+                    if self._滚动DIY列表(
+                        self._取DIY滚轮步长(),
+                        播放音效=True,
+                    ):
+                        return None
+
+        elif self._当前是否DIY模式() and self._总页数 > 1:
+            if 事件.type == pygame.MOUSEWHEEL:
+                if int(getattr(事件, "y", 0) or 0) > 0:
+                    self._切换到页(self._当前页码 - 1, 保留当前选中=False, 播放音效=True)
+                    return None
+                if int(getattr(事件, "y", 0) or 0) < 0:
+                    self._切换到页(self._当前页码 + 1, 保留当前选中=False, 播放音效=True)
+                    return None
+
+            if 事件.type == pygame.MOUSEBUTTONDOWN:
+                if int(getattr(事件, "button", 0) or 0) == 4:
+                    self._切换到页(self._当前页码 - 1, 保留当前选中=False, 播放音效=True)
+                    return None
+                if int(getattr(事件, "button", 0) or 0) == 5:
+                    self._切换到页(self._当前页码 + 1, 保留当前选中=False, 播放音效=True)
+                    return None
+
         if (
             self._当前选中模式名
             and 事件.type == pygame.MOUSEBUTTONUP
@@ -625,7 +1164,7 @@ class 场景_子模式(场景基类):
                 self._按钮音效.播放()
                 return self._触发当前模式确认()
 
-        for 按钮, 模式名, _小图, _大图 in self.子模式按钮列表:
+        for 按钮, 模式名, _小图, _大图 in self._取当前页按钮项():
             if 按钮.处理事件(事件):
                 if 事件.type == pygame.MOUSEBUTTONUP and 事件.button == 1:
                     self._按钮音效.播放()
@@ -651,8 +1190,9 @@ class 场景_子模式(场景基类):
             状态 = {}
             self.上下文["状态"] = 状态
 
+        类型名 = str(状态.get("songs子文件夹", "") or 状态.get("大模式", "") or "")
         状态["子模式"] = 模式名
-        状态["选歌_类型"] = str(状态.get("大模式", "") or "")
+        状态["选歌_类型"] = 类型名
         状态["选歌_模式"] = str(模式名 or "")
         状态["选歌_BGM"] = str(self.子模式对应选歌BGM(模式名) or "")
 

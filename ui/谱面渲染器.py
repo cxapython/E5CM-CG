@@ -8,7 +8,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
-from core.常量与路径 import 取运行根目录
+from core.常量与路径 import 取布局配置路径, 取运行根目录
 import pygame
 
 
@@ -60,6 +60,7 @@ class 渲染输入:
 
     显示手装饰: bool = False
     错误提示: str = ""
+    谱面视觉偏移秒: float = 0.0
 
     轨迹模式: str = "正常"
     隐藏模式: str = "关闭"
@@ -982,7 +983,7 @@ class 谱面渲染器:
         except Exception:
             项目根 = os.path.abspath(os.getcwd())
 
-        布局路径 = os.path.join(项目根, "json", "谱面渲染器_布局.json")
+        布局路径 = 取布局配置路径("谱面渲染器_布局.json", 根目录=项目根)
         try:
             mtime = (
                 float(os.path.getmtime(布局路径)) if os.path.isfile(布局路径) else -1.0
@@ -3847,7 +3848,7 @@ class 谱面渲染器:
             项目根 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         except Exception:
             项目根 = os.getcwd()
-        布局路径 = os.path.join(项目根, "json", "谱面渲染器_布局.json")
+        布局路径 = 取布局配置路径("谱面渲染器_布局.json", 根目录=项目根)
         try:
             self._布局管理器_谱面渲染器 = 谱面渲染器布局管理器(布局路径)
         except Exception:
@@ -5042,6 +5043,8 @@ class 谱面渲染器:
 
         当前秒 = float(输入.当前谱面秒)
         渲染秒 = float(self._取渲染平滑谱面秒(当前秒))
+        视觉偏移秒 = float(getattr(输入, "谱面视觉偏移秒", 0.0) or 0.0)
+        视觉偏移绝对值 = abs(float(视觉偏移秒))
 
         轨迹模式 = str(getattr(输入, "轨迹模式", "正常") or "正常")
         隐藏模式 = str(getattr(输入, "隐藏模式", "关闭") or "关闭")
@@ -5091,7 +5094,7 @@ class 谱面渲染器:
         下边界 = int(y底 + max(40, 箭头宽_tap * 2))
 
         可视秒 = float(max(1, (y底 - y判定))) / float(max(60.0, float(有效速度)))
-        提前秒 = 可视秒 + 1.0
+        提前秒 = 可视秒 + 1.0 + float(视觉偏移绝对值)
 
         try:
             按下数组 = pygame.key.get_pressed()
@@ -5165,19 +5168,27 @@ class 谱面渲染器:
             最大持续秒 = float(事件缓存.get("最大持续秒", 0.0) or 0.0)
         except Exception:
             最大持续秒 = 0.0
-        查找起点秒 = float(当前秒 - 2.5 - max(0.0, 最大持续秒) - 0.05)
+        查找起点秒 = float(
+            当前秒 - 2.5 - max(0.0, 最大持续秒) - float(视觉偏移绝对值) - 0.05
+        )
         起始索引 = int(max(0, bisect.bisect_left(开始秒列表, 查找起点秒)))
 
         for st, ed, 轨道, 类型, st毫秒 in 缓存事件列表[起始索引:]:
-            if st > 当前秒 + 提前秒:
+            显示开始秒 = float(st) + float(视觉偏移秒)
+            显示结束秒 = float(ed) + float(视觉偏移秒)
+
+            if 显示开始秒 > 当前秒 + 提前秒:
                 break
-            if st < 当前秒 - 2.5 and ed < 当前秒 - 2.5:
+            if (
+                显示开始秒 < 当前秒 - 2.5 - float(视觉偏移绝对值)
+                and 显示结束秒 < 当前秒 - 2.5 - float(视觉偏移绝对值)
+            ):
                 continue
 
             x中心 = int(轨道中心列表[轨道])
             当前轨判定y = int(判定线y列表[轨道])
 
-            dy开始 = (st - 渲染秒) * float(有效速度)
+            dy开始 = (显示开始秒 - 渲染秒) * float(有效速度)
             y开始 = float(当前轨判定y) + float(dy开始)
 
             if abs(ed - st) < 1e-6 or 类型 == "tap":
@@ -5222,7 +5233,7 @@ class 谱面渲染器:
                     主振幅 = max(16.0, float(箭头宽_tap) * 0.52)
                     主相位 = (
                         float(渲染秒) * (math.pi * 2.0) * 2.05
-                        + float(st) * 0.55
+                        + float(显示开始秒) * 0.55
                         + float(轨道) * 0.72
                     )
                     次相位 = float(主相位) * 0.52 + float(轨道) * 0.35
@@ -5233,7 +5244,11 @@ class 谱面渲染器:
                     )
                 elif "旋转" in 轨迹模式:
                     旋转角度 = float(
-                        (渲染秒 * 360.0 * 1.25 + float(st) * 140.0 + float(轨道) * 35.0)
+                        (
+                            渲染秒 * 360.0 * 1.25
+                            + float(显示开始秒) * 140.0
+                            + float(轨道) * 35.0
+                        )
                         % 360.0
                     )
 
@@ -5248,7 +5263,7 @@ class 谱面渲染器:
                 )
                 continue
 
-            dy结束 = (ed - 渲染秒) * float(有效速度)
+            dy结束 = (显示结束秒 - 渲染秒) * float(有效速度)
             y结束 = float(当前轨判定y) + float(dy结束)
 
             seg_top = float(min(y开始, y结束))
@@ -5282,13 +5297,15 @@ class 谱面渲染器:
                             是否命中hold = True
 
             是否绘制头 = True
-            if 是否命中hold and (float(st) <= 当前秒 <= float(ed)):
+            if 是否命中hold and (
+                float(显示开始秒) <= 当前秒 <= float(显示结束秒)
+            ):
                 活跃hold轨道.add(int(轨道))
                 是否按下 = _轨道是否按下(int(轨道))
                 self._hold当前按下中[int(轨道)] = bool(是否按下)
                 self._hold松手系统秒[int(轨道)] = None
 
-            if bool(是否命中hold) and float(当前秒) >= float(ed):
+            if bool(是否命中hold) and float(当前秒) >= float(显示结束秒):
                 continue
 
             if 全隐模式:
@@ -5308,7 +5325,7 @@ class 谱面渲染器:
                 y开始,
                 y结束,
                 当前谱面秒=float(当前秒),
-                结束谱面秒=float(ed),
+                结束谱面秒=float(显示结束秒),
                 箭头宽=int(箭头宽_hold),
                 判定线y=int(当前轨判定y),
                 是否命中hold=bool(是否命中hold),

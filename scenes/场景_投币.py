@@ -1,4 +1,3 @@
-import json
 import math
 import os
 import time
@@ -6,6 +5,10 @@ import pygame
 
 from core.常量与路径 import 取项目根目录 as _公共取项目根目录
 from core.对局状态 import 初始化对局流程, 消耗信用, 取每局所需信用
+from core.sqlite_store import (
+    SCOPE_GLOBAL_SETTINGS as _全局设置存储作用域,
+    write_scope_patch as _更新存储作用域,
+)
 from core.踏板控制 import 踏板动作_左, 踏板动作_右, 踏板动作_确认
 from ui.按钮特效 import 公用按钮点击特效, 公用按钮音效
 
@@ -141,7 +144,6 @@ class 场景_投币:
         self._待切换结果 = None
 
         根目录 = _公共取项目根目录(资源)
-        self._全局设置路径 = os.path.join(根目录, "json", "全局设置.json")
         self._排行榜BGM路径 = os.path.join(根目录, "冷资源", "backsound", "排行榜.mp3")
         满额音效路径 = os.path.join(根目录, "冷资源", "backsound", "elogo.wav")
         if os.path.isfile(满额音效路径):
@@ -302,9 +304,7 @@ class 场景_投币:
             "投币数": int(当前信用),
         }
         try:
-            os.makedirs(os.path.dirname(self._全局设置路径), exist_ok=True)
-            with open(self._全局设置路径, "w", encoding="utf-8") as 文件:
-                json.dump(数据, 文件, ensure_ascii=False, indent=2)
+            _更新存储作用域(_全局设置存储作用域, 数据)
         except Exception:
             pass
 

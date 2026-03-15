@@ -20,6 +20,11 @@ from core.工具 import 获取字体
 from core.音频 import 音乐管理
 from core.视频 import 全局视频循环播放器, 选择第一个视频
 from core.软件版本 import 规范版本比较值, 规范版本号, 读取当前版本号
+from core.sqlite_store import (
+    SCOPE_GLOBAL_SETTINGS as _全局设置存储作用域,
+    read_scope as _读取存储作用域,
+    replace_scope as _替换存储作用域,
+)
 from scenes.场景_投币 import 场景_投币
 from scenes.场景_登陆磁卡 import 场景_登陆磁卡
 from scenes.场景_个人资料 import 场景_个人资料
@@ -42,7 +47,7 @@ def _songs目录含有曲包(songs根目录: str) -> bool:
     if not 路径 or (not os.path.isdir(路径)):
         return False
 
-    目标扩展名 = {".sm", ".ssc", ".dwi", ".json"}
+    目标扩展名 = {".sm", ".sma", ".ssc", ".dwi", ".json"}
     try:
         for 根目录, _子目录, 文件列表 in os.walk(路径):
             for 文件名 in 文件列表:
@@ -1208,15 +1213,8 @@ def 主函数():
             "开发默认选歌类型": "竞速",
             "开发默认选歌模式": "混音",
         }
-        设置路径 = os.path.join(_取运行根目录(), "json", "全局设置.json")
-        数据 = {}
-        try:
-            if os.path.isfile(设置路径):
-                with open(设置路径, "r", encoding="utf-8") as 文件:
-                    对象 = json.load(文件)
-                if isinstance(对象, dict):
-                    数据 = dict(对象)
-        except Exception:
+        数据 = _读取存储作用域(_全局设置存储作用域)
+        if not isinstance(数据, dict):
             数据 = {}
 
         结果 = dict(默认设置)
@@ -1489,9 +1487,6 @@ def 主函数():
 
     投币快捷键 = int(pygame.K_f)
     投币快捷键显示 = "F"
-    全局设置路径 = os.path.join(运行根目录, "json", "全局设置.json")
-
-
     def _格式化按键名(键值: int) -> str:
         try:
             名 = str(pygame.key.name(int(键值)) or "").strip()
@@ -1503,23 +1498,12 @@ def 主函数():
 
     def _保存全局设置():
         try:
-            os.makedirs(os.path.dirname(全局设置路径), exist_ok=True)
-        except Exception:
-            pass
-
-        try:
             当前投币数 = max(0, int(状态.get("投币数", 0) or 0))
         except Exception:
             当前投币数 = 0
 
-        旧数据 = {}
-        try:
-            if os.path.isfile(全局设置路径):
-                with open(全局设置路径, "r", encoding="utf-8") as 文件:
-                    已有对象 = json.load(文件)
-                if isinstance(已有对象, dict):
-                    旧数据 = 已有对象
-        except Exception:
+        旧数据 = _读取存储作用域(_全局设置存储作用域)
+        if not isinstance(旧数据, dict):
             旧数据 = {}
 
         新数据 = dict(旧数据)
@@ -1560,8 +1544,7 @@ def 主函数():
         新数据.pop("credit", None)
 
         try:
-            with open(全局设置路径, "w", encoding="utf-8") as 文件:
-                json.dump(新数据, 文件, ensure_ascii=False, indent=2)
+            _替换存储作用域(_全局设置存储作用域, 新数据)
         except Exception:
             pass
 
@@ -1569,14 +1552,8 @@ def 主函数():
     def _加载全局设置():
         nonlocal 投币快捷键, 投币快捷键显示
 
-        数据 = {}
-        try:
-            if os.path.isfile(全局设置路径):
-                with open(全局设置路径, "r", encoding="utf-8") as 文件:
-                    对象 = json.load(文件)
-                if isinstance(对象, dict):
-                    数据 = 对象
-        except Exception:
+        数据 = _读取存储作用域(_全局设置存储作用域)
+        if not isinstance(数据, dict):
             数据 = {}
 
         try:

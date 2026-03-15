@@ -6,7 +6,11 @@ from typing import Dict, List, Optional, Tuple
 
 import pygame
 
-from core.常量与路径 import 取运行根目录 as _公共取运行根目录
+from core.常量与路径 import (
+    取布局配置路径 as _公共取布局配置路径,
+    取个人资料路径 as _公共取个人资料路径,
+    取运行根目录 as _公共取运行根目录,
+)
 from core.等级经验 import (
     经验数据版本,
     取升下一级所需经验,
@@ -355,7 +359,7 @@ class 场景_结算(场景基类):
 
     def _布局文件路径(self) -> str:
         根目录 = _取资源根目录(self.上下文)
-        return os.path.join(根目录, "json", "结算场景布局.json")
+        return _公共取布局配置路径("结算场景布局.json", 根目录=根目录)
 
     def _刷新布局存储(self) -> SettlementLayoutStore:
         布局路径 = self._布局文件路径()
@@ -1528,7 +1532,7 @@ class 场景_结算(场景基类):
             pass
 
     def _个人资料路径(self) -> str:
-        候选路径列表 = [os.path.join(_公共取运行根目录(), "json", "个人资料.json")]
+        候选路径列表 = [_公共取个人资料路径(_公共取运行根目录())]
 
         for 候选路径 in 候选路径列表:
             try:

@@ -9,6 +9,7 @@ from core.game_esc_menu_settings import (
     PROFILE_DOUBLE,
     PROFILE_LABELS,
     PROFILE_SINGLE,
+    format_chart_visual_offset_ms,
     iter_profile_slots,
     keycode_to_display_name,
 )
@@ -161,12 +162,29 @@ class EscMenuController:
 
     def _chart_rows(self) -> List[MenuRow]:
         host = self._host
+        visual_offset_text = format_chart_visual_offset_ms(
+            getattr(host, "_谱面视觉偏移毫秒", 0)
+        )
+        formatter = getattr(host, "_取谱面偏移菜单文本", None)
+        if callable(formatter):
+            try:
+                visual_offset_text = str(formatter())
+            except Exception:
+                visual_offset_text = format_chart_visual_offset_ms(
+                    getattr(host, "_谱面视觉偏移毫秒", 0)
+                )
         return [
             MenuRow(
                 "scroll_speed",
                 "调速",
                 f"X{float(getattr(host, '_卷轴速度倍率', 4.0) or 4.0):.1f}",
                 "调整谱面滚动速度",
+            ),
+            MenuRow(
+                "chart_visual_offset",
+                "谱面偏移",
+                str(visual_offset_text),
+                "按 10ms 调整视觉偏移，不影响判定",
             ),
             MenuRow("hidden", "隐藏", str(getattr(host, "_隐藏模式", "关闭") or "关闭"), "切换隐藏方式"),
             MenuRow("track", "轨迹", str(getattr(host, "_轨迹模式", "正常") or "正常"), "切换轨迹动画"),
@@ -183,7 +201,6 @@ class EscMenuController:
 
     def _background_rows(self) -> List[MenuRow]:
         host = self._host
-        video_options = list(getattr(host, "_菜单视频背景选项", []) or [])
         return [
             MenuRow(
                 "background_mode",
@@ -192,29 +209,7 @@ class EscMenuController:
                 "切换图片 / 视频 / 动态背景",
                 preview_kind="current",
             ),
-            MenuRow(
-                "dynamic_background",
-                "动态背景",
-                str(getattr(host, "_动态背景模式", "关闭") or "关闭"),
-                "切换动态背景样式",
-                preview_kind="dynamic",
-            ),
-            MenuRow(
-                "image_background",
-                "图片背景",
-                self._resolve_background_label(),
-                "切换图片 / GIF 背景",
-                preview_kind="image",
-            ),
-            MenuRow(
-                "video_background",
-                "视频背景",
-                self._resolve_video_label(),
-                "扫描 backmovies\\游戏中 后切换单个 mp4 并循环预览",
-                (126, 176, 225),
-                bool(video_options),
-                "video",
-            ),
+            self._current_background_detail_row(),
             MenuRow(
                 "brightness",
                 "背景亮度切换",
@@ -223,6 +218,45 @@ class EscMenuController:
                 preview_kind="current",
             ),
         ]
+
+    def _current_background_detail_row(self) -> MenuRow:
+        host = self._host
+        mode = self._resolve_preview_kind("current")
+        if mode == "dynamic":
+            options = list(getattr(host, "_菜单动态背景选项", []) or [])
+            return MenuRow(
+                "background_detail",
+                "动态背景",
+                str(getattr(host, "_动态背景模式", "关闭") or "关闭"),
+                "切换动态背景样式",
+                (0, 239, 251),
+                bool(options),
+                "dynamic",
+                {"adjust_row_id": "dynamic_background"},
+            )
+        if mode == "video":
+            options = list(getattr(host, "_菜单视频背景选项", []) or [])
+            return MenuRow(
+                "background_detail",
+                "视频背景",
+                self._resolve_video_label(),
+                "扫描 backmovies\\游戏中 后切换单个 mp4 并循环预览",
+                (126, 176, 225),
+                bool(options),
+                "video",
+                {"adjust_row_id": "video_background"},
+            )
+        options = list(getattr(host, "_菜单背景选项", []) or [])
+        return MenuRow(
+            "background_detail",
+            "图片背景",
+            self._resolve_background_label(),
+            "切换图片 / GIF 背景",
+            (0, 239, 251),
+            bool(options),
+            "image",
+            {"adjust_row_id": "image_background"},
+        )
 
     def _game_rows(self) -> List[MenuRow]:
         host = self._host
@@ -512,10 +546,18 @@ class EscMenuController:
         row = next((item for item in self._rows_for_tab() if item.row_id == row_id), None)
         if row is None or not bool(row.adjustable):
             return
+        target_row_id = str(
+            (
+                dict(row.meta).get("adjust_row_id", row_id)
+                if isinstance(row.meta, dict)
+                else row_id
+            )
+            or row_id
+        )
         adjust = getattr(self._host, "_esc_menu_adjust", None)
         if callable(adjust):
             try:
-                adjust(str(row_id), int(step))
+                adjust(str(target_row_id), int(step))
             except Exception:
                 pass
 
@@ -769,22 +811,6 @@ class EscMenuController:
             screen.blit(self._font(18, True).render(tab.title, True, (235, 244, 255)), (tab_rect.x + 18, tab_rect.y + 14))
             screen.blit(self._font(15, False).render(tab.subtitle, True, subtitle_color), (tab_rect.x + 18, tab_rect.y + 40))
 
-        guide_y = rect.bottom - 124
-        screen.blit(self._font(18, False).render("INPUT", True, (114, 176, 222)), (inner.x, guide_y))
-        for index, line in enumerate(
-            [
-                "TAB / Q / E  切换主选项卡",
-                "W / S 选择设置项",
-                "A / D 调整当前设置",
-                "ENTER 确认或修改键位",
-                "ESC 返回游戏",
-            ]
-        ):
-            screen.blit(
-                self._font(15, False).render(line, True, (170, 189, 220)),
-                (inner.x, guide_y + 28 + index * 19),
-            )
-
     def _draw_content(self, screen: pygame.Surface, rect: pygame.Rect, mouse_pos: Tuple[int, int]):
         current_tab = self._current_tab()
         if current_tab is None:
@@ -861,6 +887,7 @@ class EscMenuController:
         status_lines = [
             f"极简性能模式：{'开启' if bool(getattr(self._host, '_性能模式', False)) else '关闭'}",
             f"自动播放：{'开启' if bool(getattr(self._host, '_是否自动模式', False)) else '关闭'}",
+            f"谱面偏移：{format_chart_visual_offset_ms(getattr(self._host, '_谱面视觉偏移毫秒', 0))}",
             f"当前对局模式：{'双踏板' if bool(getattr(self._host, '_是否双踏板模式', False)) else '单踏板'}",
             "所有修改都会立即落到运行逻辑，并持久化到 ESC 菜单配置存储。",
         ]
@@ -1087,19 +1114,33 @@ class EscMenuController:
         canvas_rect = pygame.Rect(inner.x, inner.y + 88, inner.w, max(120, inner.bottom - (inner.y + 88)))
         self._draw_panel(screen, canvas_rect, (4, 7, 14), (54, 84, 126), 16, 2)
         draw_rect = canvas_rect.inflate(-14, -14)
+        resolved_kind = self._resolve_preview_kind(preview_kind) if preview_kind else ""
+        preview_rect = self._resolve_preview_rect(draw_rect, resolved_kind)
         preview_drawn = False
         if preview_kind:
-            preview_drawn = self._call_preview(screen, draw_rect, preview_kind)
-            if preview_drawn and self._resolve_preview_kind(preview_kind) in ("dynamic", "image", "video"):
-                self._apply_background_overlay(screen, draw_rect)
+            preview_drawn = self._call_preview(screen, preview_rect, preview_kind)
+            if preview_drawn and resolved_kind in ("dynamic", "image", "video"):
+                self._apply_background_overlay(screen, preview_rect)
 
         if not preview_drawn:
             message = "当前设置没有可用预览。"
-            if preview_kind == "video":
+            if resolved_kind == "video":
                 message = "未检测到可预览的视频背景。"
-            elif preview_kind == "arrow":
+            elif resolved_kind == "arrow":
                 message = "未检测到可用的箭头皮肤资源。"
-            self._draw_text_block(screen, message, draw_rect, self._font(20, False), (145, 165, 196), 6)
+            self._draw_text_block(screen, message, preview_rect, self._font(20, False), (145, 165, 196), 6)
+
+    def _resolve_preview_rect(self, rect: pygame.Rect, preview_kind: str) -> pygame.Rect:
+        if preview_kind not in ("dynamic", "image", "video"):
+            return rect
+        width = int(max(1, rect.w))
+        height = int(max(1, round(float(width) * 3.0 / 4.0)))
+        if height > rect.h:
+            height = int(max(1, rect.h))
+            width = int(max(1, round(float(height) * 4.0 / 3.0)))
+        preview_rect = pygame.Rect(0, 0, width, height)
+        preview_rect.center = rect.center
+        return preview_rect
 
     def _call_preview(self, screen: pygame.Surface, rect: pygame.Rect, preview_kind: str) -> bool:
         method_name = {
