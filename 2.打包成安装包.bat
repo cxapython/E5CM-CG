@@ -5,13 +5,38 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 set "ISS_FILE=%~1"
-if not defined ISS_FILE set "ISS_FILE=打包成安装器.iss"
+if not defined ISS_FILE (
+    for /f "delims=" %%i in ('dir /b /a-d "*.iss" 2^>nul') do (
+        if not defined ISS_FILE set "ISS_FILE=%%i"
+    )
+)
+
+if not defined ISS_FILE (
+    echo [ERROR] No .iss file found in:
+    echo "%cd%"
+    echo.
+    echo [TIP] Put this batch file next to the .iss file, or pass the .iss path as the first argument.
+    pause
+    exit /b 1
+)
 
 if not exist "%ISS_FILE%" (
-    echo [错误] 找不到 .iss 文件：
+    echo [ERROR] .iss file not found:
     echo "%ISS_FILE%"
     echo.
-    echo [提示] 把 build_installer.bat 放到 .iss 同目录，或者把 .iss 路径作为第一个参数传进来。
+    echo [TIP] Put this batch file next to the .iss file, or pass the .iss path as the first argument.
+    pause
+    exit /b 1
+)
+
+set "APP_VERSION="
+for /f "usebackq delims=" %%i in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $projectRoot = Get-Location; $candidate = Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Filter *.json | Where-Object { $_.FullName -match '[\\/]config[\\/]app[\\/]' } | Sort-Object @{Expression={($_.FullName -split '[\\/]').Count}; Descending=$true}, FullName | Select-Object -First 1; if (-not $candidate) { throw 'No config/app version JSON file found'; }; $version = (Get-Content -Raw -Encoding UTF8 -LiteralPath $candidate.FullName | ConvertFrom-Json).version; if ([string]::IsNullOrWhiteSpace($version)) { throw ('version field is empty: ' + $candidate.FullName); }; [Console]::WriteLine(([string]$version).Trim())"`) do (
+    set "APP_VERSION=%%i"
+)
+
+if not defined APP_VERSION (
+    echo [ERROR] Failed to read AppVersion from config/app JSON.
+    echo [TIP] Check that the version JSON exists and its version field is not empty.
     pause
     exit /b 1
 )
@@ -27,7 +52,7 @@ if defined INNO_SETUP_COMPILER (
 if not defined ISCC_PATH (
     for /f "delims=" %%i in ('where ISCC.exe 2^>nul') do (
         set "ISCC_PATH=%%i"
-        goto :编译器已找到
+        goto :compiler_found
     )
 )
 
@@ -55,41 +80,45 @@ if not defined ISCC_PATH (
     )
 )
 
-:编译器已找到
+:compiler_found
 if not defined ISCC_PATH (
-    echo [错误] 没找到 Inno Setup Compiler 的 ISCC.exe
+    echo [ERROR] ISCC.exe was not found.
     echo.
-    echo 你可以用下面任意一种方式修复：
-    echo 1. 安装 Inno Setup
-    echo 2. 把 ISCC.exe 所在目录加到 PATH
-    echo 3. 手动设置环境变量 INNO_SETUP_COMPILER
+    echo You can fix this by doing one of the following:
+    echo 1. Install Inno Setup
+    echo 2. Add the ISCC.exe directory to PATH
+    echo 3. Set the INNO_SETUP_COMPILER environment variable manually
     echo.
-    echo 例如：
+    echo Example:
     echo set "INNO_SETUP_COMPILER=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
     echo.
     pause
     exit /b 1
 )
 
-echo [信息] 使用编译器：
+echo [INFO] Compiler:
 echo "%ISCC_PATH%"
 echo.
-echo [信息] 使用脚本：
+echo [INFO] Script:
 echo "%ISS_FILE%"
 echo.
-echo [开始] 正在调用 Inno Setup Compiler...
+echo [INFO] AppVersion:
+echo "%APP_VERSION%"
+echo.
+echo [START] Running Inno Setup Compiler...
 echo.
 
-"%ISCC_PATH%" "%ISS_FILE%"
+"%ISCC_PATH%" "/DAppVersion=%APP_VERSION%" "%ISS_FILE%"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.
 if not "%EXIT_CODE%"=="0" (
-    echo [失败] 安装器打包失败，退出码：%EXIT_CODE%
+    echo [FAIL] Installer build failed. Exit code: %EXIT_CODE%
     pause
     exit /b %EXIT_CODE%
 )
 
-echo [完成] 安装器打包成功
+echo [DONE] Installer build succeeded.
 pause
 exit /b 0
+

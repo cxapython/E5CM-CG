@@ -130,6 +130,7 @@ class 谱面GPU管线渲染器:
         计数动画图层: Optional[pygame.Surface] = None
         计数动画矩形: Optional[pygame.Rect] = None
         Stage数据: Dict[str, Any] = {}
+        HUD数据: Dict[str, Any] = {}
         游戏区参数: Dict[str, float] = {}
         布局锚点: Optional[Dict[str, Any]] = None
         if 屏幕 is not None and 软件渲染器 is not None:
@@ -182,6 +183,12 @@ class 谱面GPU管线渲染器:
                     Stage数据 = dict(取Stage数据(屏幕, 输入) or {})
                 except Exception:
                     Stage数据 = {}
+            取HUD数据 = getattr(软件渲染器, "取GPU顶部HUD数据", None)
+            if callable(取HUD数据):
+                try:
+                    HUD数据 = dict(取HUD数据(屏幕, 输入) or {})
+                except Exception:
+                    HUD数据 = {}
 
         游戏缩放 = float(游戏区参数.get("缩放", 1.0) or 1.0)
         y偏移 = float(游戏区参数.get("y偏移", 0.0) or 0.0)
@@ -229,6 +236,14 @@ class 谱面GPU管线渲染器:
         return {
             "当前谱面秒": _取浮点(getattr(输入, "当前谱面秒", 0.0), 0.0),
             "谱面视觉偏移秒": _取浮点(getattr(输入, "谱面视觉偏移秒", 0.0), 0.0),
+            "BPM变速效果开启": bool(getattr(输入, "BPM变速效果开启", False)),
+            "BPM变速合成脉冲开启": bool(
+                getattr(输入, "BPM变速合成脉冲开启", False)
+            ),
+            "BPM变速秒转beat函数": getattr(输入, "BPM变速秒转beat函数", None),
+            "BPM变速像素每拍": _取浮点(
+                getattr(输入, "BPM变速像素每拍", 0.0), 0.0
+            ),
             "轨道中心列表": 轨道中心列表,
             "判定线y": int(y判定),
             "判定线y列表": 判定线y列表[:5],
@@ -249,6 +264,7 @@ class 谱面GPU管线渲染器:
             "计数动画图层": 计数动画图层,
             "计数动画矩形": 计数动画矩形,
             "Stage数据": Stage数据,
+            "HUD数据": HUD数据,
             "软件渲染器": 软件渲染器,
         }
 
@@ -271,21 +287,33 @@ class 谱面GPU管线渲染器:
 
         开始秒列表: List[float] = []
         前缀最大结束秒: List[float] = []
+        开始beat列表: List[float] = []
+        前缀最大结束beat: List[float] = []
         当前最大结束秒 = -1e12
+        当前最大结束beat = -1e12
         for 事件 in 事件列表:
             开始秒 = _取浮点(getattr(事件, "开始秒", 0.0), 0.0)
             结束秒 = _取浮点(getattr(事件, "结束秒", 开始秒), 开始秒)
+            开始beat = _取浮点(getattr(事件, "开始beat", 0.0), 0.0)
+            结束beat = _取浮点(getattr(事件, "结束beat", 开始beat), 开始beat)
             if 结束秒 < 开始秒:
                 结束秒 = 开始秒
+            if 结束beat < 开始beat:
+                结束beat = 开始beat
             开始秒列表.append(开始秒)
+            开始beat列表.append(开始beat)
             当前最大结束秒 = max(当前最大结束秒, 结束秒)
+            当前最大结束beat = max(当前最大结束beat, 结束beat)
             前缀最大结束秒.append(当前最大结束秒)
+            前缀最大结束beat.append(当前最大结束beat)
 
         新缓存 = {
             "签名": 签名,
             "事件列表": 事件列表,
             "开始秒列表": 开始秒列表,
+            "开始beat列表": 开始beat列表,
             "前缀最大结束秒": 前缀最大结束秒,
+            "前缀最大结束beat": 前缀最大结束beat,
         }
         self._事件缓存表[缓存键] = 新缓存
         if len(self._事件缓存表) > 8:
@@ -303,6 +331,7 @@ class 谱面GPU管线渲染器:
         notes数 = self._绘制音符组(渲染器, 帧输入)
         判定区数 = self._绘制判定区组(渲染器, 帧输入)
         特效数 = self._绘制击中特效组(渲染器, 帧输入)
+        self._绘制HUD组(渲染器, 帧输入)
         计数动画数 = self._绘制计数动画图层(渲染器, 帧输入)
         return int(notes数), int(判定区数), int(特效数), int(计数动画数)
 
@@ -339,24 +368,46 @@ class 谱面GPU管线渲染器:
         频谱 = Stage数据.get("频谱")
         if isinstance(频谱, dict):
             self._绘制GPU频谱数据(渲染器, 频谱.get("绘制数据"))
-        前景图层 = Stage数据.get("前景图层")
-        前景矩形 = Stage数据.get("前景矩形")
-        if isinstance(前景图层, pygame.Surface) and isinstance(前景矩形, pygame.Rect):
-            纹理 = self._建临时纹理(渲染器, 前景图层)
-            if 纹理 is not None:
-                self._绘制纹理矩形(
-                    纹理,
-                    前景图层,
-                    pygame.Rect(
-                        int(前景矩形.x),
-                        int(前景矩形.y),
-                        int(前景矩形.w),
-                        int(前景矩形.h),
-                    ),
-                    None,
-                    alpha=255,
-                    blend_mode=1,
-                )
+    def _绘制HUD组(self, 渲染器, 帧输入: Dict[str, Any]):
+        HUD数据 = 帧输入.get("HUD数据")
+        if not isinstance(HUD数据, dict) or not HUD数据:
+            return
+        图层列表 = list(HUD数据.get("图层列表", []) or [])
+        图层列表.sort(key=lambda 项: int(项.get("z", 0)) if isinstance(项, dict) else 0)
+        for 项 in 图层列表:
+            if not isinstance(项, dict):
+                continue
+            类型 = str(项.get("类型") or "图层").strip()
+            if 类型 == "图片":
+                数据 = 项.get("数据")
+                if isinstance(数据, dict):
+                    self._绘制GPU图片控件(渲染器, 数据)
+                continue
+            if 类型 == "频谱":
+                数据 = 项.get("数据")
+                if isinstance(数据, dict):
+                    self._绘制GPU频谱数据(渲染器, 数据.get("绘制数据"))
+                continue
+            图层 = 项.get("图层")
+            矩形 = 项.get("rect")
+            if not isinstance(图层, pygame.Surface) or not isinstance(矩形, pygame.Rect):
+                continue
+            if 矩形.w <= 0 or 矩形.h <= 0:
+                continue
+            if bool(项.get("缓存纹理", False)):
+                纹理 = self._取纹理(渲染器, 图层)
+            else:
+                纹理 = self._建临时纹理(渲染器, 图层)
+            if 纹理 is None:
+                continue
+            self._绘制纹理矩形(
+                纹理,
+                图层,
+                pygame.Rect(int(矩形.x), int(矩形.y), int(矩形.w), int(矩形.h)),
+                None,
+                alpha=int(max(0, min(255, int(项.get("alpha", 255) or 255)))),
+                blend_mode=int(max(1, min(2, int(项.get("blend_mode", 1) or 1)))),
+            )
 
     def _绘制GPU图片控件(self, 渲染器, 数据: Dict[str, Any]) -> bool:
         图 = 数据.get("图")
@@ -656,8 +707,8 @@ class 谱面GPU管线渲染器:
         self,
         纹理,
         图: pygame.Surface,
-        x中心: int,
-        y中心: int,
+        x中心: float,
+        y中心: float,
         flip_x: bool = False,
         angle: float = 0.0,
         alpha: int = 255,
@@ -669,10 +720,10 @@ class 谱面GPU管线渲染器:
         try:
             纹理.draw(
                 dstrect=(
-                    int(x中心 - 图.get_width() // 2),
-                    int(y中心 - 图.get_height() // 2),
-                    int(图.get_width()),
-                    int(图.get_height()),
+                    float(x中心) - float(图.get_width()) * 0.5,
+                    float(y中心) - float(图.get_height()) * 0.5,
+                    float(图.get_width()),
+                    float(图.get_height()),
                 ),
                 angle=float(angle),
                 origin=(float(图.get_width()) * 0.5, float(图.get_height()) * 0.5),
@@ -680,7 +731,87 @@ class 谱面GPU管线渲染器:
             )
             return True
         except Exception:
+            try:
+                纹理.draw(
+                    dstrect=(
+                        int(round(float(x中心) - float(图.get_width()) * 0.5)),
+                        int(round(float(y中心) - float(图.get_height()) * 0.5)),
+                        int(图.get_width()),
+                        int(图.get_height()),
+                    ),
+                    angle=float(angle),
+                    origin=(float(图.get_width()) * 0.5, float(图.get_height()) * 0.5),
+                    flip_x=bool(flip_x),
+                )
+                return True
+            except Exception:
+                return False
+
+    def _绘制纹理矩形数据(
+        self,
+        纹理,
+        图: pygame.Surface,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        源矩形: Optional[pygame.Rect] = None,
+        flip_x: bool = False,
+        alpha: int = 255,
+        blend_mode: Optional[int] = 1,
+    ) -> bool:
+        if 纹理 is None or 图 is None:
             return False
+        self._设置纹理透明与颜色(纹理, alpha=alpha, blend_mode=blend_mode)
+        try:
+            if isinstance(源矩形, pygame.Rect):
+                纹理.draw(
+                    srcrect=(
+                        int(源矩形.x),
+                        int(源矩形.y),
+                        int(源矩形.w),
+                        int(源矩形.h),
+                    ),
+                    dstrect=(float(x), float(y), float(w), float(h)),
+                    flip_x=bool(flip_x),
+                )
+            else:
+                纹理.draw(
+                    dstrect=(float(x), float(y), float(w), float(h)),
+                    flip_x=bool(flip_x),
+                )
+            return True
+        except Exception:
+            try:
+                if isinstance(源矩形, pygame.Rect):
+                    纹理.draw(
+                        srcrect=(
+                            int(源矩形.x),
+                            int(源矩形.y),
+                            int(源矩形.w),
+                            int(源矩形.h),
+                        ),
+                        dstrect=(
+                            int(round(float(x))),
+                            int(round(float(y))),
+                            int(round(float(w))),
+                            int(round(float(h))),
+                        ),
+                        flip_x=bool(flip_x),
+                    )
+                else:
+                    纹理.draw(
+                        dstrect=(
+                            int(round(float(x))),
+                            int(round(float(y))),
+                            int(round(float(w))),
+                            int(round(float(h))),
+                        ),
+                        flip_x=bool(flip_x),
+                    )
+                return True
+            except Exception:
+                return False
 
     def _绘制纹理矩形(
         self,
@@ -694,37 +825,18 @@ class 谱面GPU管线渲染器:
     ) -> bool:
         if 纹理 is None or 图 is None or not isinstance(目标矩形, pygame.Rect):
             return False
-        self._设置纹理透明与颜色(纹理, alpha=alpha, blend_mode=blend_mode)
-        try:
-            if isinstance(源矩形, pygame.Rect):
-                纹理.draw(
-                    srcrect=(
-                        int(源矩形.x),
-                        int(源矩形.y),
-                        int(源矩形.w),
-                        int(源矩形.h),
-                    ),
-                    dstrect=(
-                        int(目标矩形.x),
-                        int(目标矩形.y),
-                        int(目标矩形.w),
-                        int(目标矩形.h),
-                    ),
-                    flip_x=bool(flip_x),
-                )
-            else:
-                纹理.draw(
-                    dstrect=(
-                        int(目标矩形.x),
-                        int(目标矩形.y),
-                        int(目标矩形.w),
-                        int(目标矩形.h),
-                    ),
-                    flip_x=bool(flip_x),
-                )
-            return True
-        except Exception:
-            return False
+        return self._绘制纹理矩形数据(
+            纹理,
+            图,
+            float(目标矩形.x),
+            float(目标矩形.y),
+            float(目标矩形.w),
+            float(目标矩形.h),
+            源矩形=源矩形,
+            flip_x=flip_x,
+            alpha=alpha,
+            blend_mode=blend_mode,
+        )
 
     def _绘制音符组(self, 渲染器, 帧输入: Dict[str, Any]) -> int:
         软件渲染器 = 帧输入.get("软件渲染器")
@@ -736,6 +848,31 @@ class 谱面GPU管线渲染器:
         当前秒 = _取浮点(帧输入.get("当前谱面秒", 0.0), 0.0)
         视觉偏移秒 = _取浮点(帧输入.get("谱面视觉偏移秒", 0.0), 0.0)
         视觉偏移绝对值 = abs(float(视觉偏移秒))
+        秒转beat函数 = 帧输入.get("BPM变速秒转beat函数")
+        BPM变速像素每拍 = max(
+            0.0, _取浮点(帧输入.get("BPM变速像素每拍", 0.0), 0.0)
+        )
+        BPM变速开启 = bool(callable(秒转beat函数)) and float(BPM变速像素每拍) > 0.0
+        BPM变速合成脉冲开启 = bool(
+            帧输入.get("BPM变速合成脉冲开启", False)
+        )
+
+        def _变速显示beat(beat值: float) -> float:
+            结果 = float(beat值)
+            if not bool(BPM变速合成脉冲开启):
+                return 结果
+            整拍 = math.floor(float(结果))
+            相位 = float(结果) - float(整拍)
+            加速区间 = 0.12
+            加速倍率 = 4.0
+            减速倍率 = (1.0 - 加速区间 * 加速倍率) / max(
+                0.001, 1.0 - 加速区间
+            )
+            if float(相位) < float(加速区间):
+                return float(整拍) + float(相位) * float(加速倍率)
+            return float(整拍) + float(加速区间) * float(加速倍率) + (
+                float(相位) - float(加速区间)
+            ) * float(减速倍率)
         判定线y = _取整数(帧输入.get("判定线y", 0), 0)
         轨道中心列表 = list(帧输入.get("轨道中心列表", []) or [])[:5]
         判定线y列表 = list(帧输入.get("判定线y列表", []) or [])[:5]
@@ -757,12 +894,39 @@ class 谱面GPU管线渲染器:
         上边界 = _取整数(帧输入.get("上边界", -max(40, 箭头宽_tap * 2)), -max(40, 箭头宽_tap * 2))
         下边界 = _取整数(帧输入.get("下边界", 底部y + max(40, 箭头宽_tap * 2)), 底部y + max(40, 箭头宽_tap * 2))
         渲染秒 = self._取渲染秒(软件渲染器, float(当前秒))
+        当前可视beat = 0.0
+        渲染beat = 0.0
+        可视前beat = 0.0
+        可视后beat = 0.0
+        if BPM变速开启 and callable(秒转beat函数) and BPM变速像素每拍 > 0.0:
+            try:
+                当前可视beat = float(
+                    _变速显示beat(
+                        float(秒转beat函数(float(当前秒) - float(视觉偏移秒)))
+                    )
+                )
+                渲染beat = float(
+                    _变速显示beat(
+                        float(秒转beat函数(float(渲染秒) - float(视觉偏移秒)))
+                    )
+                )
+                可视前beat = float(max(1, (底部y - 判定线y))) / float(BPM变速像素每拍)
+                可视后beat = float(
+                    max(1, max(0, 判定线y - 上边界))
+                ) / float(BPM变速像素每拍)
+            except Exception:
+                BPM变速开启 = False
         self._同步命中可视状态(
             软件渲染器=软件渲染器,
             事件列表=事件列表,
             当前秒=float(当前秒),
             渲染秒=float(渲染秒),
             视觉偏移秒=float(视觉偏移秒),
+            BPM变速开启=bool(BPM变速开启),
+            BPM变速合成脉冲开启=bool(BPM变速合成脉冲开启),
+            当前可视beat=float(当前可视beat),
+            渲染beat=float(渲染beat),
+            BPM变速像素每拍=float(BPM变速像素每拍),
             判定线y列表=判定线y列表,
             速度=float(速度),
             提前秒=float(提前秒),
@@ -771,38 +935,61 @@ class 谱面GPU管线渲染器:
             半隐模式=bool(半隐模式),
             半隐y阈值=int(半隐y阈值),
         )
-        消失后秒 = max(0.8, float(max(0, 判定线y) + 箭头宽_tap * 2) / float(max(1.0, 速度)) + 0.18)
-        起始阈值秒 = 当前秒 - float(消失后秒) - float(视觉偏移绝对值)
-        开始秒列表 = list(事件缓存.get("开始秒列表", []) or [])
-        前缀最大结束秒 = list(事件缓存.get("前缀最大结束秒", []) or [])
-        起始索引 = bisect.bisect_left(前缀最大结束秒, 起始阈值秒)
-        if 起始索引 < 0:
-            起始索引 = 0
+        if BPM变速开启:
+            开始beat列表 = list(事件缓存.get("开始beat列表", []) or [])
+            前缀最大结束beat = list(事件缓存.get("前缀最大结束beat", []) or [])
+            起始阈值beat = float(当前可视beat - 可视后beat - 1.0)
+            起始索引 = bisect.bisect_left(前缀最大结束beat, 起始阈值beat)
+            if 起始索引 < 0:
+                起始索引 = 0
+        else:
+            消失后秒 = max(0.8, float(max(0, 判定线y) + 箭头宽_tap * 2) / float(max(1.0, 速度)) + 0.18)
+            起始阈值秒 = 当前秒 - float(消失后秒) - float(视觉偏移绝对值)
+            开始秒列表 = list(事件缓存.get("开始秒列表", []) or [])
+            前缀最大结束秒 = list(事件缓存.get("前缀最大结束秒", []) or [])
+            起始索引 = bisect.bisect_left(前缀最大结束秒, 起始阈值秒)
+            if 起始索引 < 0:
+                起始索引 = 0
 
         绘制数 = 0
         for 索引 in range(int(起始索引), len(事件列表)):
-            if 索引 >= len(开始秒列表):
-                break
-            开始秒 = _取浮点(开始秒列表[索引], 0.0)
-            显示开始秒 = float(开始秒) + float(视觉偏移秒)
-            if 显示开始秒 > 当前秒 + 提前秒:
-                break
-
             事件 = 事件列表[索引]
+            开始秒 = _取浮点(getattr(事件, "开始秒", 0.0), 0.0)
+            结束秒 = _取浮点(getattr(事件, "结束秒", 开始秒), 开始秒)
+            开始beat = _取浮点(getattr(事件, "开始beat", 0.0), 0.0)
+            结束beat = _取浮点(getattr(事件, "结束beat", 开始beat), 开始beat)
+            if 结束秒 < 开始秒:
+                结束秒 = 开始秒
+            if 结束beat < 开始beat:
+                结束beat = 开始beat
+            显示开始秒 = float(开始秒) + float(视觉偏移秒)
+            if BPM变速开启:
+                显示开始beat = float(_变速显示beat(float(开始beat)))
+                显示结束beat = float(_变速显示beat(float(结束beat)))
+                if float(显示开始beat) > float(当前可视beat + 可视前beat + 1.0):
+                    break
+            else:
+                if 显示开始秒 > 当前秒 + 提前秒:
+                    break
             轨道 = _取整数(getattr(事件, "轨道序号", -1), -1)
             if 轨道 < 0 or 轨道 >= len(轨道中心列表):
                 continue
-            结束秒 = _取浮点(getattr(事件, "结束秒", 开始秒), 开始秒)
-            if 结束秒 < 开始秒:
-                结束秒 = 开始秒
             显示结束秒 = float(结束秒) + float(视觉偏移秒)
 
-            x中心 = int(轨道中心列表[轨道])
-            当前轨判定y = _取整数(判定线y列表[轨道], 判定线y)
-            y开始 = int(round(float(当前轨判定y) + (显示开始秒 - 渲染秒) * 速度))
-            y结束 = int(round(float(当前轨判定y) + (显示结束秒 - 渲染秒) * 速度))
-            类型 = str(getattr(事件, "类型", "tap") or "tap")
+            x中心 = float(_取整数(轨道中心列表[轨道], 0))
+            当前轨判定y = float(_取整数(判定线y列表[轨道], 判定线y))
+            if BPM变速开启:
+                y开始 = float(当前轨判定y) + (
+                    float(显示开始beat) - float(渲染beat)
+                ) * float(BPM变速像素每拍)
+                y结束 = float(当前轨判定y) + (
+                    float(显示结束beat) - float(渲染beat)
+                ) * float(BPM变速像素每拍)
+            else:
+                y开始 = float(当前轨判定y) + (显示开始秒 - 渲染秒) * 速度
+                y结束 = float(当前轨判定y) + (显示结束秒 - 渲染秒) * 速度
 
+            类型 = str(getattr(事件, "类型", "tap") or "tap")
             if str(类型) == "hold":
                 是否命中hold = self._是否命中长按(
                     软件渲染器, int(轨道), float(开始秒), float(结束秒), float(当前秒)
@@ -813,11 +1000,11 @@ class 谱面GPU管线渲染器:
                     渲染器,
                     软件渲染器,
                     int(轨道),
-                    int(x中心),
-                    int(y开始),
-                    int(y结束),
+                    float(x中心),
+                    float(y开始),
+                    float(y结束),
                     int(箭头宽_hold),
-                    int(当前轨判定y),
+                    float(当前轨判定y),
                     int(上边界),
                     int(下边界),
                     bool(半隐模式),
@@ -829,12 +1016,17 @@ class 谱面GPU管线渲染器:
                 )
                 continue
 
-            if y开始 < int(上边界) or y开始 > int(下边界):
+            if float(y开始) < float(上边界) or float(y开始) > float(下边界):
                 continue
-            if 半隐模式 and y开始 > 半隐y阈值:
+            if 半隐模式 and float(y开始) > float(半隐y阈值):
                 continue
             if self._tap已命中(
-                软件渲染器, int(轨道), float(开始秒), int(y开始), int(当前轨判定y), float(当前秒)
+                软件渲染器,
+                int(轨道),
+                float(开始秒),
+                float(y开始),
+                float(当前轨判定y),
+                float(当前秒),
             ):
                 continue
 
@@ -863,8 +1055,8 @@ class 谱面GPU管线渲染器:
                 渲染器,
                 软件渲染器,
                 int(轨道),
-                int(round(x绘制)),
-                int(y开始),
+                float(x绘制),
+                float(y开始),
                 int(箭头宽_tap),
                 使用灰度,
                 float(旋转角度),
@@ -890,6 +1082,11 @@ class 谱面GPU管线渲染器:
         当前秒: float,
         渲染秒: float,
         视觉偏移秒: float,
+        BPM变速开启: bool,
+        BPM变速合成脉冲开启: bool,
+        当前可视beat: float,
+        渲染beat: float,
+        BPM变速像素每拍: float,
         判定线y列表: List[int],
         速度: float,
         提前秒: float,
@@ -939,6 +1136,23 @@ class 谱面GPU管线渲染器:
                 except Exception:
                     continue
             return False
+
+        def _变速显示beat(beat值: float) -> float:
+            结果 = float(beat值)
+            if not bool(BPM变速合成脉冲开启):
+                return 结果
+            整拍 = math.floor(float(结果))
+            相位 = float(结果) - float(整拍)
+            加速区间 = 0.12
+            加速倍率 = 4.0
+            减速倍率 = (1.0 - 加速区间 * 加速倍率) / max(
+                0.001, 1.0 - 加速区间
+            )
+            if float(相位) < float(加速区间):
+                return float(整拍) + float(相位) * float(加速倍率)
+            return float(整拍) + float(加速区间) * float(加速倍率) + (
+                float(相位) - float(加速区间)
+            ) * float(减速倍率)
 
         命中窗毫秒 = int(round(float(getattr(软件渲染器, "_命中匹配窗秒", 0.12) or 0.12) * 1000.0))
         命中窗毫秒 = max(40, min(260, int(命中窗毫秒)))
@@ -990,12 +1204,24 @@ class 谱面GPU管线渲染器:
                 try:
                     st = float(getattr(事件, "开始秒"))
                     ed = float(getattr(事件, "结束秒"))
+                    st_beat = float(getattr(事件, "开始beat"))
+                    ed_beat = float(getattr(事件, "结束beat"))
                     轨道 = int(getattr(事件, "轨道序号"))
                     类型 = str(getattr(事件, "类型"))
                 except Exception:
                     continue
-                缓存事件列表.append((st, ed, 轨道, 类型, int(round(st * 1000.0))))
-            缓存事件列表.sort(key=lambda 项: (float(项[0]), int(项[2]), float(项[1])))
+                缓存事件列表.append(
+                    (
+                        st,
+                        ed,
+                        st_beat,
+                        ed_beat,
+                        轨道,
+                        类型,
+                        int(round(st * 1000.0)),
+                    )
+                )
+            缓存事件列表.sort(key=lambda 项: (float(项[0]), int(项[4]), float(项[1])))
 
         活跃hold轨道: set[int] = set()
         try:
@@ -1003,25 +1229,61 @@ class 谱面GPU管线渲染器:
         except Exception:
             pass
 
+        可视后beat = 0.0
+        可视前beat = 0.0
+        if bool(BPM变速开启) and float(BPM变速像素每拍) > 0.0:
+            try:
+                基准判定y = int(
+                    判定线y列表[2]
+                    if len(判定线y列表) >= 3
+                    else (
+                        sum(int(v) for v in 判定线y列表)
+                        / float(max(1, len(判定线y列表)))
+                    )
+                )
+            except Exception:
+                基准判定y = 0
+            可视前beat = float(max(1, 下边界 - 基准判定y)) / float(
+                BPM变速像素每拍
+            )
+            可视后beat = float(max(1, 基准判定y - 上边界)) / float(
+                BPM变速像素每拍
+            )
+
         for 条目 in 缓存事件列表:
             try:
-                st, ed, 轨道, 类型, st毫秒 = 条目
+                st, ed, st_beat, ed_beat, 轨道, 类型, st毫秒 = 条目
             except Exception:
                 continue
             显示开始秒 = float(st) + float(视觉偏移秒)
             显示结束秒 = float(ed) + float(视觉偏移秒)
-            if float(显示开始秒) > float(当前秒) + float(提前秒):
-                break
-            if (
-                float(显示开始秒) < float(当前秒) - 2.5 - abs(float(视觉偏移秒))
-                and float(显示结束秒) < float(当前秒) - 2.5 - abs(float(视觉偏移秒))
-            ):
-                continue
+            if bool(BPM变速开启):
+                显示开始beat = float(_变速显示beat(float(st_beat)))
+                显示结束beat = float(_变速显示beat(float(ed_beat)))
+                if float(显示开始beat) > float(当前可视beat + 可视前beat + 1.0):
+                    break
+                if float(显示结束beat) < float(当前可视beat - 可视后beat - 1.0):
+                    continue
+            else:
+                if float(显示开始秒) > float(当前秒) + float(提前秒):
+                    break
+                if (
+                    float(显示开始秒) < float(当前秒) - 2.5 - abs(float(视觉偏移秒))
+                    and float(显示结束秒) < float(当前秒) - 2.5 - abs(float(视觉偏移秒))
+                ):
+                    continue
             轨道 = int(轨道)
             if 轨道 < 0 or 轨道 >= len(判定线y列表):
                 continue
             当前轨判定y = int(判定线y列表[轨道])
-            y开始 = float(当前轨判定y) + (float(显示开始秒) - float(渲染秒)) * float(速度)
+            if bool(BPM变速开启):
+                y开始 = float(当前轨判定y) + (
+                    float(显示开始beat) - float(渲染beat)
+                ) * float(BPM变速像素每拍)
+            else:
+                y开始 = float(当前轨判定y) + (
+                    float(显示开始秒) - float(渲染秒)
+                ) * float(速度)
 
             if abs(float(ed) - float(st)) < 1e-6 or str(类型) == "tap":
                 if y开始 < float(上边界) or y开始 > float(下边界):
@@ -1054,7 +1316,14 @@ class 谱面GPU管线渲染器:
                                 )
                 continue
 
-            y结束 = float(当前轨判定y) + (float(显示结束秒) - float(渲染秒)) * float(速度)
+            if bool(BPM变速开启):
+                y结束 = float(当前轨判定y) + (
+                    float(显示结束beat) - float(渲染beat)
+                ) * float(BPM变速像素每拍)
+            else:
+                y结束 = float(当前轨判定y) + (
+                    float(显示结束秒) - float(渲染秒)
+                ) * float(速度)
             seg_top = float(min(y开始, y结束))
             seg_bot = float(max(y开始, y结束))
             if seg_bot < float(上边界) or seg_top > float(下边界):
@@ -1182,8 +1451,8 @@ class 谱面GPU管线渲染器:
         软件渲染器,
         轨道: int,
         开始秒: float,
-        y开始: int,
-        判定线y: int,
+        y开始: float,
+        判定线y: float,
         当前秒: float,
     ) -> bool:
         if 软件渲染器 is None:
@@ -1198,7 +1467,11 @@ class 谱面GPU管线渲染器:
             开始毫秒 = int(round(float(开始秒) * 1000.0))
             当前毫秒 = int(round(float(当前秒) * 1000.0))
             过期毫秒 = int(已命中表.get(int(开始毫秒), -1))
-            return bool(过期毫秒 > 0 and 当前毫秒 <= 过期毫秒 and int(y开始) < int(判定线y))
+            return bool(
+                过期毫秒 > 0
+                and 当前毫秒 <= 过期毫秒
+                and float(y开始) < float(判定线y)
+            )
         except Exception:
             return False
 
@@ -1232,8 +1505,8 @@ class 谱面GPU管线渲染器:
         渲染器,
         软件渲染器,
         轨道: int,
-        x中心: int,
-        y: int,
+        x中心: float,
+        y: float,
         箭头宽: int,
         使用灰度: bool,
         旋转角度: float = 0.0,
@@ -1253,8 +1526,8 @@ class 谱面GPU管线渲染器:
             self._绘制几何点按(
                 渲染器,
                 int(轨道),
-                int(x中心),
-                int(y),
+                int(round(float(x中心))),
+                int(round(float(y))),
                 int(箭头宽),
                 bool(使用灰度),
                 float(旋转角度),
@@ -1264,8 +1537,8 @@ class 谱面GPU管线渲染器:
             self._绘制纹理中心(
                 纹理,
                 图,
-                int(x中心),
-                int(y),
+                float(x中心),
+                float(y),
                 angle=float(旋转角度),
             )
         )
@@ -1275,11 +1548,11 @@ class 谱面GPU管线渲染器:
         渲染器,
         软件渲染器,
         轨道: int,
-        x中心: int,
-        y开始: int,
-        y结束: int,
+        x中心: float,
+        y开始: float,
+        y结束: float,
         箭头宽: int,
-        判定线y: int,
+        判定线y: float,
         上边界: int,
         下边界: int,
         半隐模式: bool,
@@ -1336,12 +1609,12 @@ class 谱面GPU管线渲染器:
                 )
             )
 
-        if bool(半隐模式) and min(int(y开始), int(y结束)) > int(半隐y阈值):
+        if bool(半隐模式) and min(float(y开始), float(y结束)) > float(半隐y阈值):
             return 0
 
         头中心y = float(y开始)
         尾巴中心y = float(y结束)
-        目标判定y = float(int(判定线y))
+        目标判定y = float(判定线y)
 
         if bool(是否命中hold):
             if float(当前谱面秒) >= float(结束谱面秒):
@@ -1399,9 +1672,13 @@ class 谱面GPU管线渲染器:
         ):
             块步进 = float(max(1, int(参考图.get_height())))
             首块中心y = float(头中心y) + float(块步进) * 0.5
-            首块顶y = int(float(首块中心y) - float(首块图.get_height()) * 0.5) if 首块图 is not None else int(头中心y)
+            首块顶y = (
+                float(首块中心y) - float(首块图.get_height()) * 0.5
+                if 首块图 is not None
+                else float(头中心y)
+            )
             if 罩图 is not None and 首块图 is 罩图 and 头图 is not None:
-                首块顶y = int(float(头中心y) - float(首块图.get_height()) * 0.5)
+                首块顶y = float(头中心y) - float(首块图.get_height()) * 0.5
             if (
                 身体模式 == "stretch"
                 and 首块纹理 is not None
@@ -1417,15 +1694,13 @@ class 谱面GPU管线渲染器:
                     and float(首块顶y) <= float(下边界)
                 ):
                     已绘制 = bool(
-                        self._绘制纹理矩形(
+                        self._绘制纹理矩形数据(
                             首块纹理,
                             首块图,
-                            pygame.Rect(
-                                int(x中心 - 首块图.get_width() // 2),
-                                int(首块顶y),
-                                int(首块图.get_width()),
-                                int(首块图.get_height()),
-                            ),
+                            float(x中心) - float(首块图.get_width()) * 0.5,
+                            float(首块顶y),
+                            float(首块图.get_width()),
+                            float(首块图.get_height()),
                         )
                         or 已绘制
                     )
@@ -1436,63 +1711,59 @@ class 谱面GPU管线渲染器:
                     身体高 = int(max(1, round(float(身体底y - 身体顶y))))
                     if float(身体顶y) < float(下边界) and float(身体顶y + 身体高) > float(上边界):
                         已绘制 = bool(
-                            self._绘制纹理矩形(
+                            self._绘制纹理矩形数据(
                                 中块纹理,
                                 中块图,
-                                pygame.Rect(
-                                    int(x中心 - 中块图.get_width() // 2),
-                                    int(身体顶y),
-                                    int(中块图.get_width()),
-                                    int(身体高),
-                                ),
+                                float(x中心) - float(中块图.get_width()) * 0.5,
+                                float(身体顶y),
+                                float(中块图.get_width()),
+                                float(身体高),
                             )
                             or 已绘制
                         )
 
-                末块顶y = int(float(尾巴中心y))
+                末块顶y = float(尾巴中心y)
                 if (
                     float(末块顶y + 末块图.get_height()) >= float(上边界)
                     and float(末块顶y) <= float(下边界)
                 ):
                     已绘制 = bool(
-                        self._绘制纹理矩形(
+                        self._绘制纹理矩形数据(
                             末块纹理,
                             末块图,
-                            pygame.Rect(
-                                int(x中心 - 末块图.get_width() // 2),
-                                int(末块顶y),
-                                int(末块图.get_width()),
-                                int(末块图.get_height()),
-                            ),
+                            float(x中心) - float(末块图.get_width()) * 0.5,
+                            float(末块顶y),
+                            float(末块图.get_width()),
+                            float(末块图.get_height()),
                         )
                         or 已绘制
                     )
             else:
-                块列表: List[Tuple[Optional[Any], Optional[pygame.Surface], int, Optional[pygame.Rect]]] = []
+                块列表: List[Tuple[Optional[Any], Optional[pygame.Surface], float, Optional[pygame.Rect]]] = []
                 if 首块图 is not None:
-                    块列表.append((首块纹理, 首块图, int(首块顶y), None))
+                    块列表.append((首块纹理, 首块图, float(首块顶y), None))
 
-                当前顶y = int(首块顶y + (首块图.get_height() if 首块图 is not None else 0))
+                当前顶y = float(首块顶y + (首块图.get_height() if 首块图 is not None else 0))
                 中块高 = int(max(1, 中块图.get_height())) if 中块图 is not None else 0
-                while 中块图 is not None and int(当前顶y + 中块高) <= int(float(尾巴中心y)):
-                    块列表.append((中块纹理, 中块图, int(当前顶y), None))
-                    当前顶y += int(中块高)
+                while 中块图 is not None and float(当前顶y + 中块高) <= float(尾巴中心y):
+                    块列表.append((中块纹理, 中块图, float(当前顶y), None))
+                    当前顶y += float(中块高)
 
-                if 中块图 is not None and int(当前顶y) < int(float(尾巴中心y)):
-                    剩余高 = int(max(1, int(float(尾巴中心y)) - int(当前顶y)))
+                if 中块图 is not None and float(当前顶y) < float(尾巴中心y):
+                    剩余高 = int(max(1, round(float(尾巴中心y) - float(当前顶y))))
                     剩余高 = int(min(剩余高, int(中块图.get_height())))
                     if 剩余高 > 0:
                         块列表.append(
                             (
                                 中块纹理,
                                 中块图,
-                                int(当前顶y),
+                                float(当前顶y),
                                 pygame.Rect(0, 0, int(中块图.get_width()), int(剩余高)),
                             )
                         )
 
                 if 末块图 is not None:
-                    块列表.append((末块纹理, 末块图, int(float(尾巴中心y)), None))
+                    块列表.append((末块纹理, 末块图, float(尾巴中心y), None))
 
                 for 块纹理, 块图, 块顶y, 源矩形 in 块列表:
                     if 块纹理 is None or 块图 is None:
@@ -1502,18 +1773,20 @@ class 谱面GPU管线渲染器:
                         or float(块顶y) > float(下边界)
                     ):
                         continue
-                    目标高 = int(源矩形.h) if isinstance(源矩形, pygame.Rect) else int(块图.get_height())
+                    目标高 = (
+                        int(源矩形.h)
+                        if isinstance(源矩形, pygame.Rect)
+                        else int(块图.get_height())
+                    )
                     已绘制 = bool(
-                        self._绘制纹理矩形(
+                        self._绘制纹理矩形数据(
                             块纹理,
                             块图,
-                            pygame.Rect(
-                                int(x中心 - 块图.get_width() // 2),
-                                int(块顶y),
-                                int(块图.get_width()),
-                                int(目标高),
-                            ),
-                            源矩形,
+                            float(x中心) - float(块图.get_width()) * 0.5,
+                            float(块顶y),
+                            float(块图.get_width()),
+                            float(目标高),
+                            源矩形=源矩形,
                         )
                         or 已绘制
                     )
@@ -1521,10 +1794,13 @@ class 谱面GPU管线渲染器:
         if (
             头纹理 is not None
             and 头图 is not None
-            and 上边界 <= int(round(头中心y)) <= 下边界
+            and float(上边界) <= float(头中心y) <= float(下边界)
         ):
             已绘制 = bool(
-                self._绘制纹理中心(头纹理, 头图, int(x中心), int(round(头中心y))) or 已绘制
+                self._绘制纹理中心(
+                    头纹理, 头图, float(x中心), float(头中心y)
+                )
+                or 已绘制
             )
         return 1 if 已绘制 else 0
 

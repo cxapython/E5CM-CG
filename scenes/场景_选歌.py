@@ -5,6 +5,7 @@ import json
 import re
 import math
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Set, Callable
 from core.常量与路径 import (
@@ -637,6 +638,7 @@ class 歌曲信息:
     是否NEW: bool = False
     是否HOT: bool = False
     是否收藏: bool = False
+    是否带MV: bool = False
 
 
 def 安全加载图片(路径: str, 透明: bool = True) -> Optional[pygame.Surface]:
@@ -2261,6 +2263,44 @@ def 绘制序号标签_图片(
         if i != len(数字图列表) - 1:
             x += 间距
 
+
+def 绘制MV角标_文本(
+    屏幕: pygame.Surface,
+    封面矩形: pygame.Rect,
+    参考矩形: pygame.Rect,
+    是否大图: bool = False,
+):
+    try:
+        if not isinstance(屏幕, pygame.Surface):
+            return
+        if (not isinstance(封面矩形, pygame.Rect)) or 封面矩形.w <= 2 or 封面矩形.h <= 2:
+            return
+        if not isinstance(参考矩形, pygame.Rect):
+            参考矩形 = 封面矩形
+
+        if 是否大图:
+            MV字号 = max(16, int(封面矩形.h * 0.055))
+            内边距x = max(12, int(参考矩形.w * 0.022))
+            内边距y = max(10, int(参考矩形.h * 0.022))
+        else:
+            MV字号 = max(11, int(参考矩形.h * 0.09))
+            内边距x = max(8, int(参考矩形.w * 0.03))
+            内边距y = max(6, int(参考矩形.h * 0.03))
+
+        MV字体 = 获取字体(MV字号, 是否粗体=True)
+        MV面 = 渲染紧凑文本("MV", MV字体, (255, 92, 176), 字符间距=0)
+        if MV面 is None:
+            return
+
+        阴影面 = 渲染紧凑文本("MV", MV字体, (28, 8, 24), 字符间距=0)
+        MVx = int(封面矩形.x + 内边距x)
+        MVy = int(封面矩形.y + 内边距y)
+        if 阴影面 is not None:
+            屏幕.blit(阴影面, (MVx + 1, MVy + 1))
+        屏幕.blit(MV面, (MVx, MVy))
+    except Exception:
+        pass
+
 def 绘制星星行_图片(
     屏幕: pygame.Surface,
     区域: pygame.Rect,
@@ -2608,6 +2648,73 @@ def _需要HOT标记(游玩次数: int) -> bool:
     except Exception:
         return False
 
+
+_支持背景视频扩展名 = (".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v")
+
+
+def _归一化资源名(文本: str) -> str:
+    基名 = os.path.splitext(os.path.basename(str(文本 or "")))[0]
+    return re.sub(r"[\s_\-()\[\]{}]+", "", 基名).strip().lower()
+
+
+def _查找歌曲目录背景视频(
+    歌曲路径: str,
+    sm路径: str = "",
+    封面路径: str = "",
+    sm文本: str = "",
+) -> str:
+    if not os.path.isdir(歌曲路径):
+        return ""
+
+    谱面基名 = _归一化资源名(sm路径)
+    封面基名 = _归一化资源名(封面路径)
+    文件夹基名 = _归一化资源名(歌曲路径)
+    谱面文本小写 = str(sm文本 or "").lower()
+
+    候选列表: List[Tuple[int, int, str]] = []
+    try:
+        文件名列表 = sorted(os.listdir(歌曲路径))
+    except Exception:
+        return ""
+
+    for 文件名 in 文件名列表:
+        路径 = os.path.join(歌曲路径, 文件名)
+        扩展名 = os.path.splitext(str(文件名 or ""))[1].lower()
+        if (not os.path.isfile(路径)) or 扩展名 not in _支持背景视频扩展名:
+            continue
+
+        文件名小写 = str(文件名 or "").lower()
+        归一基名 = _归一化资源名(文件名)
+        分数 = 0
+        if 谱面文本小写 and 文件名小写 in 谱面文本小写:
+            分数 += 400
+        if 归一基名 and 谱面基名 and 归一基名 == 谱面基名:
+            分数 += 220
+        if 归一基名 and 封面基名 and 归一基名 == 封面基名:
+            分数 += 120
+        if 归一基名 and 文件夹基名 and 归一基名 == 文件夹基名:
+            分数 += 80
+        if any(关键字 in 文件名小写 for 关键字 in ("background", "bga", "bgmovie", "movie")):
+            分数 += 90
+        elif 文件名小写.startswith(("bg", "mv")):
+            分数 += 55
+        if any(关键字 in 文件名小写 for 关键字 in ("preview", "sample", "demo", "cut")):
+            分数 -= 240
+        try:
+            文件大小 = int(os.path.getsize(路径))
+        except Exception:
+            文件大小 = 0
+        分数 += min(60, int(文件大小 / (1024 * 1024)))
+        候选列表.append((分数, 文件大小, 路径))
+
+    if not 候选列表:
+        return ""
+    候选列表.sort(
+        key=lambda 项: (int(项[0]), int(项[1]), str(项[2]).lower()),
+        reverse=True,
+    )
+    return str(候选列表[0][2] or "")
+
 def 安全读取文本(文件路径: str) -> str:
     for 编码 in ("utf-8-sig", "utf-8", "gbk"):
         try:
@@ -2933,6 +3040,12 @@ def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Opti
 
     音频路径 = 找文件(歌曲路径, (".ogg", ".mp3", ".wav"))
     封面路径 = 找封面(歌曲路径)
+    背景视频路径 = _查找歌曲目录背景视频(
+        歌曲路径,
+        sm路径=sm路径,
+        封面路径=str(封面路径 or ""),
+        sm文本=sm文本 if 扩展名 != ".json" else "",
+    )
     if 扩展名 == ".json":
         bpm = 解析JSON显示BPM(json数据)
         if bpm is None:
@@ -2977,6 +3090,7 @@ def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Opti
         bpm=bpm,
         是否VIP=bool(int(星级 or 0) >= 5),
         游玩次数=0,
+        是否带MV=bool(str(背景视频路径 or "").strip()),
     )
 
 def 找文件(目录: str, 扩展名集合: Tuple[str, ...]) -> Optional[str]:
@@ -4099,7 +4213,13 @@ class 歌曲卡片:
             and self.矩形.collidepoint(事件.pos)
         )
 
-    def 绘制(self, 屏幕: pygame.Surface, 小字体: pygame.font.Font, 图缓存: "图像缓存"):
+    def 绘制(
+        self,
+        屏幕: pygame.Surface,
+        小字体: pygame.font.Font,
+        图缓存: "图像缓存",
+        允许同步封面加载: bool = True,
+    ):
         是否高亮 = bool(self.悬停 or self.踏板高亮)
         基准矩形 = self.矩形.copy()
 
@@ -4173,6 +4293,7 @@ class 歌曲卡片:
             bool(getattr(self.歌曲, "是否VIP", False)),
             bool(getattr(self.歌曲, "是否HOT", False)),
             bool(getattr(self.歌曲, "是否NEW", False)),
+            bool(getattr(self.歌曲, "是否带MV", False)),
         )
         局部画布 = self._静态缓存图 if self._静态缓存键 == 缓存键 else None
         if 局部画布 is None:
@@ -4191,7 +4312,7 @@ class 歌曲卡片:
                     int(封面圆角),
                     封面缩放模式,
                 )
-                if 封面图 is None:
+                if 封面图 is None and bool(允许同步封面加载):
                     封面图 = 载入并缩放封面(
                         self.歌曲.封面路径,
                         局部封面矩形.w,
@@ -4293,6 +4414,14 @@ class 歌曲卡片:
                 内部序号从0=self.歌曲.序号,
                 是否大图=False,
             )
+
+            if bool(getattr(self.歌曲, "是否带MV", False)):
+                绘制MV角标_文本(
+                    局部画布,
+                    局部封面矩形,
+                    局部框矩形,
+                    是否大图=False,
+                )
 
             if self.歌曲.是否VIP:
                 vip路径 = _资源路径("UI-img", "选歌界面资源", "vip.png")
@@ -4449,8 +4578,11 @@ class 选歌游戏:
 
 
         self.图缓存 = 图像缓存()
-        self.预加载队列 = []
+        self.预加载队列 = deque()
         self._待清理保留key集合 = None
+        self._页卡片缓存: Dict[Tuple[object, ...], List[歌曲卡片]] = {}
+        self._页卡片缓存顺序: List[Tuple[object, ...]] = []
+        self._页卡片缓存上限 = 10
 
         self.动画中 = False
         self.动画开始时间 = 0.0
@@ -4713,6 +4845,13 @@ class 选歌游戏:
     def _失效歌曲视图缓存(self):
         self._当前歌曲列表缓存键 = None
         self._当前歌曲列表缓存值 = ([], [])
+        self._清空页卡片缓存()
+
+    def _清空页卡片缓存(self):
+        self._页卡片缓存 = {}
+        self._页卡片缓存顺序 = []
+        self.动画旧页卡片 = []
+        self.动画新页卡片 = []
 
     def _失效详情浮层缓存(self):
         self._详情浮层静态缓存键 = None
@@ -5137,6 +5276,23 @@ class 选歌游戏:
             内部序号从0=歌.序号,
             是否大图=True,
         )
+        if bool(getattr(歌, "是否带MV", False)):
+            绘制MV角标_文本(
+                局部画布,
+                pygame.Rect(
+                    局部封面框.x + 内容偏移x,
+                    局部封面框.y + 内容偏移y,
+                    局部封面框.w,
+                    局部封面框.h,
+                ),
+                pygame.Rect(
+                    内容偏移x,
+                    内容偏移y,
+                    内容基础矩形.w,
+                    内容基础矩形.h,
+                ),
+                是否大图=True,
+            )
         return 局部画布
 
     def _绘制详情浮层星星光泽(
@@ -6113,6 +6269,7 @@ class 选歌游戏:
         行数 = max(1, min(12, 行数))
         self.每页数量 = int(列数 * 行数)
 
+        self._清空页卡片缓存()
         self.当前页卡片 = self.生成指定页卡片(self.当前页)
         self._重算星级筛选页布局()
 
@@ -6616,6 +6773,54 @@ class 选歌游戏:
                 self.星级按钮列表.append((星, b))
                 索引 += 1
 
+    def _取页卡片缓存键(
+        self, 页码: int, 每页数量: int
+    ) -> Tuple[object, ...]:
+        try:
+            布局版本 = float(_选歌布局_修改时间)
+        except Exception:
+            布局版本 = -1.0
+
+        return (
+            self._取当前歌曲列表缓存键(),
+            int(页码),
+            int(每页数量),
+            int(getattr(self.中间区域, "x", 0) or 0),
+            int(getattr(self.中间区域, "y", 0) or 0),
+            int(getattr(self.中间区域, "w", 0) or 0),
+            int(getattr(self.中间区域, "h", 0) or 0),
+            float(布局版本),
+        )
+
+    def _重置页卡片瞬时状态(self, 卡片列表: List[歌曲卡片]):
+        for 卡片 in 卡片列表:
+            try:
+                卡片.悬停 = False
+                卡片.踏板高亮 = False
+            except Exception:
+                pass
+
+    def _写入页卡片缓存(
+        self, 缓存键: Tuple[object, ...], 卡片列表: List[歌曲卡片]
+    ):
+        try:
+            self._页卡片缓存顺序.remove(缓存键)
+        except Exception:
+            pass
+
+        self._页卡片缓存[缓存键] = 卡片列表
+        self._页卡片缓存顺序.append(缓存键)
+
+        try:
+            上限 = int(getattr(self, "_页卡片缓存上限", 10) or 10)
+        except Exception:
+            上限 = 10
+        上限 = max(2, min(24, 上限))
+
+        while len(self._页卡片缓存顺序) > 上限:
+            旧键 = self._页卡片缓存顺序.pop(0)
+            self._页卡片缓存.pop(旧键, None)
+
     def 生成指定页卡片(self, 页码: int) -> List[歌曲卡片]:
         列表, _映射 = self.当前歌曲列表与映射()
         if not 列表:
@@ -6633,6 +6838,12 @@ class 选歌游戏:
         行数 = max(1, min(12, 行数))
 
         self.每页数量 = int(列数 * 行数)
+        缓存键 = self._取页卡片缓存键(int(页码), int(self.每页数量))
+        缓存卡片 = self._页卡片缓存.get(缓存键)
+        if isinstance(缓存卡片, list) and 缓存卡片:
+            self._重置页卡片瞬时状态(缓存卡片)
+            self._写入页卡片缓存(缓存键, 缓存卡片)
+            return 缓存卡片
 
         外留白 = self._取布局像素("卡片网格.外留白", 70, 最小=0, 最大=9999)
         上下留白 = self._取布局像素("卡片网格.上下留白", 36, 最小=0, 最大=9999)
@@ -6724,15 +6935,10 @@ class 选歌游戏:
                     歌曲卡片(列表[视图索引], pygame.Rect(x, y, 卡片宽, 卡片高))
                 )
 
+        self._写入页卡片缓存(缓存键, 卡片列表)
         return 卡片列表
 
-    def _计算保留key集合(self, 基准页: int) -> Set[Tuple[str, int, int, int, str]]:
-        刷新选歌布局常量()
-
-        列表, _映射 = self.当前歌曲列表与映射()
-        if not 列表:
-            return set()
-
+    def _取预加载页顺序(self, 基准页: int) -> List[int]:
         try:
             总页 = int(self.总页数())
         except Exception:
@@ -6741,15 +6947,32 @@ class 选歌游戏:
             总页 = 1
 
         页集合: List[int] = []
-        for 偏移 in (-1, 0, 1, 2):
-            页码 = int(基准页) + int(偏移)
-            if 0 <= 页码 < 总页:
+        已加入 = set()
+        for 页码 in (
+            int(基准页),
+            int(基准页) + 1,
+            int(基准页) - 1,
+            int(基准页) + 2,
+        ):
+            if 0 <= 页码 < 总页 and 页码 not in 已加入:
                 页集合.append(页码)
+                已加入.add(页码)
+        return 页集合
 
-        需要保留键集合: Set[Tuple[str, int, int, int, str]] = set()
+    def _收集预加载封面键列表(
+        self, 基准页: int
+    ) -> List[Tuple[str, int, int, int, str]]:
+        刷新选歌布局常量()
+
+        列表, _映射 = self.当前歌曲列表与映射()
+        if not 列表:
+            return []
+
+        需要保留键列表: List[Tuple[str, int, int, int, str]] = []
+        已收录键集合: Set[Tuple[str, int, int, int, str]] = set()
         框路径 = _资源路径("UI-img", "选歌界面资源", "缩略图小.png")
 
-        for 页码 in 页集合:
+        for 页码 in self._取预加载页顺序(int(基准页)):
             卡片列表 = self.生成指定页卡片(int(页码))
             for 卡片 in 卡片列表:
                 try:
@@ -6765,15 +6988,16 @@ class 选歌游戏:
                 布局 = 计算框体槽位布局(框矩形, 是否大图=False)
                 封面矩形 = 布局["封面矩形"]
 
-                需要保留键集合.add(
-                    (
-                        路径,
-                        max(1, int(封面矩形.w)),
-                        max(1, int(封面矩形.h)),
-                        0,
-                        "cover",
-                    )
+                缓存键 = (
+                    路径,
+                    max(1, int(封面矩形.w)),
+                    max(1, int(封面矩形.h)),
+                    0,
+                    "cover",
                 )
+                if 缓存键 not in 已收录键集合:
+                    已收录键集合.add(缓存键)
+                    需要保留键列表.append(缓存键)
 
         if bool(getattr(self, "是否详情页", False)):
             原始列表 = self.当前原始歌曲列表()
@@ -6811,37 +7035,39 @@ class 选歌游戏:
                         布局 = 计算框体槽位布局(框基础矩形, 是否大图=True)
                         封面矩形 = 布局["封面矩形"]
 
-                        需要保留键集合.add(
-                            (
-                                大图路径,
-                                max(1, int(封面矩形.w)),
-                                max(1, int(封面矩形.h)),
-                                0,
-                                "stretch",
-                            )
+                        缓存键 = (
+                            大图路径,
+                            max(1, int(封面矩形.w)),
+                            max(1, int(封面矩形.h)),
+                            0,
+                            "stretch",
                         )
+                        if 缓存键 not in 已收录键集合:
+                            已收录键集合.add(缓存键)
+                            需要保留键列表.append(缓存键)
 
-        return 需要保留键集合
+        return 需要保留键列表
 
 
     def 安排预加载(self, 基准页: int):
         列表, _映射 = self.当前歌曲列表与映射()
         if not 列表:
+            self.预加载队列 = deque()
+            self._预加载_已排队 = set()
+            self._待清理保留key集合 = set()
+            self.图缓存.清理远端(set())
             return
 
-        # ✅ 懒初始化：已排队集合（避免重复排队）
-        if not hasattr(self, "_预加载_已排队"):
-            self._预加载_已排队 = set()
+        需要key列表 = self._收集预加载封面键列表(int(基准页))
+        需要key集合 = set(需要key列表)
+        新队列 = deque()
 
-        需要key集合 = self._计算保留key集合(int(基准页))
-
-        for 路径, w, h, 圆角, 模式 in list(需要key集合):
-            缓存键 = (路径, int(w), int(h), int(圆角), str(模式))
+        for 路径, w, h, 圆角, 模式 in 需要key列表:
             if self.图缓存.获取(路径, w, h, 圆角, 模式) is None:
-                if 缓存键 not in self._预加载_已排队:
-                    self.预加载队列.append((路径, w, h, 圆角, 模式))
-                    self._预加载_已排队.add(缓存键)
+                新队列.append((路径, w, h, 圆角, 模式))
 
+        self.预加载队列 = 新队列
+        self._预加载_已排队 = set(新队列)
         self._待清理保留key集合 = 需要key集合
 
         if not self.预加载队列 and self._待清理保留key集合 is not None:
@@ -6858,12 +7084,22 @@ class 选歌游戏:
             每帧数量 = 3
         每帧数量 = max(1, min(30, 每帧数量))
 
+        try:
+            当前类型小写 = str(self.当前类型名() or "").strip().lower()
+        except Exception:
+            当前类型小写 = ""
+        if (
+            当前类型小写 == "diy"
+            and (not bool(getattr(self, "动画中", False)))
+            and bool(self.预加载队列)
+        ):
+            每帧数量 = max(每帧数量, 5)
+
         for _ in range(每帧数量):
             if not self.预加载队列:
                 break
 
-            # ✅ O(1)：从队尾弹出
-            路径, w, h, 圆角, 模式 = self.预加载队列.pop()
+            路径, w, h, 圆角, 模式 = self.预加载队列.popleft()
 
             try:
                 self._预加载_已排队.discard(
@@ -6913,7 +7149,7 @@ class 选歌游戏:
         )
         self.动画目标页 = 目标页
 
-        self.动画旧页卡片 = self.生成指定页卡片(self.当前页)
+        self.动画旧页卡片 = list(getattr(self, "当前页卡片", []) or [])
         self.动画新页卡片 = self.生成指定页卡片(self.动画目标页)
 
         self.安排预加载(基准页=self.动画目标页)
@@ -6925,7 +7161,9 @@ class 选歌游戏:
         if 经过 >= self.动画持续:
             self.动画中 = False
             self.当前页 = self.动画目标页
-            self.当前页卡片 = self.生成指定页卡片(self.当前页)
+            self.当前页卡片 = list(getattr(self, "动画新页卡片", []) or [])
+            if not self.当前页卡片:
+                self.当前页卡片 = self.生成指定页卡片(self.当前页)
             self.安排预加载(基准页=self.当前页)
 
     def _确保翻页交互状态(self):
@@ -7872,6 +8110,7 @@ class 选歌游戏:
             float(getattr(self, "_布局配置_修改时间", 0.0) or 0.0),
             str(getattr(歌, "sm路径", "") or ""),
             str(getattr(歌, "封面路径", "") or ""),
+            bool(getattr(歌, "是否带MV", False)),
             int(getattr(歌, "星级", 0) or 0),
             int(getattr(歌, "序号", 0) or 0),
             str(getattr(歌, "bpm", "") or ""),

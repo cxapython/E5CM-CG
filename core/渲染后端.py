@@ -32,6 +32,14 @@ def _规范尺寸(尺寸: Tuple[int, int]) -> Tuple[int, int]:
     return 宽, 高
 
 
+def _规范刷新率(值: object, 默认值: int = 60) -> int:
+    try:
+        刷新率 = int(值 or 默认值)
+    except Exception:
+        刷新率 = int(默认值)
+    return max(30, min(240, int(刷新率)))
+
+
 def _确保显示模块已初始化():
     try:
         if not pygame.display.get_init():
@@ -119,6 +127,101 @@ def 取桌面尺寸(默认尺寸: Tuple[int, int] = (1280, 720)) -> Tuple[int, i
         return 默认尺寸
 
 
+def 取桌面刷新率(默认值: int = 60) -> int:
+    默认值 = _规范刷新率(默认值, 60)
+
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            CCHDEVICENAME = 32
+            CCHFORMNAME = 32
+            ENUM_CURRENT_SETTINGS = -1
+
+            class POINTL(ctypes.Structure):
+                _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+            class _打印字段(ctypes.Structure):
+                _fields_ = [
+                    ("dmOrientation", ctypes.c_short),
+                    ("dmPaperSize", ctypes.c_short),
+                    ("dmPaperLength", ctypes.c_short),
+                    ("dmPaperWidth", ctypes.c_short),
+                    ("dmScale", ctypes.c_short),
+                    ("dmCopies", ctypes.c_short),
+                    ("dmDefaultSource", ctypes.c_short),
+                    ("dmPrintQuality", ctypes.c_short),
+                ]
+
+            class _显示字段(ctypes.Structure):
+                _fields_ = [
+                    ("dmPosition", POINTL),
+                    ("dmDisplayOrientation", wintypes.DWORD),
+                    ("dmDisplayFixedOutput", wintypes.DWORD),
+                ]
+
+            class _DUMMYUNIONNAME(ctypes.Union):
+                _fields_ = [
+                    ("printer", _打印字段),
+                    ("display", _显示字段),
+                ]
+
+            class _DUMMYUNIONNAME2(ctypes.Union):
+                _fields_ = [
+                    ("dmDisplayFlags", wintypes.DWORD),
+                    ("dmNup", wintypes.DWORD),
+                ]
+
+            class DEVMODEW(ctypes.Structure):
+                _anonymous_ = ("u1", "u2")
+                _fields_ = [
+                    ("dmDeviceName", wintypes.WCHAR * CCHDEVICENAME),
+                    ("dmSpecVersion", wintypes.WORD),
+                    ("dmDriverVersion", wintypes.WORD),
+                    ("dmSize", wintypes.WORD),
+                    ("dmDriverExtra", wintypes.WORD),
+                    ("dmFields", wintypes.DWORD),
+                    ("u1", _DUMMYUNIONNAME),
+                    ("dmColor", ctypes.c_short),
+                    ("dmDuplex", ctypes.c_short),
+                    ("dmYResolution", ctypes.c_short),
+                    ("dmTTOption", ctypes.c_short),
+                    ("dmCollate", ctypes.c_short),
+                    ("dmFormName", wintypes.WCHAR * CCHFORMNAME),
+                    ("dmLogPixels", wintypes.WORD),
+                    ("dmBitsPerPel", wintypes.DWORD),
+                    ("dmPelsWidth", wintypes.DWORD),
+                    ("dmPelsHeight", wintypes.DWORD),
+                    ("u2", _DUMMYUNIONNAME2),
+                    ("dmDisplayFrequency", wintypes.DWORD),
+                    ("dmICMMethod", wintypes.DWORD),
+                    ("dmICMIntent", wintypes.DWORD),
+                    ("dmMediaType", wintypes.DWORD),
+                    ("dmDitherType", wintypes.DWORD),
+                    ("dmReserved1", wintypes.DWORD),
+                    ("dmReserved2", wintypes.DWORD),
+                    ("dmPanningWidth", wintypes.DWORD),
+                    ("dmPanningHeight", wintypes.DWORD),
+                ]
+
+            用户32 = ctypes.windll.user32
+            模式 = DEVMODEW()
+            模式.dmSize = ctypes.sizeof(DEVMODEW)
+            if bool(用户32.EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, ctypes.byref(模式))):
+                return _规范刷新率(int(模式.dmDisplayFrequency or 默认值), 默认值)
+        except Exception:
+            pass
+
+    try:
+        if hasattr(pygame.display, "get_current_refresh_rate"):
+            return _规范刷新率(pygame.display.get_current_refresh_rate(), 默认值)
+    except Exception:
+        pass
+
+    return 默认值
+
+
 class 显示后端基类:
     名称 = "software"
     是否GPU = False
@@ -132,6 +235,7 @@ class 显示后端基类:
         self._标题 = str(标题 or "")
         self._flags = int(flags)
         self._屏幕尺寸 = _规范尺寸(尺寸)
+        self._桌面刷新率 = 取桌面刷新率(60)
         self._屏幕: Optional[pygame.Surface] = None
         self._最近呈现统计 = {
             "upload_ms": 0.0,
@@ -150,6 +254,18 @@ class 显示后端基类:
 
     def 取桌面尺寸(self) -> Tuple[int, int]:
         return 取桌面尺寸(self._屏幕尺寸)
+
+    def 取桌面刷新率(self) -> int:
+        try:
+            self._桌面刷新率 = _规范刷新率(
+                取桌面刷新率(int(getattr(self, "_桌面刷新率", 60) or 60)),
+                int(getattr(self, "_桌面刷新率", 60) or 60),
+            )
+        except Exception:
+            self._桌面刷新率 = _规范刷新率(
+                int(getattr(self, "_桌面刷新率", 60) or 60), 60
+            )
+        return int(self._桌面刷新率)
 
     def 设置标题(self, 标题: str):
         self._标题 = str(标题 or "")
@@ -272,6 +388,7 @@ class SDL2GPU显示后端(显示后端基类):
         super().__init__(尺寸, flags, 标题)
         self._window = None
         self._renderer = None
+        self._渲染驱动名 = ""
         self._主纹理 = None
         self._兼容显示面 = None
         self._vsync = bool(vsync)
@@ -295,6 +412,93 @@ class SDL2GPU显示后端(显示后端基类):
             self._兼容显示面 = pygame.display.set_mode((1, 1))
         except Exception:
             self._兼容显示面 = None
+
+    def _取渲染驱动候选索引(self) -> List[int]:
+        if _sdl2_video is None or not hasattr(_sdl2_video, "get_drivers"):
+            return [-1]
+        try:
+            驱动信息列表 = list(_sdl2_video.get_drivers())
+        except Exception:
+            return [-1]
+        名称到索引 = {}
+        for 索引, 信息 in enumerate(驱动信息列表):
+            名称 = str(getattr(信息, "name", "") or "").strip().lower()
+            if 名称 and 名称 not in 名称到索引:
+                名称到索引[名称] = int(索引)
+        if os.name == "nt":
+            优先名称列表 = [
+                "direct3d11",
+                "direct3d",
+                "direct3d12",
+                "opengl",
+                "opengles2",
+                "software",
+            ]
+        else:
+            优先名称列表 = ["opengl", "opengles2", "software"]
+        候选索引: List[int] = []
+        for 名称 in 优先名称列表:
+            if 名称 in 名称到索引:
+                候选索引.append(int(名称到索引[名称]))
+        for 索引, 信息 in enumerate(驱动信息列表):
+            if int(索引) in 候选索引:
+                continue
+            名称 = str(getattr(信息, "name", "") or "").strip().lower()
+            if 名称:
+                候选索引.append(int(索引))
+        候选索引.append(-1)
+        return 候选索引
+
+    def _尝试创建渲染器(self, target_texture: bool = False):
+        if _sdl2_video is None or self._window is None:
+            return None
+        最后异常 = None
+        驱动信息列表 = []
+        try:
+            驱动信息列表 = list(_sdl2_video.get_drivers())
+        except Exception:
+            驱动信息列表 = []
+        for 索引 in self._取渲染驱动候选索引():
+            try:
+                渲染器 = _sdl2_video.Renderer(
+                    self._window,
+                    index=int(索引),
+                    accelerated=1,
+                    vsync=1 if self._vsync else 0,
+                    target_texture=bool(target_texture),
+                )
+                if int(索引) >= 0 and int(索引) < len(驱动信息列表):
+                    self._渲染驱动名 = str(
+                        getattr(驱动信息列表[int(索引)], "name", "") or ""
+                    )
+                else:
+                    self._渲染驱动名 = ""
+                return 渲染器
+            except TypeError as 异常:
+                最后异常 = 异常
+                try:
+                    渲染器 = _sdl2_video.Renderer(
+                        self._window,
+                        index=int(索引),
+                        accelerated=1,
+                        vsync=1 if self._vsync else 0,
+                    )
+                    if int(索引) >= 0 and int(索引) < len(驱动信息列表):
+                        self._渲染驱动名 = str(
+                            getattr(驱动信息列表[int(索引)], "name", "") or ""
+                        )
+                    else:
+                        self._渲染驱动名 = ""
+                    return 渲染器
+                except Exception as 二次异常:
+                    最后异常 = 二次异常
+                    continue
+            except Exception as 异常:
+                最后异常 = 异常
+                continue
+        if 最后异常 is not None:
+            raise 最后异常
+        return None
 
     def _确保窗口与渲染器(
         self,
@@ -322,18 +526,9 @@ class SDL2GPU显示后端(显示后端基类):
 
         if self._renderer is None:
             try:
-                self._renderer = _sdl2_video.Renderer(
-                    self._window,
-                    accelerated=1,
-                    vsync=1 if self._vsync else 0,
-                    target_texture=True,
-                )
-            except TypeError:
-                self._renderer = _sdl2_video.Renderer(
-                    self._window,
-                    accelerated=1,
-                    vsync=1 if self._vsync else 0,
-                )
+                self._renderer = self._尝试创建渲染器(target_texture=False)
+            except Exception:
+                self._renderer = self._尝试创建渲染器(target_texture=True)
         _应用窗口图标(self._window)
 
     def _重建绘制目标(self, 尺寸: Tuple[int, int]):
@@ -424,6 +619,10 @@ class SDL2GPU显示后端(显示后端基类):
 
     def 设置标题(self, 标题: str):
         super().设置标题(标题)
+        try:
+            pygame.display.set_caption(self._标题)
+        except Exception:
+            pass
         try:
             if self._window is not None:
                 self._window.title = self._标题
@@ -602,14 +801,20 @@ def 创建显示后端(
 
     if 模式 == "gpu":
         try:
-            return SDL2GPU显示后端(尺寸, flags, 标题, vsync=False)
+            return SDL2GPU显示后端(尺寸, flags, 标题, vsync=True)
         except Exception:
-            return 软件显示后端(尺寸, flags, 标题)
+            try:
+                return SDL2GPU显示后端(尺寸, flags, 标题, vsync=False)
+            except Exception:
+                return 软件显示后端(尺寸, flags, 标题)
 
     if 模式 == "auto":
         try:
-            return SDL2GPU显示后端(尺寸, flags, 标题, vsync=False)
+            return SDL2GPU显示后端(尺寸, flags, 标题, vsync=True)
         except Exception:
-            return 软件显示后端(尺寸, flags, 标题)
+            try:
+                return SDL2GPU显示后端(尺寸, flags, 标题, vsync=False)
+            except Exception:
+                return 软件显示后端(尺寸, flags, 标题)
 
     return 软件显示后端(尺寸, flags, 标题)

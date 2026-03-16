@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from core.常量与路径 import 取应用配置路径, 取运行根目录
 
@@ -25,6 +26,72 @@ def 规范版本比较值(值: object) -> str:
     if 文本.startswith("v"):
         文本 = 文本[1:]
     return 文本
+
+
+def _解析版本比较片段(值: object) -> tuple[list[int], tuple[int, str, int]]:
+    文本 = 规范版本比较值(值)
+    if not 文本:
+        return [], (999, "", 0)
+
+    主体文本 = str(文本.split("+", 1)[0] or "").strip()
+    数字主体文本 = ""
+    后缀文本 = ""
+    匹配 = re.match(r"^(\d+(?:[._-]\d+)*)(.*)$", 主体文本)
+    if 匹配:
+        数字主体文本 = str(匹配.group(1) or "").strip()
+        后缀文本 = str(匹配.group(2) or "").strip("._- ")
+    if (not 后缀文本) and re.search(r"[a-z]", 主体文本):
+        尾部匹配 = re.search(r"([a-z][a-z0-9._-]*)$", 主体文本)
+        if 尾部匹配:
+            后缀文本 = str(尾部匹配.group(1) or "").strip("._- ")
+            前缀文本 = 主体文本[: 尾部匹配.start()].strip("._- ")
+            if 前缀文本:
+                数字主体文本 = 前缀文本
+
+    数字片段 = re.findall(r"\d+", 数字主体文本)
+    数字段 = [int(x) for x in 数字片段]
+
+    if not 后缀文本:
+        return 数字段, (999, "", 0)
+
+    标签匹配 = re.match(r"([a-z]+)(\d*)", 后缀文本)
+    标签 = str(标签匹配.group(1) or "").strip().lower() if 标签匹配 else 后缀文本
+    try:
+        序号 = int(标签匹配.group(2) or 0) if 标签匹配 else 0
+    except Exception:
+        序号 = 0
+
+    权重表 = {
+        "dev": 10,
+        "alpha": 20,
+        "a": 20,
+        "beta": 30,
+        "b": 30,
+        "pre": 40,
+        "preview": 40,
+        "rc": 50,
+    }
+    return 数字段, (int(权重表.get(标签, 60)), 标签, int(序号))
+
+
+def 比较版本号(左值: object, 右值: object) -> int:
+    左数字段, 左后缀 = _解析版本比较片段(左值)
+    右数字段, 右后缀 = _解析版本比较片段(右值)
+
+    最大长度 = max(len(左数字段), len(右数字段))
+    for 索引 in range(最大长度):
+        左段 = int(左数字段[索引]) if 索引 < len(左数字段) else 0
+        右段 = int(右数字段[索引]) if 索引 < len(右数字段) else 0
+        if 左段 > 右段:
+            return 1
+        if 左段 < 右段:
+            return -1
+
+    if 左后缀 > 右后缀:
+        return 1
+    if 左后缀 < 右后缀:
+        return -1
+    return 0
 
 
 def 读取版本信息(根目录: str | None = None) -> dict:

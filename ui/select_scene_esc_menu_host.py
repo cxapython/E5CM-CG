@@ -10,6 +10,7 @@ from core.动态背景 import DynamicBackgroundManager
 from core.game_esc_menu_settings import (
     GAME_ESC_SETTINGS_KEY_AUTOPLAY,
     GAME_ESC_SETTINGS_KEY_BINDINGS,
+    GAME_ESC_SETTINGS_KEY_BPM_SCROLL_EFFECT,
     GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS,
     PROFILE_DOUBLE,
     PROFILE_SINGLE,
@@ -22,6 +23,7 @@ from core.game_esc_menu_settings import (
     format_chart_visual_offset_ms,
     get_dynamic_background_modes,
     load_key_binding_profiles,
+    read_saved_bpm_scroll_effect,
     read_saved_chart_visual_offset_ms,
     resolve_arrow_skin_option,
     resolve_background_option,
@@ -85,6 +87,7 @@ class SelectSceneEscMenuHost:
         self._是否自动模式 = False
         self._是否双踏板模式 = False
         self._谱面视觉偏移毫秒 = 0
+        self._BPM变速效果开启 = False
         self._背景暗层alpha = 179
         self._refresh_from_storage()
 
@@ -161,6 +164,9 @@ class SelectSceneEscMenuHost:
         self._性能模式 = bool(esc_data.get("性能模式", False))
         self._是否自动模式 = bool(esc_data.get(GAME_ESC_SETTINGS_KEY_AUTOPLAY, False))
         self._谱面视觉偏移毫秒 = int(read_saved_chart_visual_offset_ms(esc_data))
+        self._BPM变速效果开启 = bool(
+            read_saved_bpm_scroll_effect(esc_data) or False
+        )
         self._背景暗层alpha = int(max(0, min(255, int(esc_data.get("背景遮罩alpha", 179) or 179))))
 
         self._当前背景选项 = resolve_background_option(
@@ -230,6 +236,19 @@ class SelectSceneEscMenuHost:
             )
             self._卷轴速度倍率 = float(options[(index + step) % len(options)])
             self._save_select_visual_settings()
+            return None
+
+        if key == "bpm_scroll_effect":
+            self._BPM变速效果开启 = not bool(
+                getattr(self, "_BPM变速效果开启", False)
+            )
+            self._save_esc_scope_patch(
+                {
+                    GAME_ESC_SETTINGS_KEY_BPM_SCROLL_EFFECT: bool(
+                        self._BPM变速效果开启
+                    )
+                }
+            )
             return None
 
         if key == "background_mode":

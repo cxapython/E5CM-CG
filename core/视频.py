@@ -341,8 +341,15 @@ class 全局视频顺序循环播放器:
     - 播放到最后一个后回到第一个
     """
 
-    def __init__(self, 视频目录: str):
+    def __init__(
+        self,
+        视频目录: str,
+        最大输出帧率: float | None = None,
+    ):
         self.视频目录 = str(视频目录 or "")
+        self._最大输出帧率 = (
+            float(最大输出帧率) if 最大输出帧率 and 最大输出帧率 > 0 else None
+        )
         self._文件列表: list[str] = []
         self._当前索引: int = 0
         self._当前播放器: 全局视频循环播放器 | None = None
@@ -380,7 +387,11 @@ class 全局视频顺序循环播放器:
         if self._当前播放器 is None:
             self._当前索引 = 0 if 是否重置进度 else int(max(0, self._当前索引))
             当前路径 = self._文件列表[self._当前索引]
-            self._当前播放器 = 全局视频循环播放器(当前路径, 循环播放=False)
+            self._当前播放器 = 全局视频循环播放器(
+                当前路径,
+                循环播放=False,
+                最大输出帧率=self._最大输出帧率,
+            )
             self._当前播放器.打开(是否重置进度=True)
             return
         if 是否重置进度:
@@ -416,7 +427,11 @@ class 全局视频顺序循环播放器:
         self._当前索引 = (int(self._当前索引) + 1) % len(self._文件列表)
         当前路径 = self._文件列表[self._当前索引]
         if self._当前播放器 is None:
-            self._当前播放器 = 全局视频循环播放器(当前路径, 循环播放=False)
+            self._当前播放器 = 全局视频循环播放器(
+                当前路径,
+                循环播放=False,
+                最大输出帧率=self._最大输出帧率,
+            )
             self._当前播放器.打开(是否重置进度=True)
         else:
             self._当前播放器.设置视频(当前路径, 是否重置进度=True)

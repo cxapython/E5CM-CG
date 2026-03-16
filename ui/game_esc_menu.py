@@ -181,6 +181,12 @@ class EscMenuController:
                 "调整谱面滚动速度",
             ),
             MenuRow(
+                "bpm_scroll_effect",
+                "变速效果",
+                "开启" if bool(getattr(host, "_BPM变速效果开启", False)) else "关闭",
+                "常速歌额外加瞬间加速；谱面自带 BPMS 变速始终生效",
+            ),
+            MenuRow(
                 "chart_visual_offset",
                 "谱面偏移",
                 str(visual_offset_text),

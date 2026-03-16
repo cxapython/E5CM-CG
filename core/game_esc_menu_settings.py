@@ -18,6 +18,7 @@ from core.sqlite_store import (
 GAME_ESC_SETTINGS_KEY_AUTOPLAY = "自动播放"
 GAME_ESC_SETTINGS_KEY_BINDINGS = "键位绑定"
 GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS = "谱面偏移毫秒"
+GAME_ESC_SETTINGS_KEY_BPM_SCROLL_EFFECT = "BPM变速效果"
 
 CHART_VISUAL_OFFSET_STEP_MS = 10
 CHART_VISUAL_OFFSET_MIN_MS = -500
@@ -536,3 +537,15 @@ def read_saved_chart_visual_offset_ms(
             0,
         )
     )
+
+
+def read_saved_bpm_scroll_effect(
+    scope_data: Optional[Dict[str, object]] = None,
+) -> Optional[bool]:
+    data = dict(scope_data or {}) if isinstance(scope_data, dict) else read_game_esc_settings_scope()
+    if GAME_ESC_SETTINGS_KEY_BPM_SCROLL_EFFECT in data:
+        try:
+            return bool(data.get(GAME_ESC_SETTINGS_KEY_BPM_SCROLL_EFFECT))
+        except Exception:
+            return None
+    return None

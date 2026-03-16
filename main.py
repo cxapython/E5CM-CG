@@ -4,6 +4,7 @@ import time
 import json
 import inspect
 import webbrowser
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 from typing import Optional
 
@@ -14,12 +15,12 @@ except Exception:
 
 from core.常量与路径 import 默认资源路径, 取运行根目录
 from core.对局状态 import 取每局所需信用
-from core.渲染后端 import 创建显示后端, 取桌面尺寸
+from core.渲染后端 import 创建显示后端, 取桌面尺寸, 取桌面刷新率
 from core.踏板控制 import 解析踏板动作
 from core.工具 import 获取字体
 from core.音频 import 音乐管理
 from core.视频 import 全局视频循环播放器, 选择第一个视频
-from core.软件版本 import 规范版本比较值, 规范版本号, 读取当前版本号
+from core.软件版本 import 比较版本号, 规范版本比较值, 规范版本号, 读取当前版本号
 from core.sqlite_store import (
     SCOPE_GLOBAL_SETTINGS as _全局设置存储作用域,
     read_scope as _读取存储作用域,
@@ -286,7 +287,7 @@ def _后台检查软件更新(当前版本号: str, 结果容器: dict):
         结果容器["数据"] = 更新信息
         结果容器["发现新版本"] = bool(
             远端版本号
-            and 规范版本比较值(远端版本号) != 规范版本比较值(当前版本号)
+            and 比较版本号(远端版本号, 当前版本号) > 0
         )
     except Exception as 异常:
         结果容器["查询成功"] = False
@@ -569,6 +570,8 @@ def _弹窗下载新版安装包(更新信息: dict, 父窗体=None) -> bool:
 def _弹窗提示软件更新(当前版本号: str, 更新信息: dict) -> bool:
     远端版本号 = str(更新信息.get("version", "") or "").strip()
     if not 远端版本号:
+        return False
+    if 比较版本号(远端版本号, 当前版本号) <= 0:
         return False
 
     try:
@@ -906,6 +909,21 @@ def 主函数():
             return
         try:
             上下文["屏幕"] = 屏幕
+        except Exception:
+            pass
+        try:
+            刷新率 = int(
+                getattr(显示后端, "取桌面刷新率", lambda: 取桌面刷新率(60))() or 60
+            )
+        except Exception:
+            刷新率 = int(取桌面刷新率(60) or 60)
+        刷新率 = int(max(30, min(240, 刷新率)))
+        try:
+            状态["显示器刷新率"] = int(刷新率)
+        except Exception:
+            pass
+        try:
+            上下文["显示器刷新率"] = int(刷新率)
         except Exception:
             pass
 
@@ -1320,6 +1338,12 @@ def 主函数():
     )
     _刷新窗口标题(显示后端)
     屏幕 = 显示后端.取绘制屏幕()
+    try:
+        当前显示器刷新率 = int(
+            getattr(显示后端, "取桌面刷新率", lambda: 取桌面刷新率(60))() or 60
+        )
+    except Exception:
+        当前显示器刷新率 = int(取桌面刷新率(60) or 60)
 
     # time.sleep(0.15)
     # _切换英文输入法()
@@ -1367,6 +1391,7 @@ def 主函数():
         "对局_赠送第四把": False,
         "投币快捷键": int(pygame.K_f),
         "投币快捷键显示": "F",
+        "显示器刷新率": int(max(30, min(240, int(当前显示器刷新率 or 60)))),
         "默认渲染后端": str(启动调试设置.get("默认渲染后端", "gpu") or "gpu"),
         "默认GPU谱面管线": bool(启动调试设置.get("默认GPU谱面管线", True)),
         "显示性能调试信息": bool(启动调试设置.get("显示性能调试信息", False)),
@@ -1388,12 +1413,17 @@ def 主函数():
     def _同步渲染后端状态(后端对象, 当前载荷=None):
         实际后端 = _取渲染后端偏好值(后端对象)
         实际启用GPU谱面管线 = bool(getattr(后端对象, "是否GPU", False))
-        状态["默认渲染后端"] = str(实际后端)
-        状态["默认GPU谱面管线"] = 实际启用GPU谱面管线
+        状态["当前渲染后端"] = str(实际后端)
+        状态["当前GPU谱面管线"] = bool(实际启用GPU谱面管线)
         os.environ["E5CM_RENDER_BACKEND"] = str(实际后端)
-        os.environ["E5CM_GPU_PIPELINE"] = "1" if 实际启用GPU谱面管线 else "0"
+        管线偏好开启 = bool(状态.get("默认GPU谱面管线", True))
+        os.environ["E5CM_GPU_PIPELINE"] = (
+            "1" if (bool(实际启用GPU谱面管线) and bool(管线偏好开启)) else "0"
+        )
         if isinstance(当前载荷, dict):
-            当前载荷["启用GPU谱面管线"] = 实际启用GPU谱面管线
+            当前载荷["启用GPU谱面管线"] = bool(
+                bool(实际启用GPU谱面管线) and bool(管线偏好开启)
+            )
         _刷新窗口标题(后端对象)
         return 实际后端
 
@@ -1425,6 +1455,8 @@ def 主函数():
         "主循环最近统计": {},
         "显示后端最近统计": {},
         "显示性能调试信息": bool(启动调试设置.get("显示性能调试信息", False)),
+        "显示器刷新率": int(max(30, min(240, int(当前显示器刷新率 or 60)))),
+        "开发调试菜单开启": False,
     }
 
     backmovies目录 = 资源.get(
@@ -1740,6 +1772,7 @@ def 主函数():
     def _重建当前场景并切换后端(目标后端: str):
         nonlocal 显示后端, 屏幕, 当前场景
         目标后端 = _规范渲染后端偏好(目标后端, 默认值="gpu")
+        状态["默认渲染后端"] = str(目标后端)
         当前载荷 = _取当前场景载荷()
         目标flags = pygame.FULLSCREEN if bool(是否全屏) else pygame.RESIZABLE
         try:
@@ -1764,8 +1797,7 @@ def 主函数():
             偏好=str(目标后端),
         )
         实际后端 = _同步渲染后端状态(显示后端, 当前载荷)
-        屏幕 = 显示后端.取绘制屏幕()
-        上下文["屏幕"] = 屏幕
+        _同步屏幕引用()
         上下文["显示后端"] = 显示后端
         上下文["渲染后端名称"] = str(
             getattr(显示后端, "名称", 实际后端) or 实际后端
@@ -2521,6 +2553,7 @@ def 主函数():
         CPU绘制开始秒 = time.perf_counter()
         上下文["GPU上传脏矩形列表"] = None
         上下文["GPU强制全量上传"] = False
+        上下文["开发调试菜单开启"] = bool(开发调试菜单开启)
         当前场景.绘制()
         if bool(选歌ESC菜单宿主.is_open()) and str(当前场景名 or "") == "选歌":
             选歌ESC菜单宿主.draw(上下文["屏幕"])

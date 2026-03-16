@@ -1,15 +1,9 @@
 #define AppName "E舞成名重构版"
 #define AppPublisher "liang"
 #define AppExeName "E5CM-CG.exe"
-#define Versionfilepath AddBackslash(SourcePath) + "config\app\客户端版本.json"
-#define AppVersion Trim(ExecAndGetFirstLine( \
-  "powershell.exe", \
-  "-NoProfile -ExecutionPolicy Bypass -Command ""$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; (Get-Content -Raw -LiteralPath '" + Versionfilepath + "' | ConvertFrom-Json).version""", \
-  SourcePath \
-))
 
-#if AppVersion == ""
-  #expr Error("读取 config\\app\\客户端版本.json 失败，version 为空。")
+#ifndef AppVersion
+  #expr Error("未传入 AppVersion。请使用 2.打包成安装包.bat，或在 ISCC 中传入 /DAppVersion=2.0.0")
 #endif
 
 [Setup]
@@ -81,7 +75,7 @@ begin
   if RenameFile(SourcePath, TargetPath) then
     exit;
 
-  FileCopy(SourcePath, TargetPath, False);
+  CopyFile(SourcePath, TargetPath, False);
 end;
 
 procedure CopyDirContentsIfMissing(const SourceDir, TargetDir: String);
@@ -113,7 +107,7 @@ begin
           else if not FileExists(TargetItem) then
           begin
             ForceDirectories(ExtractFileDir(TargetItem));
-            FileCopy(SourceItem, TargetItem, False);
+            CopyFile(SourceItem, TargetItem, False);
           end;
         end;
       until not FindNext(FindRec);
@@ -158,9 +152,9 @@ procedure EnsureSongsSkeletonFromManifest();
 var
   SongsRoot: String;
   ManifestPath: String;
-  ManifestText: String;
+  ManifestLines: TArrayOfString;
   LineText: String;
-  NewLinePos: Integer;
+  I: Integer;
 begin
   SongsRoot := ExpandConstant('{app}\songs');
   ForceDirectories(SongsRoot);
@@ -169,27 +163,12 @@ begin
 
   if not FileExists(ManifestPath) then
     exit;
-  if not LoadStringFromFile(ManifestPath, ManifestText) then
+  if not LoadStringsFromFile(ManifestPath, ManifestLines) then
     exit;
 
-  StringChangeEx(ManifestText, #13#10, #10, True);
-  StringChangeEx(ManifestText, #13, #10, True);
-
-  while ManifestText <> '' do
+  for I := 0 to GetArrayLength(ManifestLines) - 1 do
   begin
-    NewLinePos := Pos(#10, ManifestText);
-    if NewLinePos > 0 then
-    begin
-      LineText := Copy(ManifestText, 1, NewLinePos - 1);
-      Delete(ManifestText, 1, NewLinePos);
-    end
-    else
-    begin
-      LineText := ManifestText;
-      ManifestText := '';
-    end;
-
-    LineText := Trim(LineText);
+    LineText := Trim(ManifestLines[I]);
     if (LineText <> '') and (Pos('..', LineText) = 0) then
     begin
       StringChangeEx(LineText, '/', '\', True);
