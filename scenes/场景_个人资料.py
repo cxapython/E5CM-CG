@@ -2402,16 +2402,22 @@ class 场景_个人资料:
 
     def _弹窗_选择图片文件(self) -> Optional[str]:
         try:
-            import tkinter as tk
             from tkinter import filedialog
+            # 从 main 导入 Tk 根窗口辅助函数，避免 macOS 上 pygame/tkinter 冲突
+            from main import 获取或创建Tk根窗口
         except Exception:
             return None
 
         根 = None
+        需要销毁 = False
         try:
-            根 = tk.Tk()
-            根.withdraw()
-            根.attributes("-topmost", True)
+            根, 需要销毁 = 获取或创建Tk根窗口()
+            if 根 is None:
+                return None
+            try:
+                根.attributes("-topmost", True)
+            except Exception:
+                pass
             初始目录 = ""
             try:
                 初始目录 = os.path.join(os.path.expanduser("~"), "Desktop")
@@ -2434,7 +2440,7 @@ class 场景_个人资料:
             return None
         finally:
             try:
-                if 根 is not None:
+                if 需要销毁 and 根 is not None:
                     根.destroy()
             except Exception:
                 pass
@@ -2442,16 +2448,23 @@ class 场景_个人资料:
     def _弹窗_输入昵称(self, 当前昵称: str) -> Optional[str]:
         try:
             import tkinter as tk
+            # 从 main 导入 Tk 根窗口辅助函数，避免 macOS 上 pygame/tkinter 冲突
+            from main import 获取或创建Tk根窗口
         except Exception:
             return None
 
         根 = None
+        需要销毁 = False
         窗 = None
         结果 = {"值": None}
         try:
-            根 = tk.Tk()
-            根.withdraw()
-            根.attributes("-topmost", True)
+            根, 需要销毁 = 获取或创建Tk根窗口()
+            if 根 is None:
+                return None
+            try:
+                根.attributes("-topmost", True)
+            except Exception:
+                pass
 
             窗 = tk.Toplevel(根)
             窗.title("修改昵称")
@@ -2612,11 +2625,12 @@ class 场景_个人资料:
                     窗.destroy()
             except Exception:
                 pass
-            try:
-                if 根 is not None:
-                    根.destroy()
-            except Exception:
-                pass
+            if 需要销毁:
+                try:
+                    if 根 is not None:
+                        根.destroy()
+                except Exception:
+                    pass
 
     def _点击_更换头像(self):
         try:

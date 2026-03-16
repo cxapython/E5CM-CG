@@ -8,6 +8,9 @@ import inspect
 import webbrowser
 
 # macOS PyInstaller 打包后 tkinter 需要正确设置 TCL/TK 环境变量
+# 同时需要在使用 tkinter 对话框前初始化，避免与 pygame 冲突
+_tk_root_window = None
+
 if sys.platform == "darwin" and getattr(sys, "frozen", False):
     # 获取 .app bundle 的 Resources 目录
     可执行路径 = os.path.abspath(sys.executable)
@@ -23,6 +26,44 @@ if sys.platform == "darwin" and getattr(sys, "frozen", False):
                     os.environ.setdefault("TCL_LIBRARY", tcl_dir)
                 if os.path.isdir(tk_dir):
                     os.environ.setdefault("TK_LIBRARY", tk_dir)
+
+# macOS 上 pygame 和 tkinter 存在冲突
+# 必须在 pygame.init() 之前初始化 tkinter，否则 tkinter 的颜色系统会崩溃
+# 参考: https://github.com/pyinstaller/pyinstaller/issues/6658
+if sys.platform == "darwin":
+    try:
+        import tkinter as _tk_root_init
+        _tk_root_window = _tk_root_init.Tk()
+        _tk_root_window.withdraw()  # 隐藏窗口，只用于对话框
+    except Exception:
+        _tk_root_window = None
+
+
+def 获取或创建Tk根窗口():
+    """
+    获取或创建一个 Tk 根窗口。
+    macOS 上需要复用已初始化的根窗口以避免与 pygame 冲突。
+    返回: (根窗口, 是否需要销毁)
+    """
+    global _tk_root_window
+    import tkinter as _tk_inner
+
+    # 优先使用全局已初始化的根窗口
+    if _tk_root_window is not None:
+        try:
+            # 检查窗口是否仍然有效
+            _tk_root_window.winfo_exists()
+            return _tk_root_window, False
+        except Exception:
+            _tk_root_window = None
+
+    # 创建新的根窗口
+    try:
+        根 = _tk_inner.Tk()
+        根.withdraw()
+        return 根, True
+    except Exception:
+        return None, False
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
@@ -110,10 +151,31 @@ def _弹窗提示缺少曲包(songs根目录: str):
             print(文本)
         return
 
-    try:
-        根窗 = tk.Tk()
-        根窗.withdraw()
+    # macOS 上复用已初始化的隐藏根窗口，避免与 pygame 冲突
+    根窗 = None
+    自建根窗 = False
+    if _tk_root_window is not None:
+        try:
+            根窗 = _tk_root_window
+        except Exception:
+            根窗 = None
 
+    if 根窗 is None:
+        try:
+            根窗 = tk.Tk()
+            根窗.withdraw()
+            自建根窗 = True
+        except Exception:
+            根窗 = None
+
+    if 根窗 is None:
+        print(正文)
+        print("下载曲包：https://e5cg.vip")
+        for 文本 in 操作步骤:
+            print(文本)
+        return
+
+    try:
         弹窗 = tk.Toplevel(根窗)
         弹窗.title(标题)
         弹窗.resizable(False, False)
@@ -220,12 +282,14 @@ def _弹窗提示缺少曲包(songs根目录: str):
         弹窗.grab_set()
         弹窗.focus_force()
         根窗.wait_window(弹窗)
-        根窗.destroy()
-    except Exception:
-        try:
+        if 自建根窗:
             根窗.destroy()
-        except Exception:
-            pass
+    except Exception:
+        if 自建根窗:
+            try:
+                根窗.destroy()
+            except Exception:
+                pass
         print(正文)
         print("下载曲包：https://e5cg.vip")
         for 文本 in 操作步骤:
@@ -330,7 +394,7 @@ def _弹窗下载新版安装包(更新信息: dict, 父窗体=None) -> bool:
         return False
 
     根窗 = None
-    自建根窗 = 父窗体 is None
+    自建根窗 = False
     状态 = {
         "已完成": False,
         "成功": False,
@@ -345,11 +409,14 @@ def _弹窗下载新版安装包(更新信息: dict, 父窗体=None) -> bool:
     进度条已启动 = {"值": False}
 
     try:
-        if 自建根窗:
+        if 父窗体 is not None:
+            根窗 = 父窗体
+        elif _tk_root_window is not None:
+            根窗 = _tk_root_window
+        else:
             根窗 = tk.Tk()
             根窗.withdraw()
-        else:
-            根窗 = 父窗体
+            自建根窗 = True
 
         弹窗 = tk.Toplevel(根窗)
         弹窗.title("下载更新")
@@ -600,11 +667,17 @@ def _弹窗提示软件更新(当前版本号: str, 更新信息: dict) -> bool:
         return False
 
     根窗 = None
+    自建根窗 = False
     结果 = {"已启动安装器": False}
 
     try:
-        根窗 = tk.Tk()
-        根窗.withdraw()
+        # macOS 上复用已初始化的隐藏根窗口，避免与 pygame 冲突
+        if _tk_root_window is not None:
+            根窗 = _tk_root_window
+        else:
+            根窗 = tk.Tk()
+            根窗.withdraw()
+            自建根窗 = True
 
         弹窗 = tk.Toplevel(根窗)
         弹窗.title("发现新版本")
@@ -743,7 +816,7 @@ def _弹窗提示软件更新(当前版本号: str, 更新信息: dict) -> bool:
         根窗.wait_window(弹窗)
         return bool(结果.get("已启动安装器", False))
     finally:
-        if 根窗 is not None:
+        if 自建根窗 and 根窗 is not None:
             try:
                 根窗.destroy()
             except Exception:
