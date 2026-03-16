@@ -2589,6 +2589,11 @@ def 主函数():
                 if callable(绘制方法):
                     绘制方法(后端)
 
+            def _绘制GPU中层(后端):
+                绘制方法 = getattr(当前场景, "绘制GPU中层", None)
+                if callable(绘制方法):
+                    绘制方法(后端)
+
             def _绘制GPU叠加(后端):
                 绘制方法 = getattr(当前场景, "绘制GPU叠加", None)
                 if callable(绘制方法):
@@ -2605,6 +2610,7 @@ def 主函数():
                 GPU强制全量上传 = True
             呈现统计 = 显示后端.呈现(
                 _绘制GPU背景,
+                _绘制GPU中层,
                 _绘制GPU叠加,
                 上传脏矩形列表=GPU上传脏矩形列表,
                 强制全量上传=bool(GPU强制全量上传),

@@ -21,6 +21,7 @@ songs/
 开发工具归档/
 编译结果/
 installer_output/
+userdata/cache
 # 打包/构建产物
 build/
 dist/

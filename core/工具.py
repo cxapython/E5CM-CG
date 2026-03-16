@@ -1,6 +1,6 @@
 import os
 import pygame
-from core.常量与路径 import 拼路径
+from core.常量与路径 import 取冷资源路径
 
 def 获取字体(
     字号: int, 是否粗体: bool = False, 字体文件路径: str | None = None, **额外参数
@@ -18,12 +18,21 @@ def 获取字体(
     字号 = max(8, min(200, 字号))
     是否粗体 = bool(是否粗体)
 
+    try:
+        if not pygame.font.get_init():
+            pygame.font.init()
+    except Exception:
+        try:
+            pygame.font.init()
+        except Exception:
+            pass
+
     if not hasattr(获取字体, "_缓存"):
         获取字体._缓存 = {}
     if not hasattr(获取字体, "_已提示缺字体"):
         获取字体._已提示缺字体 = False
 
-    默认字体 = 拼路径("冷资源", "字体", "方正黑体简体.TTF")
+    默认字体 = 取冷资源路径("字体", "方正黑体简体.TTF")
     目标字体 = str(字体文件路径 or 默认字体)
 
     键 = (目标字体, 字号, 是否粗体)

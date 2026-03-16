@@ -18,6 +18,7 @@ _应用图标已扫描 = False
 
 额外绘制回调 = Callable[["显示后端基类"], None]
 额外背景绘制回调 = Callable[["显示后端基类"], None]
+额外中层绘制回调 = Callable[["显示后端基类"], None]
 
 
 def _规范尺寸(尺寸: Tuple[int, int]) -> Tuple[int, int]:
@@ -283,6 +284,7 @@ class 显示后端基类:
     def 呈现(
         self,
         额外背景绘制: Optional[额外背景绘制回调] = None,
+        额外中层绘制: Optional[额外中层绘制回调] = None,
         额外绘制: Optional[额外绘制回调] = None,
         上传脏矩形列表=None,
         强制全量上传: bool = False,
@@ -346,6 +348,7 @@ class 软件显示后端(显示后端基类):
     def 呈现(
         self,
         额外背景绘制: Optional[额外背景绘制回调] = None,
+        额外中层绘制: Optional[额外中层绘制回调] = None,
         额外绘制: Optional[额外绘制回调] = None,
         上传脏矩形列表=None,
         强制全量上传: bool = False,
@@ -355,6 +358,8 @@ class 软件显示后端(显示后端基类):
         overlay开始秒 = time.perf_counter()
         if callable(额外背景绘制):
             额外背景绘制(self)
+        if callable(额外中层绘制):
+            额外中层绘制(self)
         if callable(额外绘制):
             额外绘制(self)
         overlay_ms = (time.perf_counter() - overlay开始秒) * 1000.0
@@ -705,6 +710,7 @@ class SDL2GPU显示后端(显示后端基类):
     def 呈现(
         self,
         额外背景绘制: Optional[额外背景绘制回调] = None,
+        额外中层绘制: Optional[额外中层绘制回调] = None,
         额外绘制: Optional[额外绘制回调] = None,
         上传脏矩形列表=None,
         强制全量上传: bool = False,
@@ -722,6 +728,8 @@ class SDL2GPU显示后端(显示后端基类):
         self._renderer.clear()
         if callable(额外背景绘制):
             额外背景绘制(self)
+        if callable(额外中层绘制):
+            额外中层绘制(self)
         if self._主纹理 is not None:
             self._renderer.blit(self._主纹理)
         upload_ms = (time.perf_counter() - upload开始秒) * 1000.0

@@ -249,6 +249,11 @@ def 取用户数据根目录(根目录: str | None = None) -> str:
     return os.path.join(_取根目录(根目录), "userdata")
 
 
+def 取缓存目录(*片段: str, 根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return os.path.join(根, "userdata", "cache", *片段)
+
+
 def 取个人资料目录(根目录: str | None = None) -> str:
     根 = _取根目录(根目录)
     return os.path.join(根, "userdata", "profile")
@@ -270,6 +275,14 @@ def 取个人资料头像目录(根目录: str | None = None) -> str:
     )
 
 
+def 取选歌封面缓存目录(根目录: str | None = None) -> str:
+    根 = _取根目录(根目录)
+    return _尝试迁移目录(
+        取缓存目录("select_scene_cover_cache", 根目录=根),
+        os.path.join(根, "state", "select_scene_cover_cache"),
+    )
+
+
 def 拼资源路径(*片段: str, 资源: dict | None = None) -> str:
     项目根目录 = 取项目根目录(资源)
 
@@ -282,6 +295,38 @@ def 拼资源路径(*片段: str, 资源: dict | None = None) -> str:
         return os.path.abspath(os.path.join(项目根目录, 路径))
 
     return os.path.abspath(os.path.join(项目根目录, *片段))
+
+
+def 取资源路径(*片段: str, 资源: dict | None = None) -> str:
+    return 拼资源路径(*片段, 资源=资源)
+
+
+def 取UI图片路径(*片段: str, 资源: dict | None = None) -> str:
+    return 拼资源路径("UI-img", *片段, 资源=资源)
+
+
+def 取冷资源路径(*片段: str, 资源: dict | None = None) -> str:
+    return 拼资源路径("冷资源", *片段, 资源=资源)
+
+
+def 取首个存在路径(*候选路径: object) -> str:
+    for 候选 in 候选路径:
+        try:
+            文本 = str(候选 or "").strip()
+        except Exception:
+            文本 = ""
+        if not 文本:
+            continue
+        try:
+            路径 = os.path.abspath(文本)
+        except Exception:
+            路径 = 文本
+        try:
+            if os.path.exists(路径):
+                return 路径
+        except Exception:
+            continue
+    return ""
 
 
 def 取songs根目录(
