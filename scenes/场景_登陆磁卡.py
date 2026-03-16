@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import math
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pygame
 
@@ -43,16 +45,16 @@ class 缓存资源组:
 
 @dataclass
 class 布局框组:
-    top栏框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    个人中心框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    场景1游客框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    场景1vip框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    场景2游客框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    刷卡背景框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    刷卡内容框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    贵宾装饰框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    磁卡目标框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    磁卡当前框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
+    top栏框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    个人中心框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    场景1游客框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    场景1vip框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    场景2游客框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    刷卡背景框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    刷卡内容框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    贵宾装饰框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    磁卡目标框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    磁卡当前框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
 
 
 @dataclass
@@ -64,14 +66,14 @@ class 运行时状态:
     闪烁开始: float = 0.0
     磁卡滑入开始: float = 0.0
     拖拽中: bool = False
-    拖拽偏移: tuple[int, int] = (0, 0)
+    拖拽偏移: tuple[int, int] = field(default_factory=lambda: (0, 0))
     hover游客: bool = False
     hovervip: bool = False
     踏板选中项: str | None = None
     自动刷卡中: bool = False
     自动刷卡开始: float = 0.0
-    自动刷卡起点: tuple[float, float] = (0.0, 0.0)
-    自动刷卡终点: tuple[float, float] = (0.0, 0.0)
+    自动刷卡起点: tuple[float, float] = field(default_factory=lambda: (0.0, 0.0))
+    自动刷卡终点: tuple[float, float] = field(default_factory=lambda: (0.0, 0.0))
     游客悬停插值: float = 0.0
     vip悬停插值: float = 0.0
     悬停更新时间: float = 0.0

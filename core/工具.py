@@ -1,6 +1,45 @@
+from __future__ import annotations
+
 import os
+import sys
 import pygame
 from core.常量与路径 import 拼路径
+
+
+def _获取系统中文字体() -> str | None:
+    """获取系统支持中文的字体路径（跨平台）"""
+    # 按优先级列出候选字体
+    候选字体列表 = []
+
+    if sys.platform == "darwin":  # macOS
+        候选字体列表 = [
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Supplemental/Songti.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        ]
+    elif sys.platform == "win32":  # Windows
+        候选字体列表 = [
+            "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
+            "C:/Windows/Fonts/simhei.ttf",    # 黑体
+            "C:/Windows/Fonts/simsun.ttc",    # 宋体
+            "C:/Windows/Fonts/msyhbd.ttc",    # 微软雅黑粗体
+        ]
+    else:  # Linux 等
+        候选字体列表 = [
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        ]
+
+    for 字体路径 in 候选字体列表:
+        if 字体路径 and os.path.isfile(字体路径):
+            return 字体路径
+    return None
+
 
 def 获取字体(
     字号: int, 是否粗体: bool = False, 字体文件路径: str | None = None, **额外参数
@@ -8,7 +47,8 @@ def 获取字体(
     """
     统一字体入口：
     - 默认使用：<运行根目录>/冷资源/字体/方正黑体简体.TTF
-    - 若不存在：降级用 pygame 默认字体
+    - 若不存在：尝试使用系统字体（Mac/Windows/Linux）
+    - 最后降级：pygame 默认字体
     - 带缓存：避免重复创建 Font 对象
     """
     try:
@@ -22,6 +62,8 @@ def 获取字体(
         获取字体._缓存 = {}
     if not hasattr(获取字体, "_已提示缺字体"):
         获取字体._已提示缺字体 = False
+    if not hasattr(获取字体, "_系统字体路径"):
+        获取字体._系统字体路径 = None
 
     默认字体 = 拼路径("冷资源", "字体", "方正黑体简体.TTF")
     目标字体 = str(字体文件路径 or 默认字体)
@@ -33,20 +75,36 @@ def 获取字体(
 
     字体对象 = None
 
+    # 尝试加载指定字体
     if os.path.isfile(目标字体):
         try:
             字体对象 = pygame.font.Font(目标字体, 字号)
         except Exception:
             字体对象 = None
-    else:
+
+    # 如果指定字体不可用，尝试系统字体
+    if 字体对象 is None:
+        系统字体 = _获取系统中文字体()
+        if 系统字体:
+            try:
+                字体对象 = pygame.font.Font(系统字体, 字号)
+                if not 获取字体._已提示缺字体:
+                    获取字体._已提示缺字体 = True
+                    try:
+                        print(f"[字体] 使用系统字体：{系统字体}")
+                    except Exception:
+                        pass
+            except Exception:
+                字体对象 = None
+
+    # 最后降级到 pygame 默认字体
+    if 字体对象 is None:
         if not 获取字体._已提示缺字体:
             获取字体._已提示缺字体 = True
             try:
-                print(f"[字体] 未找到：{目标字体}，将降级为 pygame 默认字体")
+                print(f"[字体] 未找到中文字体，将使用 pygame 默认字体（可能显示乱码）")
             except Exception:
                 pass
-
-    if 字体对象 is None:
         try:
             字体对象 = pygame.font.Font(None, 字号)
         except Exception:
