@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import pygame
@@ -99,7 +100,16 @@ def get_font(size: int, bold: bool = False) -> pygame.font.Font:
     except Exception:
         pygame.font.init()
         try:
-            return pygame.font.SysFont("Microsoft YaHei", int(size), bold=bool(bold))
+            if sys.platform == "darwin":
+                return pygame.font.SysFont("PingFang SC", int(size), bold=bool(bold))
+            elif sys.platform == "win32":
+                return pygame.font.SysFont(
+                    "Microsoft YaHei", int(size), bold=bool(bold)
+                )
+            else:
+                return pygame.font.SysFont(
+                    "Noto Sans CJK SC", int(size), bold=bool(bold)
+                )
         except Exception:
             return pygame.font.Font(None, int(size))
 
@@ -883,9 +893,7 @@ class SettlementLayoutStore:
                 runtime_style["font_size"] = max(
                     8,
                     int(
-                        round(
-                            float(text_style.get("font_size", 24) or 24) * text_scale
-                        )
+                        round(float(text_style.get("font_size", 24) or 24) * text_scale)
                     ),
                 )
                 runtime_style["stroke_width"] = max(

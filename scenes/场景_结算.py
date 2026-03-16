@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -55,9 +56,18 @@ def _获取字体(字号: int, 是否粗体: bool = False) -> pygame.font.Font:
     except Exception:
         pygame.font.init()
         try:
-            return pygame.font.SysFont(
-                "Microsoft YaHei", int(字号), bold=bool(是否粗体)
-            )
+            if sys.platform == "darwin":
+                return pygame.font.SysFont(
+                    "PingFang SC", int(字号), bold=bool(是否粗体)
+                )
+            elif sys.platform == "win32":
+                return pygame.font.SysFont(
+                    "Microsoft YaHei", int(字号), bold=bool(是否粗体)
+                )
+            else:
+                return pygame.font.SysFont(
+                    "Noto Sans CJK SC", int(字号), bold=bool(是否粗体)
+                )
         except Exception:
             return pygame.font.Font(None, int(字号))
 
@@ -581,7 +591,9 @@ class 场景_结算(场景基类):
         最大片段数 = 0
         最大升级数 = 0
         for 模式名 in ("花式", "竞速"):
-            数据 = 奖励.get(模式名, {}) if isinstance(奖励.get(模式名, {}), dict) else {}
+            数据 = (
+                奖励.get(模式名, {}) if isinstance(奖励.get(模式名, {}), dict) else {}
+            )
             进度片段 = list(数据.get("进度片段", []) or [])
             有效片段数 = 0
             for 片段 in 进度片段:
@@ -989,9 +1001,7 @@ class 场景_结算(场景基类):
                                 计算经验显示比例(
                                     等级,
                                     float(
-                                        动画状态.get(
-                                            "经验", 数据.get("经验", 0.0)
-                                        )
+                                        动画状态.get("经验", 数据.get("经验", 0.0))
                                         or 0.0
                                     ),
                                 ),
@@ -1093,16 +1103,18 @@ class 场景_结算(场景基类):
 
                 if 目标消费 >= 片段终点 - 1e-6:
                     if 是否升级:
-                        当前等级 = int(片段.get("升级后等级", 当前等级 + 1) or (当前等级 + 1))
+                        当前等级 = int(
+                            片段.get("升级后等级", 当前等级 + 1) or (当前等级 + 1)
+                        )
                         当前经验 = 0.0
                     else:
                         当前等级 = int(片段.get("等级", 当前等级) or 当前等级)
                         当前经验 = float(片段.get("结束经验", 当前经验) or 当前经验)
                 elif 目标消费 > 片段起点 + 1e-6:
                     当前等级 = int(片段.get("等级", 当前等级) or 当前等级)
-                    当前经验 = float(片段.get("起始经验", 当前经验) or 当前经验) + float(
-                        目标消费 - 片段起点
-                    )
+                    当前经验 = float(
+                        片段.get("起始经验", 当前经验) or 当前经验
+                    ) + float(目标消费 - 片段起点)
                     当前级所需经验 = float(
                         max(1.0, float(片段.get("等级所需经验", 1.0) or 1.0))
                     )
@@ -2001,9 +2013,7 @@ class 场景_结算(场景基类):
             max(0.0, float(self._流程3提示入场秒 or 0.0))
         )
 
-    def _是否允许自动开始流程3退场(
-        self, 当前系统秒: Optional[float] = None
-    ) -> bool:
+    def _是否允许自动开始流程3退场(self, 当前系统秒: Optional[float] = None) -> bool:
         if 当前系统秒 is None:
             当前系统秒 = time.perf_counter()
         自动退场最早开始秒 = max(
@@ -2100,9 +2110,11 @@ class 场景_结算(场景基类):
         self._尝试播放流程3倒计时音效(当前系统秒)
 
         if self._流程3阶段类型 == "自动提示":
-            if self._流程3是否已完成入场(当前系统秒) and (
-                可见已持续秒 >= float(self._流程3阶段持续秒 or 0.0)
-            ) and self._是否允许自动开始流程3退场(当前系统秒):
+            if (
+                self._流程3是否已完成入场(当前系统秒)
+                and (可见已持续秒 >= float(self._流程3阶段持续秒 or 0.0))
+                and self._是否允许自动开始流程3退场(当前系统秒)
+            ):
                 self._开始流程3退出(dict(self._流程3继续动作 or {}))
             return None
 
@@ -2112,9 +2124,11 @@ class 场景_结算(场景基类):
                 self._处理流程3续币成功()
                 return None
 
-            if self._流程3是否已完成入场(当前系统秒) and (
-                可见已持续秒 >= float(self._流程3阶段持续秒 or 0.0)
-            ) and self._是否允许自动开始流程3退场(当前系统秒):
+            if (
+                self._流程3是否已完成入场(当前系统秒)
+                and (可见已持续秒 >= float(self._流程3阶段持续秒 or 0.0))
+                and self._是否允许自动开始流程3退场(当前系统秒)
+            ):
                 self._播放游戏结束音效()
                 self._进入流程3自动提示(
                     提示键="游戏结束",
@@ -2125,9 +2139,11 @@ class 场景_结算(场景基类):
             return None
 
         if self._流程3阶段类型 == "继续挑战":
-            if self._流程3是否已完成入场(当前系统秒) and (
-                可见已持续秒 >= float(self._流程3阶段持续秒 or 0.0)
-            ) and self._是否允许自动开始流程3退场(当前系统秒):
+            if (
+                self._流程3是否已完成入场(当前系统秒)
+                and (可见已持续秒 >= float(self._流程3阶段持续秒 or 0.0))
+                and self._是否允许自动开始流程3退场(当前系统秒)
+            ):
                 self._执行流程3否分支()
         return None
 

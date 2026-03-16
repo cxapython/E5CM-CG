@@ -44,6 +44,7 @@ from scenes.场景基类 import 场景基类
 def 确保项目根目录在模块路径里():
     return
 
+
 确保项目根目录在模块路径里()
 
 _项目根目录_缓存: str | None = None
@@ -107,6 +108,7 @@ def _在现有名称中匹配(现有名称列表: List[str], 候选名称: str) 
             return 现有名称
 
     return ""
+
 
 def _解析选歌入口参数(状态: dict, songs根目录: str) -> Tuple[str, str]:
     if not isinstance(状态, dict):
@@ -412,7 +414,6 @@ class 场景_选歌(场景基类):
                 str(资源.get("投币_BGM", "") or ""),
             )
 
-
         self._选歌实例 = 选歌游戏(
             songs根目录=songs根目录,
             背景音乐路径=背景音乐路径,
@@ -681,14 +682,14 @@ def 处理透明像素_用左上角作为背景(原图: pygame.Surface) -> pygam
 _UI原图缓存: Dict[str, Optional[pygame.Surface]] = {}
 # _UI缩放缓存: Dict[Tuple[str, int, int, bool], Optional[pygame.Surface]] = {}
 
-_缩略图_序号背景_缩放 = 1.5  
-_缩略图_序号背景_x偏移 = 20  
-_缩略图_序号背景_y偏移 = -20  
-_缩略图_序号数字_缩放 = 1.6  
-_缩略图_序号数字_x偏移 = -20 
-_缩略图_序号数字_y偏移 = -20 
-_缩略图_序号数字_右内边距占比 = 0.12  
-_缩略图_序号数字_下内边距占比 = 0.12  
+_缩略图_序号背景_缩放 = 1.5
+_缩略图_序号背景_x偏移 = 20
+_缩略图_序号背景_y偏移 = -20
+_缩略图_序号数字_缩放 = 1.6
+_缩略图_序号数字_x偏移 = -20
+_缩略图_序号数字_y偏移 = -20
+_缩略图_序号数字_右内边距占比 = 0.12
+_缩略图_序号数字_下内边距占比 = 0.12
 _大图_序号背景_缩放 = 1.70
 _大图_序号背景_x偏移 = 0
 _大图_序号背景_y偏移 = 0
@@ -757,11 +758,14 @@ def _设置页_配置项定义() -> Dict[str, Dict[str, str]]:
         },
     }
 
+
 def _设置页_持久化文件路径(self) -> str:
     return _取运行存储路径()
 
+
 def _设置页_从参数文本提取(参数文本: str, 键名: str) -> str:
     return 设置参数文本提取值(str(参数文本 or ""), str(键名 or ""))
+
 
 def _设置页_构建参数文本(
     self,
@@ -775,9 +779,11 @@ def _设置页_构建参数文本(
         箭头文件名=箭头文件名,
     )
 
+
 def _设置页_读取持久化设置(self) -> dict:
     数据 = _读取存储作用域(_选歌设置存储作用域)
     return dict(数据) if isinstance(数据, dict) else {}
+
 
 def _设置页_写入持久化设置(self, 数据: dict) -> bool:
     try:
@@ -785,6 +791,7 @@ def _设置页_写入持久化设置(self, 数据: dict) -> bool:
         return isinstance(新数据, dict)
     except Exception:
         return False
+
 
 def _设置页_加载持久化设置(self):
     数据 = _设置页_读取持久化设置(self)
@@ -830,7 +837,9 @@ def _设置页_加载持久化设置(self):
         默认索引 = int(getattr(self, 索引属性, 0) or 0)
 
         try:
-            索引值 = int(索引表.get(参数键, 索引表.get(兼容参数键, 默认索引)) or 默认索引)
+            索引值 = int(
+                索引表.get(参数键, 索引表.get(兼容参数键, 默认索引)) or 默认索引
+            )
         except Exception:
             索引值 = 默认索引
         索引值 = max(0, min(len(选项列表) - 1, 索引值))
@@ -867,6 +876,7 @@ def _设置页_加载持久化设置(self):
             setattr(self, 索引属性, int(命中索引))
         except Exception:
             pass
+
 
 def _设置页_保存持久化设置(self) -> bool:
     配置定义 = _设置页_配置项定义()
@@ -1047,7 +1057,7 @@ def _确保设置页资源(self):
     self._设置页_调试器 = 设置页布局调试器(
         _公共取调试配置路径("选歌设置页调试.json", 根目录=_取运行根目录())
     )
-    
+
 
 def _设置页_同步参数(self):
     配置定义 = _设置页_配置项定义()
@@ -1100,6 +1110,7 @@ def _设置页_同步参数(self):
 
     self.设置_参数 = 输出参数
 
+
 def _设置页_取缩放图(
     self, 缓存键前缀: str, 原图: Optional[pygame.Surface], 目标宽: int, 目标高: int
 ) -> Optional[pygame.Surface]:
@@ -1120,6 +1131,7 @@ def _设置页_取缩放图(
     self._设置页_缩放缓存[缓存键] = 缩放图
     return 缩放图
 
+
 def _设置页_缓出(self, 进度: float) -> float:
     try:
         进度 = float(进度)
@@ -1132,6 +1144,7 @@ def _设置页_缓出(self, 进度: float) -> float:
     # easeOutQuad
     return 1.0 - (1.0 - 进度) * (1.0 - 进度)
 
+
 def _设置页_缓入(self, 进度: float) -> float:
     try:
         进度 = float(进度)
@@ -1143,10 +1156,12 @@ def _设置页_缓入(self, 进度: float) -> float:
         进度 = 1.0
     return 进度 * 进度 * 进度
 
+
 def _设置页_立即隐藏(self):
     self.是否设置页 = False
     self._设置页_动画状态 = "closed"
     self._设置页_最后绘制表面 = None
+
 
 def _设置页_取动画参数(self) -> dict:
     if not bool(getattr(self, "是否设置页", False)):
@@ -1208,6 +1223,7 @@ def _设置页_取动画参数(self) -> dict:
         "y偏移": int((1.0 - 缓进度) * 24),
     }
 
+
 def _设置页_点在有效面板区域(self, 屏幕点) -> bool:
     面板绘制矩形 = getattr(self, "_设置页_面板绘制矩形", None)
     if not isinstance(面板绘制矩形, pygame.Rect):
@@ -1233,6 +1249,7 @@ def _设置页_点在有效面板区域(self, 屏幕点) -> bool:
         return int(面板表面.get_at((局部x, 局部y)).a) > 12
     except Exception:
         return True
+
 
 def 绘制设置页(self):
     self._确保设置页资源()
@@ -1453,7 +1470,10 @@ def 绘制设置页(self):
                 pygame.draw.rect(面板画布, (8, 14, 22), 预览区, border_radius=12)
                 可用区 = 预览区.inflate(-24, -24)
                 ow, oh = 缩略图.get_size()
-                比例 = min(float(可用区.w) / float(max(1, ow)), float(可用区.h) / float(max(1, oh)))
+                比例 = min(
+                    float(可用区.w) / float(max(1, ow)),
+                    float(可用区.h) / float(max(1, oh)),
+                )
                 nw = max(1, int(round(float(ow) * 比例)))
                 nh = max(1, int(round(float(oh) * 比例)))
                 预览图 = pygame.transform.smoothscale(缩略图, (nw, nh)).convert_alpha()
@@ -1514,7 +1534,8 @@ def 绘制设置页(self):
     self._设置页_面板绘制矩形 = 绘制矩形
     self._设置页_最后绘制表面 = 面板画布2
     self.屏幕.blit(面板画布2, 绘制矩形.topleft)
-    
+
+
 def 打开设置页(self):
     self._确保设置页资源()
 
@@ -1535,6 +1556,7 @@ def 打开设置页(self):
     self._设置页_打开开始时间 = time.time()
     self._设置页_关闭开始时间 = 0.0
 
+
 def 关闭设置页(self, 立即: bool = False):
     self._确保设置页资源()
     if bool(立即):
@@ -1546,6 +1568,7 @@ def 关闭设置页(self, 立即: bool = False):
         return
     self._设置页_动画状态 = "closing"
     self._设置页_关闭开始时间 = time.time()
+
 
 def _设置页_切换选项(self, 行键: str, 方向: int):
     self._确保设置页资源()
@@ -1598,6 +1621,7 @@ def _设置页_切换选项(self, 行键: str, 方向: int):
     self._设置页_最后缩放 = 1.0
     self._重算设置页布局(强制=True)
 
+
 def _设置页_切换背景(self, 方向: int):
     self._确保设置页资源()
 
@@ -1630,6 +1654,7 @@ def _设置页_切换背景(self, 方向: int):
     self._设置页_最后缩放 = 1.0
     self._重算设置页布局(强制=True)
 
+
 def _设置页_处理事件(self, 事件):
     self._确保设置页资源()
     self._重算设置页布局()
@@ -1647,7 +1672,9 @@ def _设置页_处理事件(self, 事件):
         return
 
     try:
-        if getattr(self, "_设置页_调试器", None) is not None and bool(self._设置页_调试器.是否启用):
+        if getattr(self, "_设置页_调试器", None) is not None and bool(
+            self._设置页_调试器.是否启用
+        ):
             if self._设置页_调试器.处理事件(self, 事件):
                 return
     except Exception:
@@ -1720,6 +1747,7 @@ def _资源路径(*片段: str) -> str:
     脚本目录 = _取项目根目录()
     return os.path.join(脚本目录, *片段)
 
+
 def 获取UI原图(路径: str, 透明: bool = True) -> Optional[pygame.Surface]:
     if not 路径:
         return None
@@ -1730,7 +1758,9 @@ def 获取UI原图(路径: str, 透明: bool = True) -> Optional[pygame.Surface]
     _UI原图缓存[key] = 图
     return 图
 
+
 _UI容器缓存: Dict[Tuple[str, int, int, bool, str], Optional[pygame.Surface]] = {}
+
 
 def 获取UI容器图(
     路径: str, 目标宽: int, 目标高: int, 缩放模式: str = "stretch", 透明: bool = True
@@ -1792,12 +1822,15 @@ def 获取UI容器图(
         _UI容器缓存[key] = None
         return None
 
+
 _选歌布局_缓存: dict | None = None
 _选歌布局_修改时间: float = -1.0
 _选歌布局_最近检查时刻: float = -999.0
 
+
 def _选歌布局_文件路径() -> str:
     return _公共取布局配置路径("选歌布局.json", 根目录=_取项目根目录())
+
 
 def _选歌布局_默认值() -> dict:
     return {
@@ -1827,11 +1860,13 @@ def _选歌布局_默认值() -> dict:
         },
     }
 
+
 def _安全转浮点(值, 默认值: float) -> float:
     try:
         return float(值)
     except Exception:
         return float(默认值)
+
 
 def _安全转整数(值, 默认值: int) -> int:
     try:
@@ -1839,14 +1874,12 @@ def _安全转整数(值, 默认值: int) -> int:
     except Exception:
         return int(默认值)
 
+
 def 读取选歌布局配置() -> dict:
     global _选歌布局_缓存, _选歌布局_修改时间, _选歌布局_最近检查时刻
 
     当前时刻 = float(time.perf_counter())
-    if (
-        _选歌布局_缓存 is not None
-        and (当前时刻 - float(_选歌布局_最近检查时刻)) < 0.25
-    ):
+    if _选歌布局_缓存 is not None and (当前时刻 - float(_选歌布局_最近检查时刻)) < 0.25:
         return _选歌布局_缓存
 
     路径 = _选歌布局_文件路径()
@@ -1879,6 +1912,7 @@ def 读取选歌布局配置() -> dict:
     _选歌布局_修改时间 = float(修改时间)
     _应用选歌布局常量(数据)
     return 数据
+
 
 def _应用选歌布局常量(配置: dict):
     global _缩略图小框_宽缩放
@@ -2048,12 +2082,15 @@ def _应用选歌布局常量(配置: dict):
         or 序号默认["_序号显示格式_缩略图"]
     )
 
+
 def 刷新选歌布局常量():
     读取选歌布局配置()
+
 
 刷新选歌布局常量()
 
 _按高缩放缓存: Dict[Tuple[int, int], Optional[pygame.Surface]] = {}
+
 
 def _按高等比缩放(图: pygame.Surface, 目标高: int) -> Optional[pygame.Surface]:
     if 图 is None:
@@ -2091,6 +2128,7 @@ def _按高等比缩放(图: pygame.Surface, 目标高: int) -> Optional[pygame.
         _按高缩放缓存.clear()
 
     return 缩放图
+
 
 def 绘制序号标签_图片(
     屏幕: pygame.Surface,
@@ -2274,7 +2312,11 @@ def 绘制MV角标_文本(
     try:
         if not isinstance(屏幕, pygame.Surface):
             return
-        if (not isinstance(封面矩形, pygame.Rect)) or 封面矩形.w <= 2 or 封面矩形.h <= 2:
+        if (
+            (not isinstance(封面矩形, pygame.Rect))
+            or 封面矩形.w <= 2
+            or 封面矩形.h <= 2
+        ):
             return
         if not isinstance(参考矩形, pygame.Rect):
             参考矩形 = 封面矩形
@@ -2301,6 +2343,7 @@ def 绘制MV角标_文本(
         屏幕.blit(MV面, (MVx, MVy))
     except Exception:
         pass
+
 
 def 绘制星星行_图片(
     屏幕: pygame.Surface,
@@ -2440,10 +2483,14 @@ def 绘制星星行_图片(
                 遮罩层.blit(星图, (星矩形.x - 光效区域.x, 星矩形.y - 光效区域.y))
 
             try:
-                遮罩层 = pygame.mask.from_surface(遮罩层).to_surface(
-                    setcolor=(255, 255, 255, 255),
-                    unsetcolor=(0, 0, 0, 0),
-                ).convert_alpha()
+                遮罩层 = (
+                    pygame.mask.from_surface(遮罩层)
+                    .to_surface(
+                        setcolor=(255, 255, 255, 255),
+                        unsetcolor=(0, 0, 0, 0),
+                    )
+                    .convert_alpha()
+                )
             except Exception:
                 pass
 
@@ -2480,8 +2527,10 @@ def 绘制星星行_图片(
 
             屏幕.blit(高光层, 光效区域.topleft, special_flags=pygame.BLEND_RGBA_ADD)
 
+
 _字体对象缓存: Dict[Tuple[str, int, bool], pygame.font.Font] = {}
-_字体默认路径缓存: Dict[bool, str] = {}  
+_字体默认路径缓存: Dict[bool, str] = {}
+
 
 def 获取字体(字号: int, 是否粗体: bool = False) -> pygame.font.Font:
     # ✅ 只初始化一次
@@ -2504,18 +2553,48 @@ def 获取字体(字号: int, 是否粗体: bool = False) -> pygame.font.Font:
 
     # ✅ 只探测一次可用字体路径
     if 是否粗体 not in _字体默认路径缓存:
-        普通候选 = [
-            r"C:\Windows\Fonts\msyh.ttc",
-            r"C:\Windows\Fonts\simhei.ttf",
-            r"C:\Windows\Fonts\simsun.ttc",
-            r"C:\Windows\Fonts\arial.ttf",
-        ]
-        粗体候选 = [
-            r"C:\Windows\Fonts\msyhbd.ttc",
-            r"C:\Windows\Fonts\simhei.ttf",
-            r"C:\Windows\Fonts\arialbd.ttf",
-            r"C:\Windows\Fonts\arial.ttf",
-        ]
+        运行根 = _取运行根目录()
+        项目内字体 = os.path.join(运行根, "冷资源", "字体", "方正黑体简体.TTF")
+
+        if sys.platform == "darwin":
+            普通候选 = [
+                项目内字体,
+                "/System/Library/Fonts/PingFang.ttc",
+                "/System/Library/Fonts/STHeiti Medium.ttc",
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                "/System/Library/Fonts/Supplemental/Songti.ttc",
+                "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            ]
+            粗体候选 = [
+                项目内字体,
+                "/System/Library/Fonts/PingFang.ttc",
+                "/System/Library/Fonts/STHeiti Medium.ttc",
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            ]
+        elif sys.platform == "win32":
+            普通候选 = [
+                项目内字体,
+                r"C:\Windows\Fonts\msyh.ttc",
+                r"C:\Windows\Fonts\simhei.ttf",
+                r"C:\Windows\Fonts\simsun.ttc",
+                r"C:\Windows\Fonts\arial.ttf",
+            ]
+            粗体候选 = [
+                项目内字体,
+                r"C:\Windows\Fonts\msyhbd.ttc",
+                r"C:\Windows\Fonts\simhei.ttf",
+                r"C:\Windows\Fonts\arialbd.ttf",
+                r"C:\Windows\Fonts\arial.ttf",
+            ]
+        else:
+            普通候选 = [
+                项目内字体,
+                "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+                "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            ]
+            粗体候选 = 普通候选
 
         for 标记, 候选 in [(False, 普通候选), (True, 粗体候选)]:
             路径 = ""
@@ -2545,10 +2624,12 @@ def 获取字体(字号: int, 是否粗体: bool = False) -> pygame.font.Font:
     _字体对象缓存[缓存键] = 字体
     return 字体
 
+
 def 绘制圆角矩形(
     屏幕: pygame.Surface, 矩形: pygame.Rect, 颜色, 圆角: int, 线宽: int = 0
 ):
     pygame.draw.rect(屏幕, 颜色, 矩形, width=线宽, border_radius=圆角)
+
 
 def 绘制超粗文本(
     屏幕: pygame.Surface,
@@ -2578,6 +2659,7 @@ def 绘制超粗文本(
     屏幕.blit(文本面, 文本矩形)
     return 文本矩形
 
+
 def 绘制文本(
     屏幕: pygame.Surface,
     文本: str,
@@ -2591,6 +2673,7 @@ def 绘制文本(
     setattr(文本矩形, 对齐, 位置)
     屏幕.blit(文本面, 文本矩形)
     return 文本矩形
+
 
 def 渲染紧凑文本(
     文本: str,
@@ -2695,7 +2778,9 @@ def _查找歌曲目录背景视频(
             分数 += 120
         if 归一基名 and 文件夹基名 and 归一基名 == 文件夹基名:
             分数 += 80
-        if any(关键字 in 文件名小写 for 关键字 in ("background", "bga", "bgmovie", "movie")):
+        if any(
+            关键字 in 文件名小写 for 关键字 in ("background", "bga", "bgmovie", "movie")
+        ):
             分数 += 90
         elif 文件名小写.startswith(("bg", "mv")):
             分数 += 55
@@ -2715,6 +2800,7 @@ def _查找歌曲目录背景视频(
         reverse=True,
     )
     return str(候选列表[0][2] or "")
+
 
 def 安全读取文本(文件路径: str) -> str:
     for 编码 in ("utf-8-sig", "utf-8", "gbk"):
@@ -2740,6 +2826,7 @@ def 安全读取json(文件路径: str) -> Optional[dict]:
     except Exception:
         return None
 
+
 def _提取SM标签值(sm文本: str, 标签名: str) -> str:
     if not sm文本:
         return ""
@@ -2752,6 +2839,7 @@ def _提取SM标签值(sm文本: str, 标签名: str) -> str:
         return ""
     return str(匹配.group(1) or "").strip()
 
+
 def _解析文本里的首个正数(文本: str) -> Optional[float]:
     if not 文本:
         return None
@@ -2763,6 +2851,7 @@ def _解析文本里的首个正数(文本: str) -> Optional[float]:
         if 数值 > 0:
             return 数值
     return None
+
 
 def _解析BPMS标签首个BPM(原始标签值: str) -> Optional[float]:
     文本 = str(原始标签值 or "").strip()
@@ -2778,8 +2867,10 @@ def _解析BPMS标签首个BPM(原始标签值: str) -> Optional[float]:
             return 数值
     return None
 
+
 def _规范化谱面文本(谱面文本: str) -> str:
     return str(谱面文本 or "").replace("\r\n", "\n").replace("\r", "\n")
+
 
 def _提取SSC谱面块列表(谱面文本: str) -> List[str]:
     文本 = _规范化谱面文本(谱面文本)
@@ -2797,6 +2888,7 @@ def _提取SSC谱面块列表(谱面文本: str) -> List[str]:
             结果.append(块文本)
     return 结果
 
+
 def _计算谱面列数(谱面数据文本: str) -> int:
     try:
         纯文本 = _规范化谱面文本(谱面数据文本)
@@ -2812,10 +2904,13 @@ def _计算谱面列数(谱面数据文本: str) -> int:
         return 5
     return 5
 
+
 def _收集SM谱面候选信息(谱面文本: str) -> List[dict]:
     结果: List[dict] = []
 
-    for 匹配 in re.finditer(r"#NOTES\s*:\s*(.*?);", 谱面文本, flags=re.IGNORECASE | re.DOTALL):
+    for 匹配 in re.finditer(
+        r"#NOTES\s*:\s*(.*?);", 谱面文本, flags=re.IGNORECASE | re.DOTALL
+    ):
         块文本 = str(匹配.group(1) or "")
         段列表 = 块文本.split(":", 5)
         if len(段列表) < 6:
@@ -2855,6 +2950,7 @@ def _收集SM谱面候选信息(谱面文本: str) -> List[dict]:
 
     return 结果
 
+
 def _首选谱面优先级(charttype: str) -> int:
     谱面类型 = str(charttype or "").strip().lower()
     if "pump-single" in 谱面类型:
@@ -2868,6 +2964,7 @@ def _首选谱面优先级(charttype: str) -> int:
     if "double" in 谱面类型:
         return 20
     return 10
+
 
 def _选取首选谱面候选(候选列表: List[dict]) -> Optional[dict]:
     if not 候选列表:
@@ -2883,6 +2980,7 @@ def _选取首选谱面候选(候选列表: List[dict]) -> Optional[dict]:
 
     return max(候选列表, key=_排序键)
 
+
 def 解析显示BPM(sm文本: str) -> Optional[int]:
     显示BPM原始 = _提取SM标签值(sm文本, "DISPLAYBPM")
     数值 = _解析文本里的首个正数(显示BPM原始)
@@ -2895,6 +2993,7 @@ def 解析显示BPM(sm文本: str) -> Optional[int]:
         return int(round(float(数值)))
     except Exception:
         return None
+
 
 def 解析SM标题(sm文本: str) -> str:
     匹配 = re.search(r"#TITLE\s*:\s*([^;]+)\s*;", sm文本, flags=re.IGNORECASE)
@@ -2928,6 +3027,7 @@ def 解析JSON标题(谱面数据: dict) -> str:
     except Exception:
         return ""
     return ""
+
 
 def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
     """
@@ -2974,6 +3074,7 @@ def 从文件夹名解析歌名星级(文件夹名: str) -> Tuple[str, int]:
 
     return 歌名, 星级
 
+
 def _解析SM谱面星级(sm文本: str) -> Optional[int]:
     if not sm文本:
         return None
@@ -3018,6 +3119,7 @@ def _解析SM谱面星级(sm文本: str) -> Optional[int]:
     if not 同优先级候选:
         return None
     return max(1, min(20, max(同优先级候选)))
+
 
 def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Optional["歌曲信息"]:
     if (not sm路径) or (not os.path.isfile(sm路径)):
@@ -3094,6 +3196,7 @@ def 解析歌曲元数据(sm路径: str, 类型名: str, 模式名: str) -> Opti
         是否带MV=bool(str(背景视频路径 or "").strip()),
     )
 
+
 def 找文件(目录: str, 扩展名集合: Tuple[str, ...]) -> Optional[str]:
     if not os.path.isdir(目录):
         return None
@@ -3102,6 +3205,7 @@ def 找文件(目录: str, 扩展名集合: Tuple[str, ...]) -> Optional[str]:
         if any(低.endswith(ext) for ext in 扩展名集合):
             return os.path.join(目录, 文件名)
     return None
+
 
 def 找封面(歌曲路径: str) -> Optional[str]:
     """
@@ -3120,9 +3224,11 @@ def 找封面(歌曲路径: str) -> Optional[str]:
             return os.path.join(歌曲路径, 文件名)
     return 找文件(歌曲路径, (".jpg", ".jpeg", ".png", ".webp"))
 
+
 def _谱面文件优先级(文件路径: str) -> int:
     扩展名 = os.path.splitext(str(文件路径 or ""))[1].lower()
     return {".json": 3, ".ssc": 2, ".sm": 1, ".sma": 1}.get(扩展名, 0)
+
 
 def _收集候选谱面文件(根目录: str) -> List[str]:
     if not os.path.isdir(根目录):
@@ -3149,10 +3255,14 @@ def _收集候选谱面文件(根目录: str) -> List[str]:
                 每目录最佳文件[目录键] = 文件路径
                 continue
 
-            if 当前优先级 == 已有优先级 and str(文件路径).casefold() < str(已有文件).casefold():
+            if (
+                当前优先级 == 已有优先级
+                and str(文件路径).casefold() < str(已有文件).casefold()
+            ):
                 每目录最佳文件[目录键] = 文件路径
 
     return [每目录最佳文件[k] for k in sorted(每目录最佳文件.keys(), key=str.casefold)]
+
 
 def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信息]]]:
     结果: Dict[str, Dict[str, List[歌曲信息]]] = {}
@@ -3204,6 +3314,7 @@ def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信
         结果[类型名][模式名] = 列表
 
     return 结果
+
 
 def 扫描songs_指定路径(
     songs根目录: str, 类型名: str, 模式名: str
@@ -3292,6 +3403,7 @@ def 扫描songs_指定路径(
 
     return 结果
 
+
 class 图像缓存:
     def __init__(self):
         self._缓存: Dict[Tuple[str, int, int, int, str], pygame.Surface] = {}
@@ -3320,6 +3432,7 @@ class 图像缓存:
             except Exception:
                 pass
 
+
 def 生成圆角蒙版(宽: int, 高: int, 圆角: int) -> pygame.Surface:
     蒙版 = pygame.Surface((宽, 高), pygame.SRCALPHA)
     蒙版.fill((0, 0, 0, 0))
@@ -3327,6 +3440,7 @@ def 生成圆角蒙版(宽: int, 高: int, 圆角: int) -> pygame.Surface:
         蒙版, (255, 255, 255, 255), pygame.Rect(0, 0, 宽, 高), border_radius=圆角
     )
     return 蒙版
+
 
 def 载入并缩放封面(
     路径: str, 目标宽: int, 目标高: int, 圆角: int, 模式: str
@@ -3362,7 +3476,9 @@ def 载入并缩放封面(
 
     try:
         if 模式 == "stretch":
-            结果图 = pygame.transform.smoothscale(原图, (目标宽, 目标高)).convert_alpha()
+            结果图 = pygame.transform.smoothscale(
+                原图, (目标宽, 目标高)
+            ).convert_alpha()
             if 圆角 > 0:
                 蒙版 = 生成圆角蒙版(目标宽, 目标高, 圆角)
                 结果图.blit(蒙版, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
@@ -3404,6 +3520,7 @@ def 载入并缩放封面(
         return 结果图
     except Exception:
         return None
+
 
 def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> dict:
     """
@@ -3466,12 +3583,8 @@ def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> d
     )
     信息条矩形 = _夹紧矩形(信息条矩形, 封面矩形)
 
-    信息条左右内边距 = max(
-        4, int(round(信息条矩形.w * 参数["信息条左右内边距占比"]))
-    )
-    文本区左右内边距 = max(
-        4, int(round(信息条矩形.w * 参数["文本区左右内边距占比"]))
-    )
+    信息条左右内边距 = max(4, int(round(信息条矩形.w * 参数["信息条左右内边距占比"])))
+    文本区左右内边距 = max(4, int(round(信息条矩形.w * 参数["文本区左右内边距占比"])))
 
     星星区域 = pygame.Rect(
         信息条矩形.x + 信息条左右内边距,
@@ -3518,6 +3631,7 @@ def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> d
         "游玩区域": 游玩区域,
         "bpm区域": bpm区域,
     }
+
 
 def 计算缩略图小框矩形(
     基准矩形: pygame.Rect,
@@ -3603,6 +3717,7 @@ def 计算缩略图小框矩形(
 
     return 框矩形
 
+
 class 渐隐放大点击特效:
     """
     0.5s 渐隐放大（alpha: 0->255），scale: 0.92 -> 1.06 -> 1.00
@@ -3671,6 +3786,7 @@ class 渐隐放大点击特效:
         except Exception:
             # 兜底：不让异常打断主循环
             pass
+
 
 class 按钮:
     def __init__(self, 名称: str, 矩形: pygame.Rect):
@@ -3767,6 +3883,7 @@ class 按钮:
             self.矩形.center,
             对齐="center",
         )
+
 
 class 星级筛选按钮:
     """
@@ -3919,6 +4036,7 @@ class 星级筛选按钮:
             except Exception:
                 pass
 
+
 class 图片按钮:
     def __init__(
         self,
@@ -4018,6 +4136,7 @@ class 图片按钮:
             叠层 = pygame.Surface((self.矩形.w, self.矩形.h), pygame.SRCALPHA)
             叠层.fill((0, 0, 0, 85) if self.按下 else (255, 255, 255, 18))
             屏幕.blit(叠层, self.矩形.topleft)
+
 
 class 底部图文按钮:
     def __init__(
@@ -4187,6 +4306,7 @@ class 底部图文按钮:
                 屏幕.blit(白字, 文矩形.topleft)
             except Exception:
                 pass
+
 
 class 歌曲卡片:
     def __init__(self, 歌曲: 歌曲信息, 矩形: pygame.Rect):
@@ -4378,10 +4498,14 @@ class 歌曲卡片:
 
                 游玩块宽 = int(游玩标签面.get_width()) + 2 + int(游玩数字面.get_width())
                 游玩x = 局部游玩区域.x
-                游玩y = 局部游玩区域.centery - max(
-                    游玩标签面.get_height(),
-                    游玩数字面.get_height(),
-                ) // 2
+                游玩y = (
+                    局部游玩区域.centery
+                    - max(
+                        游玩标签面.get_height(),
+                        游玩数字面.get_height(),
+                    )
+                    // 2
+                )
 
                 bpmx = 局部bpm区域.right - bpm文面.get_width()
                 bpmy = 局部bpm区域.centery - bpm文面.get_height() // 2
@@ -4475,8 +4599,8 @@ class 歌曲卡片:
 
         屏幕.blit(局部画布, 框矩形.topleft)
 
-class 选歌游戏:
 
+class 选歌游戏:
     def __init__(
         self,
         songs根目录: str,
@@ -4576,7 +4700,6 @@ class 选歌游戏:
         self.当前筛选星级: Optional[int] = None
         self.星级按钮列表: List[Tuple[int, 按钮]] = []
         self.筛选页面板矩形 = pygame.Rect(0, 0, 0, 0)
-
 
         self.图缓存 = 图像缓存()
         self.预加载队列 = deque()
@@ -4685,7 +4808,10 @@ class 选歌游戏:
         当前时刻 = float(time.perf_counter())
         if (
             getattr(self, "_布局配置_缓存", None) is not None
-            and (当前时刻 - float(getattr(self, "_布局配置_最近检查时刻", -999.0) or -999.0))
+            and (
+                当前时刻
+                - float(getattr(self, "_布局配置_最近检查时刻", -999.0) or -999.0)
+            )
             < 0.25
         ):
             return self._布局配置_缓存
@@ -4716,7 +4842,7 @@ class 选歌游戏:
         self._布局配置_缓存 = 数据
         self._布局配置_修改时间 = float(修改时间)
         return 数据
-    
+
     def _取底部布局像素(
         self, 键路径: str, 默认设计像素: int, 最小: int = None, 最大: int = None
     ) -> int:
@@ -4760,7 +4886,7 @@ class 选歌游戏:
         if 最大 is not None:
             值 = min(int(最大), 值)
         return 值
-    
+
     def _取布局值(self, 键路径: str, 默认值):
         配置 = self._加载布局配置(是否提示=False)
         当前 = 配置
@@ -4936,9 +5062,7 @@ class 选歌游戏:
             return getattr(self, "_收藏歌曲列表缓存", []) or []
 
         列表 = [
-            歌
-            for 歌 in self._遍历全部歌曲()
-            if bool(getattr(歌, "是否收藏", False))
+            歌 for 歌 in self._遍历全部歌曲() if bool(getattr(歌, "是否收藏", False))
         ]
         self._收藏歌曲列表缓存 = 列表
         self._收藏歌曲列表缓存版本 = 当前版本
@@ -5308,7 +5432,11 @@ class 选歌游戏:
         星数: int,
         光效透明度: int,
     ):
-        if (not isinstance(当前大框, pygame.Rect)) or 当前大框.w <= 4 or 当前大框.h <= 4:
+        if (
+            (not isinstance(当前大框, pygame.Rect))
+            or 当前大框.w <= 4
+            or 当前大框.h <= 4
+        ):
             return
         if int(max(0, int(星数 or 0))) <= 0:
             return
@@ -5851,7 +5979,9 @@ class 选歌游戏:
             "箭头文件名": str(箭头文件名),
             "关闭视频背景": bool(
                 str(设置参数.get("动态背景", "关闭") or "关闭").strip() != "关闭"
-                or str(设置参数.get("背景模式", 设置参数.get("变速", "图片")) or "图片").strip()
+                or str(
+                    设置参数.get("背景模式", 设置参数.get("变速", "图片")) or "图片"
+                ).strip()
                 != "视频"
             ),
             # ✅ 给 StepMania 用
@@ -6054,7 +6184,6 @@ class 选歌游戏:
         except Exception:
             pass
 
-
     def 重算布局(self):
         self._确保公共交互()
 
@@ -6106,7 +6235,9 @@ class 选歌游戏:
         # ===== 资源路径 =====
         歌曲分类图路径 = _资源路径("UI-img", "选歌界面资源", "歌曲分类.png")
         收藏夹图路径 = _资源路径("UI-img", "选歌界面资源", "收藏夹.png")
-        收藏夹底文 = "退出收藏夹" if bool(getattr(self, "是否收藏夹模式", False)) else "收藏夹"
+        收藏夹底文 = (
+            "退出收藏夹" if bool(getattr(self, "是否收藏夹模式", False)) else "收藏夹"
+        )
         ALL图路径 = _资源路径("UI-img", "选歌界面资源", "all按钮.png")
         设置图路径 = _资源路径("UI-img", "选歌界面资源", "设置.png")
 
@@ -6203,7 +6334,9 @@ class 选歌游戏:
         self.按钮_2P加入.矩形 = 槽_P加入
         self.按钮_设置.矩形 = 槽_设置
 
-        统一文字偏移 = self._取底部布局像素("底部.统一文字偏移", -6, 最小=-9999, 最大=9999)
+        统一文字偏移 = self._取底部布局像素(
+            "底部.统一文字偏移", -6, 最小=-9999, 最大=9999
+        )
         try:
             self.按钮_歌曲分类.文字y偏移 = 统一文字偏移
             self.按钮_收藏夹.文字y偏移 = 统一文字偏移
@@ -6307,7 +6440,10 @@ class 选歌游戏:
                 透明度=176,
             )
         else:
-            if str(getattr(self.按钮_列表上一页, "图片路径", "") or "") != 列表翻页图路径:
+            if (
+                str(getattr(self.按钮_列表上一页, "图片路径", "") or "")
+                != 列表翻页图路径
+            ):
                 self.按钮_列表上一页.图片路径 = str(列表翻页图路径)
                 self.按钮_列表上一页._加载原图()
             self.按钮_列表上一页.是否水平翻转 = True
@@ -6325,7 +6461,10 @@ class 选歌游戏:
                 透明度=176,
             )
         else:
-            if str(getattr(self.按钮_列表下一页, "图片路径", "") or "") != 列表翻页图路径:
+            if (
+                str(getattr(self.按钮_列表下一页, "图片路径", "") or "")
+                != 列表翻页图路径
+            ):
                 self.按钮_列表下一页.图片路径 = str(列表翻页图路径)
                 self.按钮_列表下一页._加载原图()
             self.按钮_列表下一页.是否水平翻转 = False
@@ -6405,7 +6544,9 @@ class 选歌游戏:
             ).strip()
             if 背景模式 == "图片" and 动态背景 == "关闭" and 背景文件名:
                 候选路径列表 = [
-                    os.path.join(脚本目录, "冷资源", "backimages", "背景图", 背景文件名),
+                    os.path.join(
+                        脚本目录, "冷资源", "backimages", "背景图", 背景文件名
+                    ),
                     os.path.join(脚本目录, "冷资源", "backimages", 背景文件名),
                 ]
                 for 候选路径 in 候选路径列表:
@@ -6430,7 +6571,8 @@ class 选歌游戏:
     def _刷新背景遮罩设置(self, 强制: bool = False):
         现在时刻 = float(time.perf_counter())
         if (not bool(强制)) and (
-            现在时刻 - float(getattr(self, "_背景遮罩设置最近读取时间", -999.0) or -999.0)
+            现在时刻
+            - float(getattr(self, "_背景遮罩设置最近读取时间", -999.0) or -999.0)
         ) < 0.25:
             return
 
@@ -6469,7 +6611,9 @@ class 选歌游戏:
         if 当前模式 and getattr(self, "_top中间标题图_收藏夹", None) is not None:
             标题原图 = self._top中间标题图_收藏夹
         else:
-            标题原图 = getattr(self, "_top中间标题图_歌曲选择", None) or self._top中间标题原图
+            标题原图 = (
+                getattr(self, "_top中间标题图_歌曲选择", None) or self._top中间标题原图
+            )
 
         # ✅ 用 ui/top栏.py 统一生成 top 栏（中间标题用 歌曲选择.png）
         self._top_rect, self._top图, self._top标题rect, self._top标题图 = 生成top栏(
@@ -6774,9 +6918,7 @@ class 选歌游戏:
                 self.星级按钮列表.append((星, b))
                 索引 += 1
 
-    def _取页卡片缓存键(
-        self, 页码: int, 每页数量: int
-    ) -> Tuple[object, ...]:
+    def _取页卡片缓存键(self, 页码: int, 每页数量: int) -> Tuple[object, ...]:
         try:
             布局版本 = float(_选歌布局_修改时间)
         except Exception:
@@ -6801,9 +6943,7 @@ class 选歌游戏:
             except Exception:
                 pass
 
-    def _写入页卡片缓存(
-        self, 缓存键: Tuple[object, ...], 卡片列表: List[歌曲卡片]
-    ):
+    def _写入页卡片缓存(self, 缓存键: Tuple[object, ...], 卡片列表: List[歌曲卡片]):
         try:
             self._页卡片缓存顺序.remove(缓存键)
         except Exception:
@@ -7023,7 +7163,9 @@ class 选歌游戏:
                         当前大框 = None
 
                     try:
-                        最后缩放 = float(getattr(self, "_详情浮层_最后缩放", 1.0) or 1.0)
+                        最后缩放 = float(
+                            getattr(self, "_详情浮层_最后缩放", 1.0) or 1.0
+                        )
                     except Exception:
                         最后缩放 = 1.0
                     最后缩放 = max(0.001, 最后缩放)
@@ -7048,7 +7190,6 @@ class 选歌游戏:
                             需要保留键列表.append(缓存键)
 
         return 需要保留键列表
-
 
     def 安排预加载(self, 基准页: int):
         列表, _映射 = self.当前歌曲列表与映射()
@@ -7323,7 +7464,9 @@ class 选歌游戏:
 
         if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
             for 方向, 按钮对象, 来源 in 按钮项:
-                if isinstance(按钮对象, 图片按钮) and 按钮对象.矩形.collidepoint(事件.pos):
+                if isinstance(按钮对象, 图片按钮) and 按钮对象.矩形.collidepoint(
+                    事件.pos
+                ):
                     self._滑动_按下 = False
                     self._滑动_已触发 = False
                     self._滑动_已移动 = False
@@ -7386,7 +7529,11 @@ class 选歌游戏:
                 not bool(getattr(self, "_滑动_已触发", False))
             ):
                 try:
-                    if hasattr(事件, "buttons") and 事件.buttons and (not 事件.buttons[0]):
+                    if (
+                        hasattr(事件, "buttons")
+                        and 事件.buttons
+                        and (not 事件.buttons[0])
+                    ):
                         pass
                     else:
                         sx, sy = getattr(self, "_滑动_起点", (0, 0))
@@ -7434,7 +7581,10 @@ class 选歌游戏:
             if 事件.key == pygame.K_RIGHT:
                 self._开始连续翻页(+1, 来源="keyboard", 立即触发=True)
                 return True
-            if 事件.key == pygame.K_ESCAPE and getattr(self, "当前筛选星级", None) is not None:
+            if (
+                事件.key == pygame.K_ESCAPE
+                and getattr(self, "当前筛选星级", None) is not None
+            ):
                 self._停止连续翻页()
                 self._启动过渡(
                     self._特效_按钮,
@@ -7717,7 +7867,6 @@ class 选歌游戏:
         if 动作 == 踏板动作_确认:
             return self._踏板确认当前歌曲()
         return None
-
 
     def 绘制背景(self):
         self._刷新背景遮罩设置(False)
@@ -8132,9 +8281,7 @@ class 选歌游戏:
             int(总高),
         )
         局部画布 = (
-            self._详情浮层静态缓存图
-            if self._详情浮层静态缓存键 == 详情缓存键
-            else None
+            self._详情浮层静态缓存图 if self._详情浮层静态缓存键 == 详情缓存键 else None
         )
         if 局部画布 is None:
             局部画布 = self._构建详情浮层静态图(
@@ -8188,7 +8335,9 @@ class 选歌游戏:
         if 入场缩放 != 1.0:
             绘制宽 = max(1, int(round(局部画布.get_width() * 入场缩放)))
             绘制高 = max(1, int(round(局部画布.get_height() * 入场缩放)))
-            绘制画布 = pygame.transform.smoothscale(局部画布, (绘制宽, 绘制高)).convert_alpha()
+            绘制画布 = pygame.transform.smoothscale(
+                局部画布, (绘制宽, 绘制高)
+            ).convert_alpha()
         elif 入场透明度 < 255:
             绘制画布 = 局部画布.copy()
         else:
@@ -8283,7 +8432,6 @@ class 选歌游戏:
             收藏按钮x, 收藏按钮y, 收藏按钮宽, 收藏按钮高
         )
         self.按钮_详情收藏.绘制(self.屏幕)
-
 
     def 绘制星级筛选页(self):
         # 半透明遮罩
@@ -8923,11 +9071,11 @@ class 选歌游戏:
                         continue
 
                     if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-                        点在左右按钮 = self.按钮_详情上一首.矩形.collidepoint(
-                            事件.pos
-                        ) or self.按钮_详情下一首.矩形.collidepoint(
-                            事件.pos
-                        ) or self.按钮_详情收藏.矩形.collidepoint(事件.pos)
+                        点在左右按钮 = (
+                            self.按钮_详情上一首.矩形.collidepoint(事件.pos)
+                            or self.按钮_详情下一首.矩形.collidepoint(事件.pos)
+                            or self.按钮_详情收藏.矩形.collidepoint(事件.pos)
+                        )
 
                         if (not 点在左右按钮) and self.详情大框矩形.collidepoint(
                             事件.pos
@@ -8971,6 +9119,7 @@ class 选歌游戏:
 
                 if self._处理列表页输入(事件):
                     continue
+
 
 class 设置页布局调试器:
     def __init__(self, 保存路径: str):
@@ -9047,7 +9196,9 @@ class 设置页布局调试器:
         except Exception:
             return False
 
-    def _记录转矩形(self, 记录: dict, 面板宽: int, 面板高: int) -> Optional[pygame.Rect]:
+    def _记录转矩形(
+        self, 记录: dict, 面板宽: int, 面板高: int
+    ) -> Optional[pygame.Rect]:
         if not isinstance(记录, dict):
             return None
 
@@ -9104,7 +9255,9 @@ class 设置页布局调试器:
             pass
 
         try:
-            for 行键, 控件字典 in dict(getattr(宿主, "_设置页_控件矩形表", {}) or {}).items():
+            for 行键, 控件字典 in dict(
+                getattr(宿主, "_设置页_控件矩形表", {}) or {}
+            ).items():
                 if not isinstance(控件字典, dict):
                     continue
                 for 子键 in ("左", "右", "内容"):
@@ -9213,7 +9366,9 @@ class 设置页布局调试器:
             宿主, self.当前组件矩形表[self.当前选中键]
         )
 
-    def _调整当前选中矩形尺寸(self, 宿主, 滚轮方向: int, 是否调宽: bool, 是否调高: bool):
+    def _调整当前选中矩形尺寸(
+        self, 宿主, 滚轮方向: int, 是否调宽: bool, 是否调高: bool
+    ):
         if not self.当前选中键:
             return
         if self.当前选中键 not in self.当前组件矩形表:
@@ -9280,7 +9435,9 @@ class 设置页布局调试器:
         if 事件.type == pygame.KEYDOWN:
             if 事件.key == pygame.K_s and (pygame.key.get_mods() & pygame.KMOD_CTRL):
                 try:
-                    面板矩形 = getattr(宿主, "_设置页_面板基础矩形", pygame.Rect(0, 0, 1, 1))
+                    面板矩形 = getattr(
+                        宿主, "_设置页_面板基础矩形", pygame.Rect(0, 0, 1, 1)
+                    )
                     保存成功 = self.保存到文件(int(面板矩形.w), int(面板矩形.h))
                     if 保存成功 and hasattr(宿主, "显示消息提示"):
                         宿主.显示消息提示("设置页调试器：布局已保存", 持续秒=1.6)
@@ -9312,7 +9469,9 @@ class 设置页布局调试器:
                 新矩形 = self.拖拽起点矩形.copy()
                 新矩形.x += dx
                 新矩形.y += dy
-                self.当前组件矩形表[self.当前选中键] = _设置页_钳制矩形到面板(宿主, 新矩形)
+                self.当前组件矩形表[self.当前选中键] = _设置页_钳制矩形到面板(
+                    宿主, 新矩形
+                )
                 self._写回宿主(宿主)
             return True
 
@@ -9352,9 +9511,13 @@ class 设置页布局调试器:
                 return True
 
             if 是否Ctrl:
-                self._调整当前选中矩形尺寸(宿主, 滚轮方向, 是否调宽=False, 是否调高=True)
+                self._调整当前选中矩形尺寸(
+                    宿主, 滚轮方向, 是否调宽=False, 是否调高=True
+                )
             elif 是否Shift:
-                self._调整当前选中矩形尺寸(宿主, 滚轮方向, 是否调宽=True, 是否调高=False)
+                self._调整当前选中矩形尺寸(
+                    宿主, 滚轮方向, 是否调宽=True, 是否调高=False
+                )
             else:
                 self._调整当前选中矩形尺寸(宿主, 滚轮方向, 是否调宽=True, 是否调高=True)
             return True
@@ -9399,10 +9562,13 @@ class 设置页布局调试器:
                 pass
 
             try:
-                if str(键名) == str(self.当前选中键) or str(键名) == str(self.当前悬停键):
+                if str(键名) == str(self.当前选中键) or str(键名) == str(
+                    self.当前悬停键
+                ):
                     标签面 = 字体.render(str(键名), True, (255, 255, 255))
                     标签底 = pygame.Surface(
-                        (标签面.get_width() + 8, 标签面.get_height() + 4), pygame.SRCALPHA
+                        (标签面.get_width() + 8, 标签面.get_height() + 4),
+                        pygame.SRCALPHA,
                     )
                     标签底.fill((0, 0, 0, 150))
                     标签x = max(0, 矩形.x)
@@ -9415,14 +9581,14 @@ class 设置页布局调试器:
         try:
             提示文本 = "F6开关调试 | 拖动移动 | 滚轮等比缩放 | Ctrl+滚轮改高 | Shift+滚轮改宽 | Alt+滚轮改字 | 方向键1px微调 | Ctrl+S保存"
             提示面 = 小字体.render(提示文本, True, (255, 255, 255))
-            提示底 = pygame.Surface((提示面.get_width() + 12, 提示面.get_height() + 8), pygame.SRCALPHA)
+            提示底 = pygame.Surface(
+                (提示面.get_width() + 12, 提示面.get_height() + 8), pygame.SRCALPHA
+            )
             提示底.fill((0, 0, 0, 170))
             面板画布.blit(提示底, (8, 8))
             面板画布.blit(提示面, (14, 12))
         except Exception:
             pass
-
-
 
 
 def 设置页_布局基准配置() -> dict:
@@ -9431,7 +9597,6 @@ def 设置页_布局基准配置() -> dict:
         "设计高": 1152,
         "布局缩放最小": 0.68,
         "布局缩放最大": 1.18,
-
         "面板宽占比": 0.82,
         "面板高占比": 0.76,
         "面板最小边距": 24,
@@ -9439,37 +9604,30 @@ def 设置页_布局基准配置() -> dict:
         "面板最大高": 860,
         "面板最小宽": 1160,
         "面板最小高": 640,
-
         "内容左边距": 64,
         "内容右边距": 58,
         "内容上边距": 56,
         "内容下边距": 42,
         "左右列间距": 72,
-
         "左列宽占比": 0.34,
         "左列上偏移": 18,
         "左列行区高占比": 0.64,
-
         "行列表": ["调速", "变速", "变速类型", "隐藏", "轨迹", "方向", "大小"],
         "行间距": 16,
         "行高最小": 54,
         "行高最大": 86,
-
         "行内左右边距": 8,
         "小箭头宽": 28,
         "小箭头高占行高": 0.54,
         "内容左右内边距": 12,
-
         "右列顶部预留": 6,
         "右列上下分区间距": 28,
         "右列上区高占比": 0.58,
-
         "背景区左右箭头宽": 60,
         "背景区左右箭头高": 118,
         "背景区箭头与预览间距": 18,
         "背景区预览上下内边距": 20,
         "背景区左右内边距": 12,
-
         "箭头预览左右箭头宽": 56,
         "箭头预览左右箭头高": 108,
         "箭头预览箭头间距": 18,
@@ -9477,12 +9635,12 @@ def 设置页_布局基准配置() -> dict:
         "箭头预览底部文字间距": 18,
         "箭头预览底部保护边距": 6,
         "箭头预览内边距": 0,
-
         "标签字号占行高": 0.44,
         "选项字号占行高": 0.48,
         "小字字号占行高": 0.31,
         "名称下移": 1,
     }
+
 
 def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
     配置 = 设置页_布局基准配置()
@@ -9582,7 +9740,10 @@ def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
 
     左列宽占比 = _夹紧浮点(配置.get("左列宽占比", 0.34), 0.15, 0.70)
     左列宽 = int(round(内容区矩形.w * 左列宽占比))
-    左列宽 = max(_源像素转屏幕像素(280), min(左列宽, 内容区矩形.w - 左右列间距 - _源像素转屏幕像素(260)))
+    左列宽 = max(
+        _源像素转屏幕像素(280),
+        min(左列宽, 内容区矩形.w - 左右列间距 - _源像素转屏幕像素(260)),
+    )
 
     右列宽 = max(1, 内容区矩形.w - 左列宽 - 左右列间距)
 
@@ -9612,7 +9773,9 @@ def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
     行高 = max(行高最小, min(行高最大, 行高))
 
     小箭头宽 = max(12, _源像素转屏幕像素(配置.get("小箭头宽", 28)))
-    小箭头高 = max(18, int(round(float(行高) * float(配置.get("小箭头高占行高", 0.54) or 0.54))))
+    小箭头高 = max(
+        18, int(round(float(行高) * float(配置.get("小箭头高占行高", 0.54) or 0.54)))
+    )
     行内左右边距 = max(4, _源像素转屏幕像素(配置.get("行内左右边距", 8)))
     内容左右内边距 = max(4, _源像素转屏幕像素(配置.get("内容左右内边距", 12)))
 
@@ -9657,7 +9820,13 @@ def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
     右列上区高占比 = _夹紧浮点(配置.get("右列上区高占比", 0.58), 0.20, 0.85)
 
     背景区高 = int(round((右列矩形.h - 右列上下分区间距) * 右列上区高占比))
-    背景区高 = max(_源像素转屏幕像素(220), min(背景区高, right_h := max(1, 右列矩形.h - 右列上下分区间距 - _源像素转屏幕像素(140))))
+    背景区高 = max(
+        _源像素转屏幕像素(220),
+        min(
+            背景区高,
+            right_h := max(1, 右列矩形.h - 右列上下分区间距 - _源像素转屏幕像素(140)),
+        ),
+    )
     箭头区高 = max(1, 右列矩形.h - 背景区高 - 右列上下分区间距)
 
     背景区矩形 = pygame.Rect(
@@ -9717,7 +9886,9 @@ def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
         箭头箭头高,
     )
 
-    中间预览宽 = max(60, 箭头右箭矩形.x - 箭头箭间距 - (箭头左箭矩形.right + 箭头箭间距))
+    中间预览宽 = max(
+        60, 箭头右箭矩形.x - 箭头箭间距 - (箭头左箭矩形.right + 箭头箭间距)
+    )
     中间预览高 = max(60, 箭头预览矩形.h - 箭头上下内边距 * 2)
     预览边长 = min(中间预览宽, 中间预览高)
 
@@ -9728,9 +9899,15 @@ def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
         预览边长,
     )
 
-    标签字号 = max(14, int(round(行高 * float(配置.get("标签字号占行高", 0.44) or 0.44))))
-    选项字号 = max(16, int(round(行高 * float(配置.get("选项字号占行高", 0.48) or 0.48))))
-    小字字号 = max(12, int(round(行高 * float(配置.get("小字字号占行高", 0.31) or 0.31))))
+    标签字号 = max(
+        14, int(round(行高 * float(配置.get("标签字号占行高", 0.44) or 0.44)))
+    )
+    选项字号 = max(
+        16, int(round(行高 * float(配置.get("选项字号占行高", 0.48) or 0.48)))
+    )
+    小字字号 = max(
+        12, int(round(行高 * float(配置.get("小字字号占行高", 0.31) or 0.31)))
+    )
 
     视觉参数 = {
         "标签字号": 标签字号,
@@ -9738,7 +9915,9 @@ def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
         "小字字号": 小字字号,
         "内容内边距": max(4, 内容左右内边距),
         "名称下移": _源像素转屏幕像素(配置.get("名称下移", 1)),
-        "箭头名称上间距": max(6, _源像素转屏幕像素(配置.get("箭头预览底部文字间距", 18))),
+        "箭头名称上间距": max(
+            6, _源像素转屏幕像素(配置.get("箭头预览底部文字间距", 18))
+        ),
         "底部保护边距": max(4, _源像素转屏幕像素(配置.get("箭头预览底部保护边距", 6))),
         "箭头预览内边距": max(0, _源像素转屏幕像素(配置.get("箭头预览内边距", 0))),
     }
@@ -9762,6 +9941,7 @@ def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
         "视觉参数": 视觉参数,
     }
 
+
 def 设置菜单行键列表() -> List[str]:
     """
     选歌设置菜单左侧可调行（保留旧布局顺序，兼容旧 json 偏移）。
@@ -9769,14 +9949,9 @@ def 设置菜单行键列表() -> List[str]:
     return ["调速", "变速", "变速类型", "隐藏", "轨迹", "方向", "大小"]
 
 
-
-
-
 def 设置菜单默认调速选项() -> List[str]:
     # 固定档位：1.0 ~ 7.0（保留低速档与原有 0.5 步进）
     return get_select_scroll_speed_options()
-
-
 
 
 def 设置菜单行显示名(行键: str) -> str:
@@ -9926,6 +10101,7 @@ def 绘制_cover裁切预览(
     except Exception:
         return False
 
+
 def _设置页_钳制矩形到面板(self, 矩形: pygame.Rect) -> pygame.Rect:
     if not isinstance(矩形, pygame.Rect):
         return pygame.Rect(0, 0, 1, 1)
@@ -9950,6 +10126,7 @@ def _设置页_钳制矩形到面板(self, 矩形: pygame.Rect) -> pygame.Rect:
     新矩形.x = max(0, min(int(新矩形.x), max(0, 面板宽 - 新矩形.w)))
     新矩形.y = max(0, min(int(新矩形.y), max(0, 面板高 - 新矩形.h)))
     return 新矩形
+
 
 def _设置页_统一行按钮尺寸(self):
     行键列表 = ["调速", "变速", "变速类型", "隐藏", "轨迹", "方向", "大小"]
@@ -9989,6 +10166,7 @@ def _设置页_统一行按钮尺寸(self):
             新右.size = (标准宽, 标准高)
             新右.y = 右矩形.centery - 标准高 // 2
             行控件["右"] = _设置页_钳制矩形到面板(self, 新右)
+
 
 def _设置页_钳制全部控件到面板(self):
     try:
@@ -10169,7 +10347,10 @@ def 绑定设置页方法到选歌游戏类():
     选歌游戏._设置页_切换背景 = _设置页_切换背景
     选歌游戏._设置页_处理事件 = _设置页_处理事件
     选歌游戏.绘制设置页 = 绘制设置页
+
+
 绑定设置页方法到选歌游戏类()
+
 
 def 选歌_绑定外部屏幕(self, 外部屏幕: pygame.Surface):
     if 外部屏幕 is None:
@@ -10193,6 +10374,7 @@ def 选歌_绑定外部屏幕(self, 外部屏幕: pygame.Surface):
         except Exception:
             pass
 
+
 def 选歌_帧更新(self):
     self._确保公共交互()
 
@@ -10210,6 +10392,7 @@ def 选歌_帧更新(self):
     if bool(getattr(self, "_需要退出", False)):
         return str(getattr(self, "_返回状态", "NORMAL") or "NORMAL")
     return None
+
 
 def 选歌_帧绘制(self):
     self._确保公共交互()
@@ -10268,6 +10451,7 @@ def 选歌_帧绘制(self):
 
     except Exception:
         pass
+
 
 def 选歌_处理事件_外部(self, 事件):
     self._确保公共交互()
@@ -10363,17 +10547,13 @@ def 选歌_处理事件_外部(self, 事件):
 
     try:
         if self.按钮_收藏夹.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮, self.按钮_收藏夹.矩形, self._切换收藏夹模式
-            )
+            self._启动过渡(self._特效_按钮, self.按钮_收藏夹.矩形, self._切换收藏夹模式)
     except Exception:
         pass
 
     try:
         if self.按钮_ALL.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮, self.按钮_ALL.矩形, self._重置列表筛选
-            )
+            self._启动过渡(self._特效_按钮, self.按钮_ALL.矩形, self._重置列表筛选)
     except Exception:
         pass
 
@@ -10442,11 +10622,11 @@ def 选歌_处理事件_外部(self, 事件):
 
         if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
             try:
-                点在左右按钮 = self.按钮_详情上一首.矩形.collidepoint(
-                    事件.pos
-                ) or self.按钮_详情下一首.矩形.collidepoint(
-                    事件.pos
-                ) or self.按钮_详情收藏.矩形.collidepoint(事件.pos)
+                点在左右按钮 = (
+                    self.按钮_详情上一首.矩形.collidepoint(事件.pos)
+                    or self.按钮_详情下一首.矩形.collidepoint(事件.pos)
+                    or self.按钮_详情收藏.矩形.collidepoint(事件.pos)
+                )
             except Exception:
                 点在左右按钮 = False
 
@@ -10491,19 +10671,21 @@ def 选歌_处理事件_外部(self, 事件):
         return str(getattr(self, "_返回状态", "NORMAL") or "NORMAL")
     return None
 
+
 def 绑定场景化方法到选歌游戏类():
     选歌游戏.绑定外部屏幕 = 选歌_绑定外部屏幕
     选歌游戏.帧更新 = 选歌_帧更新
     选歌游戏.帧绘制 = 选歌_帧绘制
     选歌游戏.处理事件_外部 = 选歌_处理事件_外部
 
+
 绑定场景化方法到选歌游戏类()
+
 
 def main():
     资源根目录 = _取项目根目录()
     songs根目录 = _取songs根目录()
     背景音乐路径 = os.path.join(资源根目录, "冷资源", "backsound", "devil.mp3")
-
 
     游戏 = 选歌游戏(
         songs根目录=songs根目录,

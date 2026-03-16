@@ -73,9 +73,18 @@ def _获取字体(字号: int, 是否粗体: bool = False) -> pygame.font.Font:
     except Exception:
         pygame.font.init()
         try:
-            return pygame.font.SysFont(
-                "Microsoft YaHei", int(字号), bold=bool(是否粗体)
-            )
+            if sys.platform == "darwin":
+                return pygame.font.SysFont(
+                    "PingFang SC", int(字号), bold=bool(是否粗体)
+                )
+            elif sys.platform == "win32":
+                return pygame.font.SysFont(
+                    "Microsoft YaHei", int(字号), bold=bool(是否粗体)
+                )
+            else:
+                return pygame.font.SysFont(
+                    "Noto Sans CJK SC", int(字号), bold=bool(是否粗体)
+                )
         except Exception:
             return pygame.font.Font(None, int(字号))
 
@@ -105,7 +114,6 @@ def _合并载荷源(*载荷源) -> Dict:
                 else:
                     合并后[键] = 值
     return 合并后
-
 
 
 class 场景_加载页(场景基类):
@@ -420,9 +428,7 @@ class 场景_加载页(场景基类):
         左文 = 数值字体.render(f"人气: {人气显示}", True, (255, 255, 255))
         右文 = 数值字体.render(f"BPM: {bpm显示}", True, (255, 255, 255))
 
-        左框 = 左文.get_rect(
-            midleft=(数值区.x + int(数值区.w * 0.14), 数值区.centery)
-        )
+        左框 = 左文.get_rect(midleft=(数值区.x + int(数值区.w * 0.14), 数值区.centery))
         右框 = 右文.get_rect(
             midright=(数值区.right - int(数值区.w * 0.12), 数值区.centery)
         )
