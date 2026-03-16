@@ -6,6 +6,24 @@ import time
 import json
 import inspect
 import webbrowser
+
+# macOS PyInstaller 打包后 tkinter 需要正确设置 TCL/TK 环境变量
+if sys.platform == "darwin" and getattr(sys, "frozen", False):
+    # 获取 .app bundle 的 Resources 目录
+    可执行路径 = os.path.abspath(sys.executable)
+    if ".app/Contents/MacOS/" in 可执行路径:
+        parts = 可执行路径.split(".app/Contents/MacOS/")
+        if len(parts) >= 1:
+            app_path = parts[0] + ".app"
+            resources_path = os.path.join(app_path, "Contents", "Resources")
+            if os.path.isdir(resources_path):
+                tcl_dir = os.path.join(resources_path, "_tcl_data")
+                tk_dir = os.path.join(resources_path, "_tk_data")
+                if os.path.isdir(tcl_dir):
+                    os.environ.setdefault("TCL_LIBRARY", tcl_dir)
+                if os.path.isdir(tk_dir):
+                    os.environ.setdefault("TK_LIBRARY", tk_dir)
+
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 from typing import Optional
