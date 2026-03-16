@@ -153,9 +153,23 @@ def _尝试迁移目录(目标目录: str, *旧目录列表: str) -> str:
 
 
 def 取运行根目录() -> str:
+    # macOS .app bundle 特殊处理
+    # PyInstaller 打包后，可执行文件在 Contents/MacOS/
+    # 但资源文件放在 Contents/Resources/
     try:
         if getattr(sys, "frozen", False):
-            return os.path.dirname(os.path.abspath(sys.executable))
+            可执行路径 = os.path.abspath(sys.executable)
+            # 检测是否是 macOS .app bundle
+            # 路径结构: xxx.app/Contents/MacOS/可执行文件名
+            if sys.platform == "darwin" and ".app/Contents/MacOS/" in 可执行路径:
+                # 提取 Resources 目录路径
+                parts = 可执行路径.split(".app/Contents/MacOS/")
+                if len(parts) >= 1:
+                    app_path = parts[0] + ".app"
+                    resources_path = os.path.join(app_path, "Contents", "Resources")
+                    if os.path.isdir(resources_path):
+                        return resources_path
+            return os.path.dirname(可执行路径)
     except Exception:
         pass
 
