@@ -1,4 +1,6 @@
 import os
+import sys
+import subprocess
 import time
 import json
 from typing import Optional, Tuple, List, Dict
@@ -2399,6 +2401,31 @@ class 场景_个人资料:
         self._失效主界面静态缓存()
 
     def _弹窗_选择图片文件(self) -> Optional[str]:
+        if sys.platform == "darwin":
+            try:
+                脚本 = [
+                    "try",
+                    'set pickedFile to choose file with prompt "选择头像图片" of type {"public.image"}',
+                    "return POSIX path of pickedFile",
+                    "on error number -128",
+                    'return ""',
+                    "end try",
+                ]
+                命令 = ["osascript"]
+                for 行 in 脚本:
+                    命令.extend(["-e", 行])
+                结果 = subprocess.run(
+                    命令,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                路径 = str(getattr(结果, "stdout", "") or "").strip()
+                return 路径 if 路径 and os.path.isfile(路径) else None
+            except Exception:
+                return None
+
         try:
             import tkinter as tk
             from tkinter import filedialog
@@ -2628,6 +2655,9 @@ class 场景_个人资料:
             self.按钮音效.播放()
         except Exception:
             pass
+        if sys.platform == "darwin":
+            self._打开昵称二次弹窗()
+            return
         数据 = (
             self._个人资料数据
             if isinstance(getattr(self, "_个人资料数据", None), dict)
