@@ -11,6 +11,7 @@ from core.sqlite_store import (
 )
 from core.踏板控制 import 踏板动作_左, 踏板动作_右, 踏板动作_确认
 from ui.按钮特效 import 公用按钮点击特效, 公用按钮音效
+from ui.准备动画 import 全屏透明叠加层
 
 
 def _限幅(值: float, 最小值: float = 0.0, 最大值: float = 1.0) -> float:
@@ -62,6 +63,26 @@ def _颜色插值(
     )
 
 
+def _线性插值(起点: float, 终点: float, 进度: float) -> float:
+    进度 = _限幅(进度)
+    return float(起点) + (float(终点) - float(起点)) * 进度
+
+
+def _周期脉冲(
+    当前: float,
+    起点: float,
+    周期: float,
+    开始: float,
+    峰值: float,
+    结束: float,
+) -> float:
+    if float(当前) < float(起点):
+        return 0.0
+    周期 = max(0.001, float(周期))
+    局部时间 = (float(当前) - float(起点)) % 周期
+    return _区间脉冲(局部时间, float(开始), float(峰值), float(结束))
+
+
 class 场景_投币:
     名称 = "投币"
 
@@ -78,6 +99,7 @@ class 场景_投币:
     _bbox_1p = (125, 718, 368, 874)
     _bbox_2p = (1551, 718, 1795, 874)
     _logo登场总时长 = 2.35
+    _logo实时特效总时长 = 6.68
 
     def __init__(self, 上下文: dict):
         self.上下文 = 上下文
@@ -100,8 +122,18 @@ class 场景_投币:
         self._logo柔光偏移 = (0, 0)
         self._logo外描边图 = None
         self._logo外描边偏移 = (0, 0)
+        self._logo红偏图 = None
+        self._logo青偏图 = None
+        self._logo柔光红图 = None
+        self._logo柔光青图 = None
+        self._logo描边青图 = None
+        self._logo描边红图 = None
         self._logo轮廓点: list[tuple[int, int, float, float, float, float]] = []
         self._logo内部采样点: list[tuple[int, int, float, float]] = []
+        self._logo电弧条目: list[dict] = []
+        self._logo长弧条目: list[dict] = []
+        self._logo闪点条目: list[dict] = []
+        self._logo切片条目: list[dict] = []
         self._后处理暗角图 = None
         self._logo局部特效区域 = pygame.Rect(0, 0, 1, 1)
         self._logo_rect = pygame.Rect(0, 0, 1, 1)
@@ -109,6 +141,7 @@ class 场景_投币:
         self._2p图 = None
         self._1p图_hover = None
         self._2p图_hover = None
+        self._logo实时叠加层 = 全屏透明叠加层()
 
         self._1p_rect = pygame.Rect(0, 0, 1, 1)
         self._2p_rect = pygame.Rect(0, 0, 1, 1)
@@ -159,6 +192,7 @@ class 场景_投币:
         self._选择动画结束时间 = 0.0
         self._待切换结果 = None
         self._logo登场开始时间 = 0.0
+        self._logo实时叠加层.重置()
         self._确保缓存()
         self._按当前信用刷新阶段(允许播放满额音效=False)
         if self._是否显示logo:
@@ -488,6 +522,100 @@ class 场景_投币:
                 pass
         return 结果
 
+    def _重建logo实时特效条目(self):
+        self._logo电弧条目 = []
+        self._logo长弧条目 = []
+        self._logo闪点条目 = []
+        self._logo切片条目 = []
+
+        轮廓数 = len(self._logo轮廓点)
+        if 轮廓数 >= 8:
+            细碎条数 = max(12, min(24, max(轮廓数 // 10, 12)))
+            for i in range(细碎条数):
+                self._logo电弧条目.append(
+                    {
+                        "索引": int((i * 37) % 轮廓数),
+                        "phase": float(i) * 0.63,
+                        "speed": 2.0 + float(i % 5) * 0.24,
+                    }
+                )
+
+            长弧条数 = max(4, min(8, max(轮廓数 // 64, 4)))
+            for i in range(长弧条数):
+                self._logo长弧条目.append(
+                    {
+                        "起点索引": int((i * 53 + 7) % 轮廓数),
+                        "终点偏移": int(
+                            max(轮廓数 * 0.26, min(轮廓数 * 0.52, 轮廓数 * (0.28 + (i % 3) * 0.08)))
+                        ),
+                        "phase": float(i) * 0.91,
+                        "speed": 1.12 + float(i % 4) * 0.18,
+                    }
+                )
+
+        采样数 = len(self._logo内部采样点)
+        if 采样数 <= 0:
+            return
+        闪点条数 = max(12, min(26, max(采样数 // 4, 12)))
+        for i in range(闪点条数):
+            self._logo闪点条目.append(
+                {
+                    "索引": int((i * 19 + 3) % 采样数),
+                    "phase": float(i) * 0.42,
+                    "speed": 0.92 + float(i % 5) * 0.11,
+                }
+            )
+
+        for i, (顶部, 高度, 基础) in enumerate(
+            (
+                (0.13, 0.08, -12.0),
+                (0.27, 0.06, 8.0),
+                (0.44, 0.07, -6.0),
+                (0.61, 0.06, 10.0),
+                (0.79, 0.08, -9.0),
+            )
+        ):
+            self._logo切片条目.append(
+                {
+                    "top": float(顶部),
+                    "height": float(高度),
+                    "base": float(基础),
+                    "phase": float(i) * 0.57,
+                }
+            )
+
+    def _取logo活跃秒(self, 当前时间: float) -> float:
+        if float(self._logo登场开始时间) > 0.0:
+            return max(0.0, float(当前时间) - float(self._logo登场开始时间))
+        return max(0.0, float(当前时间) - float(self._开始时间))
+
+    def _清空logo实时叠加层(self, 重置: bool = False):
+        叠加层 = getattr(self, "_logo实时叠加层", None)
+        if 叠加层 is None:
+            return
+        if bool(重置):
+            try:
+                叠加层.重置()
+            except Exception:
+                return
+        try:
+            叠加层.清空(清除画布=True)
+        except Exception:
+            pass
+
+    def _取logo局部框(self, 局部区域: pygame.Rect) -> pygame.Rect:
+        return self._logo_rect.move(-局部区域.x, -局部区域.y)
+
+    def _应用logo局部蒙版(self, 图层: pygame.Surface, 局部区域: pygame.Rect):
+        if 图层 is None or self._logo遮罩图 is None:
+            return
+        try:
+            蒙版图层 = pygame.Surface(图层.get_size(), pygame.SRCALPHA)
+            蒙版图层.blit(self._logo遮罩图, self._取logo局部框(局部区域).topleft)
+            图层.blit(蒙版图层, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        except Exception:
+            pass
+
     def _创建后处理暗角图(self, 尺寸: tuple[int, int]) -> pygame.Surface:
         宽, 高 = max(1, int(尺寸[0])), max(1, int(尺寸[1]))
         图层 = pygame.Surface((宽, 高), pygame.SRCALPHA)
@@ -689,8 +817,18 @@ class 场景_投币:
         self._logo柔光偏移 = (0, 0)
         self._logo外描边图 = None
         self._logo外描边偏移 = (0, 0)
+        self._logo红偏图 = None
+        self._logo青偏图 = None
+        self._logo柔光红图 = None
+        self._logo柔光青图 = None
+        self._logo描边青图 = None
+        self._logo描边红图 = None
         self._logo轮廓点 = []
         self._logo内部采样点 = []
+        self._logo电弧条目 = []
+        self._logo长弧条目 = []
+        self._logo闪点条目 = []
+        self._logo切片条目 = []
 
         屏宽, 屏高 = max(1, int(屏幕尺寸[0])), max(1, int(屏幕尺寸[1]))
         屏幕矩形 = pygame.Rect(0, 0, 屏宽, 屏高)
@@ -719,6 +857,8 @@ class 场景_投币:
             柔光 = self._近似模糊(发光画布, 0.18)
             self._logo柔光图 = self._近似模糊(柔光, 0.52)
             self._logo柔光偏移 = (-发光边距, -发光边距)
+            self._logo柔光红图 = self._着色副本(self._logo柔光图, (255, 112, 192))
+            self._logo柔光青图 = self._着色副本(self._logo柔光图, (90, 236, 255))
 
             轮廓 = list(蒙版.outline() or [])
             if 轮廓:
@@ -760,6 +900,14 @@ class 场景_投币:
                     描边柔光 = self._近似模糊(描边画布, 0.20)
                     self._logo外描边图 = self._近似模糊(描边柔光, 0.56)
                     self._logo外描边偏移 = (-描边边距, -描边边距)
+                    self._logo描边青图 = self._着色副本(
+                        self._logo外描边图,
+                        (108, 232, 255),
+                    )
+                    self._logo描边红图 = self._着色副本(
+                        self._logo外描边图,
+                        (255, 116, 196),
+                    )
 
                 步长 = max(1, len(轮廓) // 260)
                 半宽 = max(1.0, float(self._logo_rect.w) * 0.5)
@@ -797,13 +945,26 @@ class 场景_投币:
                                 _限幅(math.hypot(dx, dy), 0.0, 1.8),
                             )
                         )
+            self._logo红偏图 = self._着色副本(self._logo图, (255, 118, 206))
+            self._logo青偏图 = self._着色副本(self._logo图, (116, 238, 255))
+            self._重建logo实时特效条目()
         except Exception:
             self._logo遮罩图 = None
             self._logo柔光图 = None
             self._logo外描边偏移 = (0, 0)
             self._logo外描边图 = None
+            self._logo红偏图 = None
+            self._logo青偏图 = None
+            self._logo柔光红图 = None
+            self._logo柔光青图 = None
+            self._logo描边青图 = None
+            self._logo描边红图 = None
             self._logo轮廓点 = []
             self._logo内部采样点 = []
+            self._logo电弧条目 = []
+            self._logo长弧条目 = []
+            self._logo闪点条目 = []
+            self._logo切片条目 = []
 
     def _确保缓存(self):
         屏幕 = self.上下文["屏幕"]
@@ -1183,6 +1344,429 @@ class 场景_投币:
         self._绘制logo显现层(局部层, 局部区域, 当前时间, 动画参数)
         self._绘制logo粒子层(局部层, 局部区域, 当前时间, 动画参数)
         self._应用logo后处理(屏幕, 局部层, 局部区域, 当前时间, 动画参数)
+
+    def _绘制logo发光折线(
+        self,
+        图层: pygame.Surface,
+        点列: list[tuple[int, int]],
+        颜色: tuple[int, int, int],
+        alpha: int,
+        线宽: float,
+    ):
+        if 图层 is None or len(点列) < 2:
+            return
+        alpha = max(0, min(255, int(alpha)))
+        if alpha <= 2:
+            return
+        颜色 = tuple(int(max(0, min(255, v))) for v in 颜色[:3])
+        亮色 = _颜色插值(颜色, (255, 255, 255), 0.48)
+        核心宽 = max(1, int(round(float(线宽))))
+        内层宽 = max(2, int(round(float(线宽) * 1.7)))
+        外层宽 = max(2, int(round(float(线宽) * 2.6)))
+        for 索引 in range(len(点列) - 1):
+            起点 = 点列[索引]
+            终点 = 点列[索引 + 1]
+            try:
+                pygame.draw.line(图层, (*颜色, int(alpha * 0.18)), 起点, 终点, 外层宽)
+                pygame.draw.line(图层, (*颜色, int(alpha * 0.36)), 起点, 终点, 内层宽)
+                pygame.draw.line(图层, (*亮色, alpha), 起点, 终点, 核心宽)
+            except Exception:
+                pass
+
+    def _绘制logo实时色偏层(self, 画布: pygame.Surface, 活跃秒: float):
+        if self._logo图 is None:
+            return
+        总时长 = float(self._logo实时特效总时长)
+        常驻尾段 = (
+            1.0
+            if 活跃秒 > 总时长
+            else _区间进度(活跃秒, 总时长 - 0.45, 总时长 + 0.40)
+        )
+        稳定 = _区间进度(活跃秒, 3.18, 3.80)
+        主爆 = _区间脉冲(活跃秒, 0.98, 1.24, 1.86)
+        第二爆 = _区间脉冲(活跃秒, 2.84, 2.98, 3.34)
+        色偏强度 = max(
+            _区间脉冲(活跃秒, 2.56, 2.76, 2.98),
+            _区间脉冲(活跃秒, 3.00, 3.10, 3.28),
+            _区间进度(活跃秒, 3.22, 3.70) * 0.12,
+            常驻尾段 * 0.10,
+        )
+        描边呼吸 = 常驻尾段 * (0.14 + (math.sin(活跃秒 * 5.40) * 0.5 + 0.5) * 0.18)
+        描边强度 = max(主爆 * 0.78, 第二爆 * 0.62, 稳定 * 0.34, 描边呼吸)
+        if max(描边强度, 色偏强度) <= 0.01:
+            return
+
+        描边基准位置 = (
+            self._logo_rect.x + int(self._logo外描边偏移[0]),
+            self._logo_rect.y + int(self._logo外描边偏移[1]),
+        )
+        if self._logo外描边图 is not None:
+            try:
+                self._logo外描边图.set_alpha(int(8 + 42 * 描边强度))
+            except Exception:
+                pass
+            画布.blit(
+                self._logo外描边图,
+                描边基准位置,
+                special_flags=pygame.BLEND_RGBA_ADD,
+            )
+
+        if self._logo描边青图 is not None:
+            try:
+                self._logo描边青图.set_alpha(int(10 + 54 * max(稳定 * 0.72, 常驻尾段 * 0.20)))
+            except Exception:
+                pass
+            画布.blit(
+                self._logo描边青图,
+                描边基准位置,
+                special_flags=pygame.BLEND_RGBA_ADD,
+            )
+
+        if 色偏强度 <= 0.01:
+            return
+
+        红偏移x = 1.6 + math.sin(活跃秒 * 31.0) * 1.8 * 色偏强度
+        红偏移y = -0.4 + math.cos(活跃秒 * 24.0) * 0.9 * 色偏强度
+        青偏移x = -2.4 + math.sin(活跃秒 * 28.0) * 2.2 * 色偏强度
+        青偏移y = 0.7 + math.cos(活跃秒 * 22.0) * 1.1 * 色偏强度
+
+        if self._logo描边红图 is not None:
+            try:
+                self._logo描边红图.set_alpha(int(10 + 76 * 色偏强度))
+            except Exception:
+                pass
+            画布.blit(
+                self._logo描边红图,
+                (
+                    int(round(描边基准位置[0] + 红偏移x)),
+                    int(round(描边基准位置[1] + 红偏移y)),
+                ),
+                special_flags=pygame.BLEND_RGBA_ADD,
+            )
+
+        if self._logo描边青图 is not None:
+            try:
+                self._logo描边青图.set_alpha(int(14 + 92 * 色偏强度))
+            except Exception:
+                pass
+            画布.blit(
+                self._logo描边青图,
+                (
+                    int(round(描边基准位置[0] + 青偏移x)),
+                    int(round(描边基准位置[1] + 青偏移y)),
+                ),
+                special_flags=pygame.BLEND_RGBA_ADD,
+            )
+
+    def _绘制logo实时切片层(self, 画布: pygame.Surface, 活跃秒: float):
+        if (self._logo描边青图 is None) or (not self._logo切片条目):
+            return
+        强度 = max(
+            _区间脉冲(活跃秒, 2.58, 2.74, 2.98),
+            _区间脉冲(活跃秒, 3.02, 3.10, 3.28) * 0.82,
+            _周期脉冲(活跃秒, 3.26, 2.55, 0.08, 0.22, 0.40) * 0.86,
+        )
+        if 强度 <= 0.02:
+            return
+
+        纹理宽 = int(self._logo描边青图.get_width())
+        纹理高 = int(self._logo描边青图.get_height())
+        if 纹理宽 <= 1 or 纹理高 <= 1:
+            return
+
+        描边基准x = self._logo_rect.x + int(self._logo外描边偏移[0])
+        描边基准y = self._logo_rect.y + int(self._logo外描边偏移[1])
+        for i, 条目 in enumerate(self._logo切片条目):
+            源y = int(round(float(纹理高) * float(条目["top"])))
+            源y = max(0, min(纹理高 - 1, 源y))
+            源高 = int(round(float(纹理高) * float(条目["height"])))
+            源高 = max(4, min(纹理高 - 源y, 源高))
+            if 源高 <= 0:
+                continue
+
+            偏移x = (
+                math.sin(活跃秒 * 46.0 + i * 1.7 + float(条目["phase"])) * 18.0
+                + float(条目["base"]) * 1.1
+            ) * 强度
+            偏移y = (
+                math.cos(活跃秒 * 18.0 + i * 0.85 + float(条目["phase"])) * 2.2
+            ) * 强度
+            源区域 = pygame.Rect(0, 源y, 纹理宽, 源高)
+            目标y = int(round(描边基准y + 源y + 偏移y))
+
+            if self._logo描边红图 is not None:
+                try:
+                    self._logo描边红图.set_alpha(int(8 + 62 * 强度))
+                except Exception:
+                    pass
+                画布.blit(
+                    self._logo描边红图,
+                    (int(round(描边基准x + 偏移x * 0.58)), 目标y),
+                    area=源区域,
+                    special_flags=pygame.BLEND_RGBA_ADD,
+                )
+
+            try:
+                self._logo描边青图.set_alpha(int(12 + 86 * 强度))
+            except Exception:
+                pass
+            画布.blit(
+                self._logo描边青图,
+                (int(round(描边基准x + 偏移x)), 目标y),
+                area=源区域,
+                special_flags=pygame.BLEND_RGBA_ADD,
+            )
+
+    def _绘制logo实时扫光层(
+        self,
+        画布: pygame.Surface,
+        局部区域: pygame.Rect,
+        活跃秒: float,
+    ):
+        总时长 = float(self._logo实时特效总时长)
+        常驻尾段 = (
+            1.0
+            if 活跃秒 > 总时长
+            else _区间进度(活跃秒, 总时长 - 0.45, 总时长 + 0.40)
+        )
+        主扫循环 = _周期脉冲(活跃秒, 3.26, 2.55, 0.08, 0.24, 0.46)
+        次扫循环 = _周期脉冲(活跃秒, 3.86, 2.55, 0.04, 0.15, 0.28)
+        主强度 = max(
+            _区间进度(活跃秒, 3.32, 4.00)
+            + 主扫循环 * max(_区间进度(活跃秒, 4.00, 6.40), 常驻尾段),
+            常驻尾段 * (0.26 + 主扫循环 * 0.92),
+        )
+        次强度 = max(
+            _区间脉冲(活跃秒, 3.54, 3.82, 4.18) * 0.86,
+            次扫循环 * max(_区间进度(活跃秒, 4.12, 6.30), 常驻尾段) * 0.82,
+            常驻尾段 * (0.16 + 次扫循环 * 0.82),
+        )
+        if max(主强度, 次强度) <= 0.01:
+            return
+
+        logo局部框 = self._取logo局部框(局部区域)
+        for 强度, 宽倍率, 速度, 偏移相位, 模糊强度 in (
+            (主强度, 0.22, 0.30, 0.00, 0.18),
+            (次强度, 0.16, 0.34, -0.24, 0.16),
+        ):
+            if 强度 <= 0.01:
+                continue
+            带图层 = self._创建扫描带图(
+                (局部区域.w, 局部区域.h),
+                float(logo局部框.x)
+                + (-0.36 + ((活跃秒 + 偏移相位) * 速度) % 1.60) * float(logo局部框.w),
+                float(logo局部框.w) * 宽倍率,
+            )
+            self._应用logo局部蒙版(带图层, 局部区域)
+            模糊层 = self._近似模糊(带图层, 模糊强度)
+            try:
+                模糊层.set_alpha(int(18 + 156 * 强度))
+            except Exception:
+                pass
+            try:
+                带图层.set_alpha(int(12 + 120 * 强度))
+            except Exception:
+                pass
+            画布.blit(模糊层, 局部区域.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+            画布.blit(带图层, 局部区域.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+
+    def _绘制logo实时电弧层(
+        self,
+        画布: pygame.Surface,
+        局部区域: pygame.Rect,
+        活跃秒: float,
+    ):
+        if not self._logo轮廓点:
+            return
+        总时长 = float(self._logo实时特效总时长)
+        常驻 = 1.0 if 活跃秒 > 总时长 else _区间进度(活跃秒, 3.20, 总时长)
+        细碎强度 = max(
+            _区间脉冲(活跃秒, 2.16, 2.36, 2.74),
+            _区间脉冲(活跃秒, 3.08, 3.18, 3.48) * 0.76,
+            常驻 * (0.38 + (math.sin(活跃秒 * 4.60) * 0.5 + 0.5) * 0.34),
+        )
+        长跳强度 = max(
+            _区间脉冲(活跃秒, 2.24, 2.42, 2.86) * 0.90,
+            _区间脉冲(活跃秒, 3.12, 3.28, 3.62) * 0.76,
+            常驻 * (0.16 + (math.sin(活跃秒 * 2.20 + 0.60) * 0.5 + 0.5) * 0.24),
+        )
+        if max(细碎强度, 长跳强度) <= 0.02:
+            return
+
+        局部图层 = pygame.Surface((局部区域.w, 局部区域.h), pygame.SRCALPHA)
+        logo局部框 = self._取logo局部框(局部区域)
+        轮廓数 = len(self._logo轮廓点)
+
+        细碎条数 = min(len(self._logo电弧条目), 10 + int(细碎强度 * 14))
+        for i in range(细碎条数):
+            条目 = self._logo电弧条目[i % len(self._logo电弧条目)]
+            pulse = pow(max(0.0, math.sin(活跃秒 * 条目["speed"] + 条目["phase"])), 6)
+            alpha = pulse * (0.14 + 细碎强度 * 0.88) + 细碎强度 * 0.08
+            if alpha < 0.06:
+                continue
+            索引 = int((条目["索引"] + 活跃秒 * (4.5 + i * 0.12)) % max(1, 轮廓数))
+            点x, 点y, _, _, 法线x, 法线y = self._logo轮廓点[索引]
+            切线x = -法线y
+            切线y = 法线x
+            长度 = 28.0 + pulse * 24.0 + 细碎强度 * 20.0
+            振幅 = 5.0 + pulse * 12.0 + 细碎强度 * 9.0
+            点列: list[tuple[int, int]] = []
+            基准x = float(logo局部框.x + 点x)
+            基准y = float(logo局部框.y + 点y)
+            for 节点 in range(7):
+                p = float(节点) / 6.0 - 0.5
+                横向 = p * 长度
+                法向波 = (
+                    math.sin((p + 0.5) * 13.0 + 活跃秒 * 24.0 + 条目["phase"])
+                    + math.cos((p + 0.5) * 19.0 - 活跃秒 * 17.0 + 条目["phase"] * 0.6)
+                ) * 振幅 * (1.0 - abs(p) * 0.42)
+                点列.append(
+                    (
+                        int(round(基准x + 切线x * 横向 + 法线x * 法向波)),
+                        int(round(基准y + 切线y * 横向 + 法线y * 法向波)),
+                    )
+                )
+            self._绘制logo发光折线(
+                局部图层,
+                点列,
+                (150, 242, 255),
+                int((0.16 + alpha * 0.84) * 255),
+                0.8 + alpha * 2.0,
+            )
+
+        长弧条数 = min(len(self._logo长弧条目), 2 + int(长跳强度 * 6))
+        for i in range(长弧条数):
+            条目 = self._logo长弧条目[i % len(self._logo长弧条目)]
+            pulse = pow(max(0.0, math.sin(活跃秒 * 条目["speed"] + 条目["phase"])), 12)
+            alpha = pulse * (0.18 + 长跳强度 * 0.96)
+            if alpha < 0.08:
+                continue
+            起点索引 = int((条目["起点索引"] + 活跃秒 * (3.2 + i * 0.18)) % max(1, 轮廓数))
+            终点索引 = int((起点索引 + int(条目["终点偏移"])) % max(1, 轮廓数))
+            起点数据 = self._logo轮廓点[起点索引]
+            终点数据 = self._logo轮廓点[终点索引]
+            起点x = float(logo局部框.x + 起点数据[0])
+            起点y = float(logo局部框.y + 起点数据[1])
+            终点x = float(logo局部框.x + 终点数据[0])
+            终点y = float(logo局部框.y + 终点数据[1])
+            dx = 终点x - 起点x
+            dy = 终点y - 起点y
+            总长度 = math.hypot(dx, dy) or 1.0
+            法线x = -dy / 总长度
+            法线y = dx / 总长度
+            点列 = []
+            扩散 = 7.0 + alpha * 18.0
+            for 节点 in range(10):
+                p = float(节点) / 9.0
+                x = _线性插值(起点x, 终点x, p)
+                y = _线性插值(起点y, 终点y, p)
+                扰动 = (
+                    math.sin(p * 17.0 + 活跃秒 * 19.0 + 条目["phase"])
+                    + math.cos(p * 23.0 - 活跃秒 * 11.0)
+                ) * 扩散 * (1.0 - abs(0.5 - p) * 1.2)
+                点列.append(
+                    (
+                        int(round(x + 法线x * 扰动)),
+                        int(round(y + 法线y * 扰动)),
+                    )
+                )
+            self._绘制logo发光折线(
+                局部图层,
+                点列,
+                (175, 245, 255),
+                int((0.18 + alpha) * 255),
+                1.1 + alpha * 2.0,
+            )
+
+        模糊层 = self._近似模糊(局部图层, 0.24)
+        try:
+            模糊层.set_alpha(int(20 + 54 * max(细碎强度, 长跳强度)))
+        except Exception:
+            pass
+        画布.blit(模糊层, 局部区域.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+        画布.blit(局部图层, 局部区域.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+
+    def _绘制logo实时闪点层(
+        self,
+        画布: pygame.Surface,
+        局部区域: pygame.Rect,
+        活跃秒: float,
+    ):
+        if not self._logo闪点条目 or not self._logo内部采样点:
+            return
+        总时长 = float(self._logo实时特效总时长)
+        常驻 = 1.0 if 活跃秒 > 总时长 else _区间进度(活跃秒, 3.20, 总时长)
+        基础 = max(
+            _区间进度(活跃秒, 3.10, 6.20),
+            常驻 * (0.32 + (math.sin(活跃秒 * 3.60) * 0.5 + 0.5) * 0.28),
+        )
+        if 基础 <= 0.0:
+            return
+
+        局部图层 = pygame.Surface((局部区域.w, 局部区域.h), pygame.SRCALPHA)
+        logo局部框 = self._取logo局部框(局部区域)
+        样本数 = len(self._logo内部采样点)
+        for i, 条目 in enumerate(self._logo闪点条目):
+            pulse = max(0.0, math.sin(活跃秒 * 条目["speed"] * 3.6 + 条目["phase"]))
+            alpha = pow(pulse, 9) * (0.10 + 基础 * 0.48)
+            if alpha < 0.028:
+                continue
+            索引 = int((条目["索引"] + 活跃秒 * (2.2 + i * 0.03)) % max(1, 样本数))
+            点x, 点y, _, _ = self._logo内部采样点[索引]
+            半径 = 2 + int(2 + pulse * 6)
+            self._绘制发光点(
+                局部图层,
+                (logo局部框.x + int(点x), logo局部框.y + int(点y)),
+                半径,
+                (120, 225, 255),
+                int(alpha * 255),
+            )
+
+        模糊层 = self._近似模糊(局部图层, 0.26)
+        try:
+            模糊层.set_alpha(int(16 + 72 * 基础))
+        except Exception:
+            pass
+        画布.blit(模糊层, 局部区域.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+        画布.blit(局部图层, 局部区域.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+
+    def _绘制logo实时叠加效果(self, 显示后端):
+        if (not self._是否显示logo) or (self._logo图 is None):
+            self._清空logo实时叠加层()
+            return
+
+        屏幕 = self.上下文.get("屏幕")
+        if not isinstance(屏幕, pygame.Surface):
+            self._清空logo实时叠加层()
+            return
+
+        self._确保缓存()
+        叠加层 = getattr(self, "_logo实时叠加层", None)
+        if 叠加层 is None:
+            return
+
+        画布 = 叠加层.开始绘制(屏幕.get_size())
+        if not isinstance(画布, pygame.Surface):
+            return
+
+        局部区域 = self._logo局部特效区域.clip(屏幕.get_rect())
+        if 局部区域.w <= 0 or 局部区域.h <= 0:
+            self._清空logo实时叠加层()
+            return
+
+        活跃秒 = self._取logo活跃秒(time.time())
+        self._绘制logo实时色偏层(画布, 活跃秒)
+        self._绘制logo实时切片层(画布, 活跃秒)
+        self._绘制logo实时扫光层(画布, 局部区域, 活跃秒)
+        self._绘制logo实时电弧层(画布, 局部区域, 活跃秒)
+        self._绘制logo实时闪点层(画布, 局部区域, 活跃秒)
+        叠加层.绘制到显示后端(显示后端)
+
+    def 绘制GPU叠加(self, 显示后端):
+        try:
+            self._绘制logo实时叠加效果(显示后端)
+        except Exception:
+            self._清空logo实时叠加层()
 
     def 绘制(self):
         from core.工具 import 绘制底部联网与信用

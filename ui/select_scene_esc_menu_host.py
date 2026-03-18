@@ -188,10 +188,17 @@ class SelectSceneEscMenuHost:
         self._视频背景关闭 = bool(self._背景模式 != "视频")
 
     def _save_select_visual_settings(self):
+        动态背景模式 = str(self._动态背景模式 or "关闭")
+        if str(self._背景模式 or "图片") == "动态背景":
+            动态背景模式 = DynamicBackgroundManager.normalize_mode(动态背景模式)
+            if 动态背景模式 == "关闭":
+                动态背景模式 = str((self._菜单动态背景选项 or ["唱片"])[0])
+        else:
+            动态背景模式 = "关闭"
         params = {
             "调速": format_select_scroll_speed(self._卷轴速度倍率, prefix="X"),
             "背景模式": str(self._背景模式 or "图片"),
-            "动态背景": str(self._动态背景模式 or "关闭"),
+            "动态背景": str(动态背景模式 or "关闭"),
             "隐藏": str(self._隐藏模式 or "关闭"),
             "轨迹": str(self._轨迹模式 or "正常"),
             "方向": str(self._方向模式 or "关闭"),
@@ -199,6 +206,7 @@ class SelectSceneEscMenuHost:
         }
         patch = {
             "设置参数": dict(params),
+            "动态背景": str(动态背景模式 or "关闭"),
             "背景文件名": str(getattr(self._当前背景选项, "file_name", "") or ""),
             "视频背景文件名": str(getattr(self._当前视频背景选项, "file_name", "") or ""),
             "箭头文件名": str(getattr(self._当前箭头选项, "file_name", "") or ""),

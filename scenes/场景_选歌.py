@@ -1,6 +1,5 @@
 
 import os
-import sys
 import json
 import re
 import math
@@ -36,8 +35,49 @@ from core.select_speed_settings import (
     DEFAULT_SELECT_SCROLL_SPEED_OPTION,
     format_select_scroll_speed,
     get_default_select_scroll_speed_index,
-    get_select_scroll_speed_options,
     nearest_select_scroll_speed_option,
+)
+from core.select_scene_layout import (
+    compute_frame_slot_layout as _计算框体槽位布局模块,
+    compute_thumbnail_card_layout as _计算缩略图卡片布局模块,
+    compute_thumbnail_frame_rect as _计算缩略图小框矩形模块,
+)
+from core.select_scene_preload import (
+    build_preload_page_order as _构建预加载页顺序模块,
+    collect_preload_cover_keys as _收集预加载封面键列表模块,
+)
+from core.select_scene_card_fx import (
+    draw_card_hover_overlay as _绘制卡片悬停叠层,
+    draw_card_hover_underlay as _绘制卡片悬停底层,
+)
+from core.select_scene_card_renderer import (
+    build_song_card_cache_key as _构建歌曲卡片缓存键,
+    render_song_card_static_surface as _渲染歌曲卡片静态图,
+)
+from core.select_scene_badges import draw_mv_badge as _绘制MV角标模块
+from core.select_scene_detail_renderer import (
+    draw_detail_star_gloss as _绘制详情浮层星光模块,
+    render_detail_panel_content as _渲染详情浮层面板内容模块,
+)
+from core.select_scene_detail_badges import (
+    render_detail_corner_badges as _渲染详情角标模块,
+)
+from core.select_scene_grid import (
+    CardGridConfig as _卡片网格配置模块,
+    build_card_grid_rects as _构建卡片网格矩形模块,
+)
+from core.select_scene_host_adapter import (
+    bind_select_scene_host_adapter as _绑定选歌场景化方法模块,
+)
+from core.select_scene_settings_layout import (
+    SettingsLayoutDebugger as 设置页布局调试器,
+    build_select_settings_param_text as 构建设置参数文本,
+    draw_cover_crop_preview as 绘制_cover裁切预览,
+    extract_select_settings_param_value as 设置参数文本提取值,
+    get_default_select_menu_speed_options as 设置菜单默认调速选项,
+    get_select_menu_row_label as 设置菜单行显示名,
+    get_select_menu_row_value as 设置菜单行值,
+    recompute_select_settings_layout as 重算设置页布局,
 )
 from core.歌曲记录 import 读取歌曲记录索引, 取歌曲记录键
 from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四把
@@ -837,12 +877,12 @@ def _设置页_加载持久化设置(self):
     参数文本 = str(数据.get("设置参数文本", "") or "")
     背景文件名 = str(数据.get("背景文件名", 参数.get("背景", "")) or "")
     箭头文件名 = str(数据.get("箭头文件名", 参数.get("箭头", "")) or "")
-    动态背景模式 = str(
-        数据.get(
-            "动态背景",
-            参数.get("动态背景", _设置页_从参数文本提取(参数文本, "动态背景")),
+    背景模式 = str(
+        参数.get(
+            "背景模式",
+            参数.get("变速", _设置页_从参数文本提取(参数文本, "背景模式")),
         )
-        or ""
+        or "图片"
     ).strip()
 
     if not 背景文件名:
@@ -875,8 +915,8 @@ def _设置页_加载持久化设置(self):
             候选值 = 箭头文件名
         elif 值类型 == "原值":
             候选值 = 背景文件名
-        elif 参数键 == "背景模式" and 动态背景模式 and 动态背景模式 != "关闭":
-            候选值 = "动态背景"
+        elif 参数键 == "背景模式":
+            候选值 = 背景模式
         else:
             候选值 = str(参数.get(参数键, 参数.get(兼容参数键, "")) or "").strip()
 
@@ -1078,9 +1118,14 @@ def _确保设置页资源(self):
     self._设置页_背景缩放缓存图 = None
     self._设置页_背景缩放缓存尺寸 = (0, 0)
 
-    self._设置页_调试器 = 设置页布局调试器(
-        _公共取调试配置路径("选歌设置页调试.json", 根目录=_取运行根目录())
+    设置页调试路径 = _公共取布局配置路径(
+        "选歌设置页调试.json", 根目录=_取运行根目录()
     )
+    if not os.path.isfile(设置页调试路径):
+        设置页调试路径 = _公共取调试配置路径(
+            "选歌设置页调试.json", 根目录=_取运行根目录()
+        )
+    self._设置页_调试器 = 设置页布局调试器(设置页调试路径, 获取字体)
     
 
 def _设置页_同步参数(self):
@@ -1116,11 +1161,18 @@ def _设置页_同步参数(self):
         elif 参数键 == "背景":
             self.设置_背景大图文件名 = 当前值
         elif 参数键 == "背景模式":
+            旧参数 = getattr(self, "设置_参数", {})
+            if not isinstance(旧参数, dict):
+                旧参数 = {}
+            输出参数["背景模式"] = 当前值
             if 当前值 == "动态背景":
-                输出参数["背景模式"] = "图片"
-                输出参数["动态背景"] = "唱片"
+                动态背景模式 = DynamicBackgroundManager.normalize_mode(
+                    str(旧参数.get("动态背景", "关闭") or "关闭")
+                )
+                输出参数["动态背景"] = (
+                    动态背景模式 if 动态背景模式 != "关闭" else "唱片"
+                )
             else:
-                输出参数["背景模式"] = 当前值
                 输出参数["动态背景"] = "关闭"
         elif 参数键 == "调速":
             输出参数[参数键] = format_select_scroll_speed(当前值, prefix=值前缀 or "X")
@@ -2137,75 +2189,22 @@ def 绘制序号标签_图片(
     - ✅ 不截断，支持 2 位/3 位/更多位数字渲染
     - ✅ 数字过宽时自动缩小，尽量塞进标签纸
     """
-    标签纸路径 = _资源路径(
-        "UI-img",
-        "选歌界面资源",
-        "数字-选歌序号",
-        "大号标签纸.png" if 是否大图 else "小号标签纸.png",
-    )
+    标签信息 = 计算序号标签信息(锚点矩形, 是否大图)
+    if 标签信息 is None:
+        return
+    标签纸图 = 标签信息["标签纸图"]
+    标签矩形 = 标签信息["标签矩形"]
+    标签x = int(标签矩形.x)
+    标签y = int(标签矩形.y)
+    标签w = int(标签矩形.w)
+    标签h = int(标签矩形.h)
+    数字缩放 = float(标签信息["数字缩放"])
+    数字x偏移 = int(标签信息["数字x偏移"])
+    数字y偏移 = int(标签信息["数字y偏移"])
+    显示格式 = str(标签信息["显示格式"])
     数字目录 = _资源路径("UI-img", "选歌界面资源", "数字-选歌序号")
 
-    标签纸原图 = 获取UI原图(标签纸路径, 透明=True)
-    if 标签纸原图 is None:
-        return
-
-    # =========================
-    # ✅ 读取“缩略图/大图”两套参数
-    # =========================
-    if 是否大图:
-        背景缩放 = float(_大图_序号背景_缩放)
-        背景x偏移 = int(_大图_序号背景_x偏移)
-        背景y偏移 = int(_大图_序号背景_y偏移)
-
-        数字缩放 = float(_大图_序号数字_缩放)
-        数字x偏移 = int(_大图_序号数字_x偏移)
-        数字y偏移 = int(_大图_序号数字_y偏移)
-
-        显示格式 = str(_序号显示格式_大图)
-    else:
-        背景缩放 = float(_缩略图_序号背景_缩放)
-        背景x偏移 = int(_缩略图_序号背景_x偏移)
-        背景y偏移 = int(_缩略图_序号背景_y偏移)
-
-        数字缩放 = float(_缩略图_序号数字_缩放)
-        数字x偏移 = int(_缩略图_序号数字_x偏移)
-        数字y偏移 = int(_缩略图_序号数字_y偏移)
-
-        显示格式 = str(_序号显示格式_缩略图)
-
-    背景缩放 = max(0.05, min(5.0, 背景缩放))
-    数字缩放 = max(0.05, min(5.0, 数字缩放))
-
-    # =========================
-    # 1) 背景（标签纸）缩放
-    # =========================
-    if 是否大图:
-        基准高占比 = 0.16
-    else:
-        基准高占比 = 0.30
-
-    基准高 = max(8, int(锚点矩形.h * 基准高占比))
-    标签高 = max(8, int(基准高 * 背景缩放))
-
-    标签纸图 = _按高等比缩放(标签纸原图, 标签高)
-    if 标签纸图 is None:
-        return
-
-    标签w, 标签h = 标签纸图.get_size()
-
-    # =========================
-    # 2) 背景定位
-    # =========================
-    if 是否大图:
-        基础偏移x = -int(标签w * 0.18)
-        基础偏移y = -int(标签h * 0.12)
-        标签x = 锚点矩形.left + 基础偏移x + 背景x偏移
-        标签y = 锚点矩形.top + 基础偏移y + 背景y偏移
-    else:
-        标签x = int(锚点矩形.left - 标签w / 2) + 背景x偏移
-        标签y = int(锚点矩形.top) + 背景y偏移
-
-    屏幕.blit(标签纸图, (标签x, 标签y))
+    屏幕.blit(标签纸图, 标签矩形.topleft)
 
     # =========================
     # 3) 序号内容（✅ 不截断）
@@ -2298,6 +2297,68 @@ def 绘制序号标签_图片(
             x += 间距
 
 
+def 计算序号标签信息(
+    锚点矩形: pygame.Rect,
+    是否大图: bool,
+) -> Optional[dict]:
+    标签纸路径 = _资源路径(
+        "UI-img",
+        "选歌界面资源",
+        "数字-选歌序号",
+        "大号标签纸.png" if 是否大图 else "小号标签纸.png",
+    )
+    标签纸原图 = 获取UI原图(标签纸路径, 透明=True)
+    if 标签纸原图 is None:
+        return None
+
+    if 是否大图:
+        背景缩放 = float(_大图_序号背景_缩放)
+        背景x偏移 = int(_大图_序号背景_x偏移)
+        背景y偏移 = int(_大图_序号背景_y偏移)
+        数字缩放 = float(_大图_序号数字_缩放)
+        数字x偏移 = int(_大图_序号数字_x偏移)
+        数字y偏移 = int(_大图_序号数字_y偏移)
+        显示格式 = str(_序号显示格式_大图)
+        基准高占比 = 0.16
+    else:
+        背景缩放 = float(_缩略图_序号背景_缩放)
+        背景x偏移 = int(_缩略图_序号背景_x偏移)
+        背景y偏移 = int(_缩略图_序号背景_y偏移)
+        数字缩放 = float(_缩略图_序号数字_缩放)
+        数字x偏移 = int(_缩略图_序号数字_x偏移)
+        数字y偏移 = int(_缩略图_序号数字_y偏移)
+        显示格式 = str(_序号显示格式_缩略图)
+        基准高占比 = 0.30
+
+    背景缩放 = max(0.05, min(5.0, 背景缩放))
+    数字缩放 = max(0.05, min(5.0, 数字缩放))
+    基准高 = max(8, int(锚点矩形.h * 基准高占比))
+    标签高 = max(8, int(基准高 * 背景缩放))
+
+    标签纸图 = _按高等比缩放(标签纸原图, 标签高)
+    if 标签纸图 is None:
+        return None
+
+    标签w, 标签h = 标签纸图.get_size()
+    if 是否大图:
+        基础偏移x = -int(标签w * 0.18)
+        基础偏移y = -int(标签h * 0.12)
+        标签x = 锚点矩形.left + 基础偏移x + 背景x偏移
+        标签y = 锚点矩形.top + 基础偏移y + 背景y偏移
+    else:
+        标签x = int(锚点矩形.left - 标签w / 2) + 背景x偏移
+        标签y = int(锚点矩形.top) + 背景y偏移
+
+    return {
+        "标签纸图": 标签纸图,
+        "标签矩形": pygame.Rect(int(标签x), int(标签y), int(标签w), int(标签h)),
+        "数字缩放": float(数字缩放),
+        "数字x偏移": int(数字x偏移),
+        "数字y偏移": int(数字y偏移),
+        "显示格式": str(显示格式),
+    }
+
+
 def 绘制MV角标_文本(
     屏幕: pygame.Surface,
     封面矩形: pygame.Rect,
@@ -2305,33 +2366,19 @@ def 绘制MV角标_文本(
     是否大图: bool = False,
 ):
     try:
-        if not isinstance(屏幕, pygame.Surface):
-            return
-        if (not isinstance(封面矩形, pygame.Rect)) or 封面矩形.w <= 2 or 封面矩形.h <= 2:
-            return
-        if not isinstance(参考矩形, pygame.Rect):
-            参考矩形 = 封面矩形
-
-        if 是否大图:
-            MV字号 = max(16, int(封面矩形.h * 0.055))
-            内边距x = max(12, int(参考矩形.w * 0.022))
-            内边距y = max(10, int(参考矩形.h * 0.022))
-        else:
-            MV字号 = max(11, int(参考矩形.h * 0.09))
-            内边距x = max(8, int(参考矩形.w * 0.03))
-            内边距y = max(6, int(参考矩形.h * 0.03))
-
-        MV字体 = 获取字体(MV字号, 是否粗体=True)
-        MV面 = 渲染紧凑文本("MV", MV字体, (255, 92, 176), 字符间距=0)
-        if MV面 is None:
-            return
-
-        阴影面 = 渲染紧凑文本("MV", MV字体, (28, 8, 24), 字符间距=0)
-        MVx = int(封面矩形.x + 内边距x)
-        MVy = int(封面矩形.y + 内边距y)
-        if 阴影面 is not None:
-            屏幕.blit(阴影面, (MVx + 1, MVy + 1))
-        屏幕.blit(MV面, (MVx, MVy))
+        标签信息 = 计算序号标签信息(参考矩形, bool(是否大图))
+        _绘制MV角标模块(
+            screen=屏幕,
+            cover_rect=封面矩形,
+            anchor_rect=参考矩形,
+            is_large=bool(是否大图),
+            get_font=获取字体,
+            sequence_label_rect=(
+                标签信息.get("标签矩形")
+                if isinstance(标签信息, dict)
+                else None
+            ),
+        )
     except Exception:
         pass
 
@@ -3354,202 +3401,38 @@ def 载入并缩放封面(
         return None
 
 def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> dict:
-    """
-    稳定版槽位布局：
-    - 不再用“目标像素尺寸反推倍率”的屎味算法
-    - 统一按框体内部的相对比例取槽位
-    - 小图/大图都保证槽位不会跑出框体
-    """
-    框宽 = max(1, int(框体矩形.w))
-    框高 = max(1, int(框体矩形.h))
-
-    if 是否大图:
-        参数 = {
-            "封面左占比": 0.05,
-            "封面上占比": 0.05,
-            "封面宽占比": 0.95,
-            "封面高占比": 1.0,
-            "信息条高占比": 0.35,
-            "信息条左右内边距占比": 0.040,
-            "星区上内边距占比": 0.050,
-            "星区高占比": 0.3,
-            "文本区左右内边距占比": 0.050,
-            "底栏高占比": 0.245,
-        }
-    else:
-        参数 = {
-            "封面左占比": 0.10,
-            "封面上占比": 0.060,
-            "封面宽占比": 0.845,
-            "封面高占比": 0.870,
-            "信息条高占比": 0.315,
-            "信息条左右内边距占比": 0.035,
-            "星区上内边距占比": 0,
-            "星区高占比": 0.6,
-            "文本区左右内边距占比": 0.040,
-            "底栏高占比": 0.345,
-        }
-
-    def _夹紧矩形(矩形: pygame.Rect, 外框: pygame.Rect) -> pygame.Rect:
-        x = max(外框.left, min(矩形.x, 外框.right - 1))
-        y = max(外框.top, min(矩形.y, 外框.bottom - 1))
-        w = max(1, min(矩形.w, 外框.right - x))
-        h = max(1, min(矩形.h, 外框.bottom - y))
-        return pygame.Rect(x, y, w, h)
-
-    封面矩形 = pygame.Rect(
-        int(round(框体矩形.x + 框宽 * 参数["封面左占比"])),
-        int(round(框体矩形.y + 框高 * 参数["封面上占比"])),
-        max(1, int(round(框宽 * 参数["封面宽占比"]))),
-        max(1, int(round(框高 * 参数["封面高占比"]))),
-    )
-    封面矩形 = _夹紧矩形(封面矩形, 框体矩形)
-
-    信息条高 = max(14, int(round(封面矩形.h * 参数["信息条高占比"])))
-    信息条矩形 = pygame.Rect(
-        封面矩形.x,
-        封面矩形.bottom - 信息条高,
-        封面矩形.w,
-        信息条高,
-    )
-    信息条矩形 = _夹紧矩形(信息条矩形, 封面矩形)
-
-    信息条左右内边距 = max(
-        4, int(round(信息条矩形.w * 参数["信息条左右内边距占比"]))
-    )
-    文本区左右内边距 = max(
-        4, int(round(信息条矩形.w * 参数["文本区左右内边距占比"]))
-    )
-
-    星星区域 = pygame.Rect(
-        信息条矩形.x + 信息条左右内边距,
-        信息条矩形.y + max(1, int(round(信息条矩形.h * 参数["星区上内边距占比"]))),
-        max(10, 信息条矩形.w - 信息条左右内边距 * 2),
-        max(6, int(round(信息条矩形.h * 参数["星区高占比"]))),
-    )
-    星星区域 = _夹紧矩形(星星区域, 信息条矩形)
-
-    底栏高 = max(10, int(round(信息条矩形.h * 参数["底栏高占比"])))
-    底栏矩形 = pygame.Rect(
-        信息条矩形.x + 文本区左右内边距,
-        信息条矩形.bottom - 底栏高 - max(1, int(round(信息条矩形.h * 0.06))),
-        max(10, 信息条矩形.w - 文本区左右内边距 * 2),
-        底栏高,
-    )
-    底栏矩形 = _夹紧矩形(底栏矩形, 信息条矩形)
-
-    中间安全间距 = max(8, int(round(底栏矩形.w * 0.05)))
-    左区宽 = max(10, int(round(底栏矩形.w * 0.52)))
-    左区宽 = min(左区宽, max(10, 底栏矩形.w - 中间安全间距 - 10))
-    右区宽 = max(10, 底栏矩形.w - 左区宽 - 中间安全间距)
-
-    游玩区域 = pygame.Rect(
-        底栏矩形.x,
-        底栏矩形.y,
-        左区宽,
-        底栏矩形.h,
-    )
-    bpm区域 = pygame.Rect(
-        底栏矩形.right - 右区宽,
-        底栏矩形.y,
-        右区宽,
-        底栏矩形.h,
-    )
-
-    游玩区域 = _夹紧矩形(游玩区域, 底栏矩形)
-    bpm区域 = _夹紧矩形(bpm区域, 底栏矩形)
-
-    return {
-        "封面矩形": 封面矩形,
-        "信息条矩形": 信息条矩形,
-        "星星区域": 星星区域,
-        "游玩区域": 游玩区域,
-        "bpm区域": bpm区域,
-    }
+    return _计算框体槽位布局模块(框体矩形, bool(是否大图))
 
 def 计算缩略图小框矩形(
     基准矩形: pygame.Rect,
     框路径: str,
 ) -> pygame.Rect:
-    """
-    小框专用：
-    - 只允许等比缩放
-    - 比例优先跟随“小框素材原图”
-    - 宽高缩放配置不再分别直接作用到最终宽高，避免窗口一变就框体变形
-    - x/y 偏移仍保留
-    """
-    try:
-        框宽缩放 = float(_缩略图小框_宽缩放)
-    except Exception:
-        框宽缩放 = 1.0
+    return _计算缩略图小框矩形模块(
+        base_rect=基准矩形,
+        frame_path=框路径,
+        get_ui_image=获取UI原图,
+        frame_scale_x=_缩略图小框_宽缩放,
+        frame_scale_y=_缩略图小框_高缩放,
+        frame_x_offset=_缩略图小框_x偏移,
+        frame_y_offset_ratio=_缩略图小框_y偏移,
+        target_ratio=4.0 / 3.0,
+    )
 
-    try:
-        框高缩放 = float(_缩略图小框_高缩放)
-    except Exception:
-        框高缩放 = 1.0
 
-    try:
-        框x偏移 = int(_缩略图小框_x偏移)
-    except Exception:
-        框x偏移 = 0
-
-    try:
-        框y偏移 = int(round(float(_缩略图小框_y偏移) * float(基准矩形.h)))
-    except Exception:
-        框y偏移 = 0
-
-    框宽缩放 = max(0.05, min(5.0, 框宽缩放))
-    框高缩放 = max(0.05, min(5.0, 框高缩放))
-
-    # ✅ 关键：小框只取一个“统一等比缩放值”
-    统一缩放 = min(框宽缩放, 框高缩放)
-    统一缩放 = max(0.05, min(5.0, 统一缩放))
-
-    原框图 = 获取UI原图(框路径, 透明=True)
-
-    # 优先使用素材真实比例；没有素材时退回当前卡片比例
-    if 原框图 is not None:
-        try:
-            原宽, 原高 = 原框图.get_size()
-        except Exception:
-            原宽, 原高 = (0, 0)
-    else:
-        原宽, 原高 = (0, 0)
-
-    if 原宽 <= 0 or 原高 <= 0:
-        原宽 = max(1, int(基准矩形.w))
-        原高 = max(1, int(基准矩形.h))
-
-    原始比例 = float(原宽) / float(max(1, 原高))
-
-    # ✅ 先基于“基准矩形”求一个可容纳的等比框
-    候选宽 = max(1, int(round(float(基准矩形.w) * 统一缩放)))
-    候选高 = max(1, int(round(float(基准矩形.h) * 统一缩放)))
-
-    if 候选宽 <= 0 or 候选高 <= 0:
-        return pygame.Rect(
-            int(基准矩形.x + 框x偏移),
-            int(基准矩形.y + 框y偏移),
-            max(1, int(基准矩形.w)),
-            max(1, int(基准矩形.h)),
-        )
-
-    if (float(候选宽) / float(max(1, 候选高))) > 原始比例:
-        # 太宽了，以高为准反推宽
-        框高 = 候选高
-        框宽 = max(1, int(round(float(框高) * 原始比例)))
-    else:
-        # 太高了，以宽为准反推高
-        框宽 = 候选宽
-        框高 = max(1, int(round(float(框宽) / max(0.001, 原始比例))))
-
-    # ✅ 仍然以原来的基准中心定位，偏移继续有效
-    框矩形 = pygame.Rect(0, 0, 框宽, 框高)
-    框矩形.center = 基准矩形.center
-    框矩形.x += int(框x偏移)
-    框矩形.y += int(框y偏移)
-
-    return 框矩形
+def 计算缩略图卡片布局(
+    基准矩形: pygame.Rect,
+    框路径: str,
+) -> dict:
+    return _计算缩略图卡片布局模块(
+        base_rect=基准矩形,
+        frame_path=框路径,
+        get_ui_image=获取UI原图,
+        frame_scale_x=_缩略图小框_宽缩放,
+        frame_scale_y=_缩略图小框_高缩放,
+        frame_x_offset=_缩略图小框_x偏移,
+        frame_y_offset_ratio=_缩略图小框_y偏移,
+        target_ratio=4.0 / 3.0,
+    )
 
 class 渐隐放大点击特效:
     """
@@ -4171,56 +4054,22 @@ class 歌曲卡片:
         是否高亮 = bool(self.悬停 or self.踏板高亮)
         基准矩形 = self.矩形.copy()
 
-        if 是否高亮:
-            缩放 = 1.08 if bool(self.踏板高亮) else 1.04
-            新宽 = max(1, int(round(self.矩形.w * 缩放)))
-            新高 = max(1, int(round(self.矩形.h * 缩放)))
-            基准矩形.size = (新宽, 新高)
-            基准矩形.center = self.矩形.center
-
         框路径 = _资源路径("UI-img", "选歌界面资源", "缩略图小.png")
-
-        try:
-            框宽缩放 = float(_缩略图小框_宽缩放)
-        except Exception:
-            框宽缩放 = 1.0
-        try:
-            框高缩放 = float(_缩略图小框_高缩放)
-        except Exception:
-            框高缩放 = 1.0
-        try:
-            框x偏移 = int(_缩略图小框_x偏移)
-        except Exception:
-            框x偏移 = 0
-        try:
-            框y偏移 = int(round(float(_缩略图小框_y偏移) * float(基准矩形.h)))
-        except Exception:
-            框y偏移 = 0
-
-        框宽缩放 = max(0.05, min(5.0, 框宽缩放))
-        框高缩放 = max(0.05, min(5.0, 框高缩放))
-
-        框矩形 = pygame.Rect(
-            int(基准矩形.x + 框x偏移),
-            int(基准矩形.y + 框y偏移),
-            max(1, int(round(基准矩形.w * 框宽缩放))),
-            max(1, int(round(基准矩形.h * 框高缩放))),
-        )
-
-        局部框矩形 = pygame.Rect(0, 0, 框矩形.w, 框矩形.h)
-        局部布局 = 计算框体槽位布局(局部框矩形, 是否大图=False)
-
+        局部布局 = 计算缩略图卡片布局(基准矩形, 框路径)
+        框矩形 = 局部布局["框矩形"]
+        局部框矩形 = 局部布局["局部框矩形"]
         局部封面矩形 = 局部布局["封面矩形"]
+        局部封面可视矩形 = 局部布局.get("封面可视矩形", 局部封面矩形)
         局部信息条 = 局部布局["信息条矩形"]
         局部星星区域 = 局部布局["星星区域"]
         局部游玩区域 = 局部布局["游玩区域"]
         局部bpm区域 = 局部布局["bpm区域"]
 
         self.封面矩形 = pygame.Rect(
-            框矩形.x + 局部封面矩形.x,
-            框矩形.y + 局部封面矩形.y,
-            局部封面矩形.w,
-            局部封面矩形.h,
+            框矩形.x + 局部封面可视矩形.x,
+            框矩形.y + 局部封面可视矩形.y,
+            局部封面可视矩形.w,
+            局部封面可视矩形.h,
         )
 
         try:
@@ -4228,199 +4077,91 @@ class 歌曲卡片:
         except Exception:
             游玩次数 = 0
 
-        缓存键 = (
-            int(框矩形.w),
-            int(框矩形.h),
-            float(_选歌布局_修改时间),
-            str(getattr(self.歌曲, "sm路径", "") or ""),
-            str(getattr(self.歌曲, "封面路径", "") or ""),
-            int(getattr(self.歌曲, "星级", 0) or 0),
-            int(getattr(self.歌曲, "序号", 0) or 0),
-            str(getattr(self.歌曲, "bpm", "") or ""),
-            int(游玩次数),
-            bool(getattr(self.歌曲, "是否VIP", False)),
-            bool(getattr(self.歌曲, "是否HOT", False)),
-            bool(getattr(self.歌曲, "是否NEW", False)),
-            bool(getattr(self.歌曲, "是否带MV", False)),
-        )
-        局部画布 = self._静态缓存图 if self._静态缓存键 == 缓存键 else None
-        if 局部画布 is None:
-            局部画布 = pygame.Surface((框矩形.w, 框矩形.h), pygame.SRCALPHA)
-            局部画布.fill((0, 0, 0, 0))
-
-            封面缩放模式 = "cover"
-            封面圆角 = 0
-
-            封面图 = None
-            if self.歌曲.封面路径:
-                封面图 = 图缓存.获取(
+        封面缩放模式 = "cover"
+        封面圆角 = 0
+        封面图 = None
+        封面图已就绪 = False
+        if self.歌曲.封面路径:
+            封面图 = 图缓存.获取(
+                self.歌曲.封面路径,
+                局部封面矩形.w,
+                局部封面矩形.h,
+                int(封面圆角),
+                封面缩放模式,
+            )
+            封面图已就绪 = isinstance(封面图, pygame.Surface)
+            if (封面图 is None) and bool(允许同步封面加载):
+                封面图 = 载入并缩放封面(
                     self.歌曲.封面路径,
                     局部封面矩形.w,
                     局部封面矩形.h,
                     int(封面圆角),
                     封面缩放模式,
                 )
-                if 封面图 is None and bool(允许同步封面加载):
-                    封面图 = 载入并缩放封面(
+                if 封面图 is not None:
+                    图缓存.写入(
                         self.歌曲.封面路径,
                         局部封面矩形.w,
                         局部封面矩形.h,
                         int(封面圆角),
                         封面缩放模式,
+                        封面图,
                     )
-                    if 封面图 is not None:
-                        图缓存.写入(
-                            self.歌曲.封面路径,
-                            局部封面矩形.w,
-                            局部封面矩形.h,
-                            int(封面圆角),
-                            封面缩放模式,
-                            封面图,
-                        )
+                    封面图已就绪 = True
 
-            if 封面图 is not None:
-                局部画布.blit(封面图, 局部封面矩形.topleft)
-            else:
-                pygame.draw.rect(局部画布, (30, 30, 40), 局部封面矩形)
-
-            黑条 = pygame.Surface((局部信息条.w, 局部信息条.h), pygame.SRCALPHA)
-            黑条.fill((0, 0, 0, 145))
-            局部画布.blit(黑条, 局部信息条.topleft)
-
-            小星星路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "小星星.png")
-            绘制星星行_图片(
-                屏幕=局部画布,
-                区域=局部星星区域,
-                星数=self.歌曲.星级,
-                星星路径=小星星路径,
-                星星缩放倍数=0.42,
-                每行最大=10,
+        缓存键 = _构建歌曲卡片缓存键(
+            song=self.歌曲,
+            frame_rect=框矩形,
+            layout_version=float(_选歌布局_修改时间),
+            cover_ready=bool(封面图已就绪),
+            play_count=int(游玩次数),
+        )
+        局部画布 = self._静态缓存图 if self._静态缓存键 == 缓存键 else None
+        if 局部画布 is None:
+            局部画布 = _渲染歌曲卡片静态图(
+                song=self.歌曲,
+                frame_rect=框矩形,
+                local_frame_rect=局部框矩形,
+                local_cover_rect=局部封面矩形,
+                local_cover_visible_rect=局部封面可视矩形,
+                local_info_rect=局部信息条,
+                local_star_rect=局部星星区域,
+                local_play_rect=局部游玩区域,
+                local_bpm_rect=局部bpm区域,
+                cover_surface=封面图,
+                play_count=int(游玩次数),
+                frame_path=框路径,
+                small_star_path=_资源路径("UI-img", "选歌界面资源", "小星星", "小星星.png"),
+                vip_path=_资源路径("UI-img", "选歌界面资源", "vip.png"),
+                hot_path=_资源路径("UI-img", "选歌界面资源", "热门.png"),
+                new_path=_资源路径("UI-img", "选歌界面资源", "NEW绿色.png"),
+                get_font=获取字体,
+                render_compact_text=渲染紧凑文本,
+                get_play_count_color=_取游玩次数颜色,
+                get_ui_container_image=获取UI容器图,
+                get_ui_image=获取UI原图,
+                scale_to_height=_按高等比缩放,
+                draw_star_row=绘制星星行_图片,
+                draw_index_badge=绘制序号标签_图片,
+                draw_mv_badge=绘制MV角标_文本,
             )
-
-            bpm文本 = f"BPM:{self.歌曲.bpm}" if self.歌曲.bpm else "BPM:?"
-
-            游玩标签字号 = max(8, int(局部信息条.h * 0.26))
-            游玩数字字号 = max(8, int(局部信息条.h * 0.28))
-            bpm字号 = max(9, int(局部信息条.h * 0.31))
-            游玩颜色 = _取游玩次数颜色(游玩次数)
-
-            try:
-                游玩标签字体 = 获取字体(游玩标签字号, 是否粗体=True)
-                游玩数字字体 = 获取字体(游玩数字字号, 是否粗体=True)
-                bpm字体 = 获取字体(bpm字号, 是否粗体=True)
-
-                游玩标签面 = 渲染紧凑文本(
-                    "游玩次数:",
-                    游玩标签字体,
-                    游玩颜色,
-                    字符间距=-1,
-                )
-                游玩数字面 = 渲染紧凑文本(
-                    str(游玩次数),
-                    游玩数字字体,
-                    游玩颜色,
-                    字符间距=0,
-                )
-                bpm文面 = bpm字体.render(bpm文本, True, (255, 255, 255))
-
-                游玩块宽 = int(游玩标签面.get_width()) + 2 + int(游玩数字面.get_width())
-                游玩x = 局部游玩区域.x
-                游玩y = 局部游玩区域.centery - max(
-                    游玩标签面.get_height(),
-                    游玩数字面.get_height(),
-                ) // 2
-
-                bpmx = 局部bpm区域.right - bpm文面.get_width()
-                bpmy = 局部bpm区域.centery - bpm文面.get_height() // 2
-
-                if 游玩x + 游玩块宽 > bpmx - 6:
-                    压缩差值 = (游玩x + 游玩块宽) - (bpmx - 6)
-                    bpmx += max(0, 压缩差值)
-
-                局部画布.blit(游玩标签面, (游玩x, 游玩y))
-                局部画布.blit(
-                    游玩数字面,
-                    (游玩x + int(游玩标签面.get_width()) + 2, 游玩y),
-                )
-                局部画布.blit(bpm文面, (bpmx, bpmy))
-            except Exception:
-                pass
-
-            框图 = 获取UI容器图(
-                框路径,
-                框矩形.w,
-                框矩形.h,
-                缩放模式="stretch",
-                透明=True,
-            )
-            if 框图 is not None:
-                局部画布.blit(框图, (0, 0))
-
-            绘制序号标签_图片(
-                屏幕=局部画布,
-                锚点矩形=局部框矩形,
-                内部序号从0=self.歌曲.序号,
-                是否大图=False,
-            )
-
-            if bool(getattr(self.歌曲, "是否带MV", False)):
-                绘制MV角标_文本(
-                    局部画布,
-                    局部封面矩形,
-                    局部框矩形,
-                    是否大图=False,
-                )
-
-            if self.歌曲.是否VIP:
-                vip路径 = _资源路径("UI-img", "选歌界面资源", "vip.png")
-                vip原 = 获取UI原图(vip路径, 透明=True)
-                if vip原 is not None:
-                    vip高 = max(10, int(框矩形.h * 0.15))
-                    vip图 = _按高等比缩放(vip原, vip高)
-                    if vip图 is not None:
-                        vipw, viph = vip图.get_size()
-                        vx = 局部框矩形.right - vipw - max(2, int(vipw * 0.06))
-                        vy = 局部框矩形.top - max(2, int(viph * -0.020))
-                        局部画布.blit(vip图, (vx, vy))
-
-            hot占位宽 = 0
-            try:
-                if bool(getattr(self.歌曲, "是否HOT", False)):
-                    hot路径 = _资源路径("UI-img", "选歌界面资源", "热门.png")
-                    hot原 = 获取UI原图(hot路径, 透明=True)
-                    if hot原 is not None:
-                        hot高 = max(14, int(框矩形.h * 0.34))
-                        hot图 = _按高等比缩放(hot原, hot高)
-                        if hot图 is not None:
-                            hotw, hoth = hot图.get_size()
-                            hx = 局部框矩形.right - hotw - max(4, int(hot高 * -0.50))
-                            hy = 局部框矩形.bottom - hoth - max(4, int(hot高 * 0.10))
-                            hot占位宽 = hotw + max(6, int(hot高 * 0.14))
-                            局部画布.blit(hot图, (hx, hy))
-            except Exception:
-                pass
-
-            try:
-                if bool(getattr(self.歌曲, "是否NEW", False)):
-                    new路径 = _资源路径("UI-img", "选歌界面资源", "NEW绿色.png")
-                    new原 = 获取UI原图(new路径, 透明=True)
-                    if new原 is not None:
-                        new高 = max(12, int(框矩形.h * 0.30))
-                        new图 = _按高等比缩放(new原, new高)
-                        if new图 is not None:
-                            neww, newh = new图.get_size()
-                            nx = 局部框矩形.right - neww - max(4, int(new高 * 0.0))
-                            if hot占位宽 > 0:
-                                nx -= hot占位宽
-                            ny = 局部框矩形.bottom - newh - max(4, int(new高 * 0.10))
-                            局部画布.blit(new图, (nx, ny))
-            except Exception:
-                pass
-
             self._静态缓存键 = 缓存键
             self._静态缓存图 = 局部画布
 
+        if 是否高亮:
+            _绘制卡片悬停底层(
+                屏幕,
+                框矩形,
+                pedal_highlight=bool(self.踏板高亮),
+            )
+
         屏幕.blit(局部画布, 框矩形.topleft)
+        if 是否高亮:
+            _绘制卡片悬停叠层(
+                屏幕,
+                框矩形,
+                pedal_highlight=bool(self.踏板高亮),
+            )
 
 class 选歌游戏:
 
@@ -4489,8 +4230,6 @@ class 选歌游戏:
             默认宽, 默认高 = self._计算默认窗口尺寸(信息)
             self.屏幕 = pygame.display.set_mode((默认宽, 默认高), pygame.RESIZABLE)
             self.宽, self.高 = self.屏幕.get_size()
-
-        self.时钟 = pygame.time.Clock()
 
         self._设计宽 = 2048
         self._设计高 = 1152
@@ -4609,8 +4348,12 @@ class 选歌游戏:
         self._背景遮罩设置最近读取时间: float = -999.0
         self._背景音乐路径存在缓存键 = ""
         self._背景音乐路径存在缓存值 = False
-        self._详情浮层静态缓存键 = None
-        self._详情浮层静态缓存图: Optional[pygame.Surface] = None
+        self._详情浮层_alpha = 255
+        self._详情浮层_最后缩放 = 1.0
+        self._详情浮层面板缓存图: Optional[pygame.Surface] = None
+        self._详情浮层面板缓存尺寸: Tuple[int, int] = (0, 0)
+        self._详情浮层遮罩缓存图: Optional[pygame.Surface] = None
+        self._详情浮层遮罩缓存键: Tuple[int, int, int] = (0, 0, 0)
         self._动态背景管理器 = DynamicBackgroundManager()
         self._动态背景上次刷新秒 = float(time.perf_counter())
         self._GPU背景纹理 = None
@@ -4822,8 +4565,11 @@ class 选歌游戏:
         self.动画新页卡片 = []
 
     def _失效详情浮层缓存(self):
-        self._详情浮层静态缓存键 = None
-        self._详情浮层静态缓存图 = None
+        self._详情浮层_alpha = 255
+        self._详情浮层_最后缩放 = 1.0
+        self.详情大框矩形 = pygame.Rect(0, 0, 0, 0)
+        self._详情浮层面板缓存图 = None
+        self._详情浮层面板缓存尺寸 = (0, 0)
 
     def _取歌曲数据根目录(self) -> str:
         return os.path.abspath(
@@ -5072,8 +4818,48 @@ class 选歌游戏:
         else:
             self.显示消息提示("存入收藏夹成功", 持续秒=1.5)
 
-    def _构建详情浮层静态图(
+    def _取详情封面图(
         self,
+        歌: 歌曲信息,
+        封面矩形: pygame.Rect,
+    ) -> Optional[pygame.Surface]:
+        if not isinstance(封面矩形, pygame.Rect):
+            return None
+        封面路径 = str(getattr(歌, "封面路径", "") or "")
+        if (not 封面路径) or (not os.path.isfile(封面路径)):
+            return None
+
+        封面图 = self.图缓存.获取(
+            封面路径,
+            封面矩形.w,
+            封面矩形.h,
+            0,
+            "stretch",
+        )
+        if isinstance(封面图, pygame.Surface):
+            return 封面图
+
+        封面图 = 载入并缩放封面(
+            封面路径,
+            封面矩形.w,
+            封面矩形.h,
+            0,
+            "stretch",
+        )
+        if isinstance(封面图, pygame.Surface):
+            self.图缓存.写入(
+                封面路径,
+                封面矩形.w,
+                封面矩形.h,
+                0,
+                "stretch",
+                封面图,
+            )
+        return 封面图
+
+    def _绘制详情浮层面板内容(
+        self,
+        局部画布: pygame.Surface,
         歌: 歌曲信息,
         框路径: str,
         内容基础矩形: pygame.Rect,
@@ -5090,178 +4876,33 @@ class 选歌游戏:
         内容偏移y: int,
         总宽: int,
         总高: int,
-    ) -> pygame.Surface:
-        局部画布 = pygame.Surface((总宽, 总高), pygame.SRCALPHA)
-        局部画布.fill((0, 0, 0, 0))
-
-        封面图 = None
-        if 歌.封面路径 and os.path.isfile(歌.封面路径):
-            封面图 = self.图缓存.获取(
-                歌.封面路径,
-                局部封面框.w,
-                局部封面框.h,
-                0,
-                "stretch",
-            )
-            if 封面图 is None:
-                封面图 = 载入并缩放封面(
-                    歌.封面路径,
-                    局部封面框.w,
-                    局部封面框.h,
-                    0,
-                    "stretch",
-                )
-                if 封面图 is not None:
-                    self.图缓存.写入(
-                        歌.封面路径,
-                        局部封面框.w,
-                        局部封面框.h,
-                        0,
-                        "stretch",
-                        封面图,
-                    )
-
-        if 封面图 is not None:
-            局部画布.blit(
-                封面图,
-                (局部封面框.x + 内容偏移x, 局部封面框.y + 内容偏移y),
-            )
-        else:
-            pygame.draw.rect(
-                局部画布,
-                (18, 18, 24),
-                pygame.Rect(
-                    局部封面框.x + 内容偏移x,
-                    局部封面框.y + 内容偏移y,
-                    局部封面框.w,
-                    局部封面框.h,
-                ),
-            )
-
-        黑条 = pygame.Surface((局部信息条.w, 局部信息条.h), pygame.SRCALPHA)
-        黑条.fill((0, 0, 0, 155))
-        局部画布.blit(黑条, (局部信息条.x + 内容偏移x, 局部信息条.y + 内容偏移y))
-
-        大星星路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "大星星.png")
-
-        绘制星星行_图片(
-            局部画布,
-            pygame.Rect(
-                局部星星区域.x + 内容偏移x,
-                局部星星区域.y + 内容偏移y,
-                局部星星区域.w,
-                局部星星区域.h,
-            ),
-            歌.星级,
-            大星星路径,
-            1.65,
-            每行最大=10,
-            基准高占比=0.34,
-            行间距占比=0.02,
+    ) -> None:
+        封面图 = self._取详情封面图(歌, 局部封面框)
+        _渲染详情浮层面板内容模块(
+            panel_surface=局部画布,
+            song=歌,
+            frame_path=框路径,
+            content_base_rect=内容基础矩形,
+            local_cover_rect=局部封面框,
+            local_info_rect=局部信息条,
+            local_star_rect=局部星星区域,
+            local_play_rect=局部游玩区域,
+            local_bpm_rect=局部bpm区域,
+            ornament_width=int(装饰贴图宽),
+            ornament_height=int(装饰贴图高),
+            ornament_draw_x=int(贴图绘制x),
+            ornament_draw_y=int(贴图绘制y),
+            content_offset_x=int(内容偏移x),
+            content_offset_y=int(内容偏移y),
+            cover_surface=封面图,
+            big_star_path=_资源路径("UI-img", "选歌界面资源", "小星星", "大星星.png"),
+            get_font=获取字体,
+            get_play_count_color=_取游玩次数颜色,
+            get_ui_container_image=获取UI容器图,
+            draw_star_row=绘制星星行_图片,
+            draw_sequence_label=绘制序号标签_图片,
+            draw_mv_badge=绘制MV角标_文本,
         )
-
-        歌名显示 = str(getattr(歌, "歌名", "") or "").replace("_", " ")
-        歌名字号 = max(16, int(局部信息条.h * 0.22))
-        歌名字体 = 获取字体(歌名字号, 是否粗体=False)
-
-        try:
-            可用文字宽 = max(80, int(局部信息条.w * 0.84))
-            当前字号 = 歌名字号
-            while 当前字号 > 12:
-                试字体 = 获取字体(当前字号, 是否粗体=False)
-                if 试字体.size(歌名显示)[0] <= 可用文字宽:
-                    break
-                当前字号 -= 1
-            歌名字体 = 获取字体(max(12, 当前字号), 是否粗体=False)
-            歌名面 = 歌名字体.render(歌名显示, True, (255, 255, 255))
-
-            歌名y = 局部星星区域.bottom + max(4, int(局部信息条.h * 0.03))
-            歌名矩形 = 歌名面.get_rect(
-                centerx=局部信息条.centerx + 内容偏移x,
-                y=歌名y + 内容偏移y,
-            )
-            局部画布.blit(歌名面, 歌名矩形.topleft)
-
-            线y = 歌名矩形.bottom + max(4, int(局部信息条.h * 0.03))
-            pygame.draw.line(
-                局部画布,
-                (165, 165, 165),
-                (
-                    局部信息条.x + 内容偏移x + max(12, int(局部信息条.w * 0.06)),
-                    线y,
-                ),
-                (
-                    局部信息条.right + 内容偏移x - max(12, int(局部信息条.w * 0.06)),
-                    线y,
-                ),
-                max(1, int(局部信息条.h * 0.012)),
-            )
-        except Exception:
-            pass
-
-        try:
-            游玩次数 = int(max(0, int(getattr(歌, "游玩次数", 0) or 0)))
-        except Exception:
-            游玩次数 = 0
-
-        bpm文本 = f"BPM:{歌.bpm}" if 歌.bpm else "BPM:?"
-        底部字号 = max(12, int(局部信息条.h * 0.13))
-        底部字体 = 获取字体(底部字号, 是否粗体=True)
-        游玩颜色 = _取游玩次数颜色(游玩次数)
-
-        try:
-            左文 = 底部字体.render(f"游玩次数:{游玩次数}", True, 游玩颜色)
-            右文 = 底部字体.render(bpm文本, True, (230, 230, 230))
-
-            左x = 局部游玩区域.x + 内容偏移x
-            左y = 局部游玩区域.centery + 内容偏移y - 左文.get_height() // 2
-            右x = 局部bpm区域.right + 内容偏移x - 右文.get_width()
-            右y = 局部bpm区域.centery + 内容偏移y - 右文.get_height() // 2
-
-            局部画布.blit(左文, (左x, 左y))
-            局部画布.blit(右文, (右x, 右y))
-        except Exception:
-            pass
-
-        框图 = 获取UI容器图(
-            框路径,
-            装饰贴图宽,
-            装饰贴图高,
-            缩放模式="stretch",
-            透明=True,
-        )
-        if 框图 is not None:
-            局部画布.blit(框图, (贴图绘制x, 贴图绘制y))
-
-        绘制序号标签_图片(
-            屏幕=局部画布,
-            锚点矩形=pygame.Rect(
-                内容偏移x,
-                内容偏移y,
-                内容基础矩形.w,
-                内容基础矩形.h,
-            ),
-            内部序号从0=歌.序号,
-            是否大图=True,
-        )
-        if bool(getattr(歌, "是否带MV", False)):
-            绘制MV角标_文本(
-                局部画布,
-                pygame.Rect(
-                    局部封面框.x + 内容偏移x,
-                    局部封面框.y + 内容偏移y,
-                    局部封面框.w,
-                    局部封面框.h,
-                ),
-                pygame.Rect(
-                    内容偏移x,
-                    内容偏移y,
-                    内容基础矩形.w,
-                    内容基础矩形.h,
-                ),
-                是否大图=True,
-            )
-        return 局部画布
 
     def _绘制详情浮层星星光泽(
         self,
@@ -5275,44 +4916,19 @@ class 选歌游戏:
         星数: int,
         光效透明度: int,
     ):
-        if (not isinstance(当前大框, pygame.Rect)) or 当前大框.w <= 4 or 当前大框.h <= 4:
-            return
-        if int(max(0, int(星数 or 0))) <= 0:
-            return
-
-        原星区 = pygame.Rect(
-            int(局部星星区域.x + 内容偏移x),
-            int(局部星星区域.y + 内容偏移y),
-            int(局部星星区域.w),
-            int(局部星星区域.h),
-        )
-        if 原星区.w <= 2 or 原星区.h <= 2:
-            return
-
-        sx = float(当前大框.w) / float(max(1, int(总宽)))
-        sy = float(当前大框.h) / float(max(1, int(总高)))
-        星区 = pygame.Rect(
-            当前大框.left + int(round(float(原星区.x) * sx)),
-            当前大框.top + int(round(float(原星区.y) * sy)),
-            max(1, int(round(float(原星区.w) * sx))),
-            max(1, int(round(float(原星区.h) * sy))),
-        )
-
-        大星星路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "大星星.png")
-        光效路径 = _资源路径("UI-img", "选歌界面资源", "小星星", "星星动态.png")
-        绘制星星行_图片(
-            屏幕=self.屏幕,
-            区域=星区,
-            星数=int(星数),
-            星星路径=大星星路径,
-            星星缩放倍数=1.65,
-            每行最大=10,
-            动态光效路径=光效路径,
-            光效周期秒=1.6,
-            基准高占比=0.34,
-            行间距占比=0.02,
-            仅绘制动态光效=True,
-            光效透明度=int(max(0, min(255, int(光效透明度 or 0)))),
+        _绘制详情浮层星光模块(
+            screen=self.屏幕,
+            current_frame_rect=当前大框,
+            local_star_rect=局部星星区域,
+            content_offset_x=int(内容偏移x),
+            content_offset_y=int(内容偏移y),
+            total_width=int(总宽),
+            total_height=int(总高),
+            star_count=int(星数),
+            effect_alpha=int(光效透明度),
+            big_star_path=_资源路径("UI-img", "选歌界面资源", "小星星", "大星星.png"),
+            star_effect_path=_资源路径("UI-img", "选歌界面资源", "小星星", "星星动态.png"),
+            draw_star_row=绘制星星行_图片,
         )
 
     def _取当前歌曲列表缓存键(
@@ -5473,130 +5089,21 @@ class 选歌游戏:
             游玩次数 = int(max(0, int(getattr(歌, "游玩次数", 0) or 0)))
         except Exception:
             游玩次数 = 0
-
-        # ========= VIP =========
-        if bool(getattr(歌, "是否VIP", False)):
-            vip路径 = _资源路径("UI-img", "选歌界面资源", "vip.png")
-            vip原 = 获取UI原图(vip路径, 透明=True)
-            if vip原 is not None:
-                vip高占比 = self._取布局值("详情大图.VIP.高占比", 0.20)
-                try:
-                    vip高占比 = float(vip高占比)
-                except Exception:
-                    vip高占比 = 0.20
-                vip高占比 = max(0.02, min(0.90, vip高占比))
-
-                vip高 = max(12, int(大框.h * vip高占比))
-                vip图 = _按高等比缩放(vip原, vip高)
-                if vip图 is not None:
-                    try:
-                        vip图.set_alpha(alpha)
-                    except Exception:
-                        pass
-
-                    vipw, viph = vip图.get_size()
-                    vipx偏移 = self._取布局像素(
-                        "详情大图.VIP.x偏移", -int(vipw * 0.20), 最小=-99999, 最大=99999
-                    )
-                    vipy偏移 = self._取布局像素(
-                        "详情大图.VIP.y偏移", -int(viph * 0.35), 最小=-99999, 最大=99999
-                    )
-
-                    vx = 大框.right - vipw + int(vipx偏移)
-                    vy = 大框.top + int(vipy偏移)
-                    self.屏幕.blit(vip图, (vx, vy))
-
-        hot占位宽 = 0
-        if _需要HOT标记(游玩次数):
-            hot路径 = _资源路径("UI-img", "选歌界面资源", "热门.png")
-            hot原 = 获取UI原图(hot路径, 透明=True)
-            if hot原 is not None:
-                hot高占比 = self._取布局值("详情大图.HOT.高占比", 0.34)
-                try:
-                    hot高占比 = float(hot高占比)
-                except Exception:
-                    hot高占比 = 0.24
-                hot高占比 = max(0.02, min(0.90, hot高占比))
-
-                hot高 = max(14, int(大框.h * hot高占比))
-                hot图 = _按高等比缩放(hot原, hot高)
-                if hot图 is not None:
-                    try:
-                        hot图.set_alpha(alpha)
-                    except Exception:
-                        pass
-
-                    hotw, hoth = hot图.get_size()
-                    hot右内边距 = self._取布局像素(
-                        "详情大图.HOT.右内边距",
-                        max(6, int(hot高 * 0.10)),
-                        最小=-99999,
-                        最大=99999,
-                    )
-                    hot下内边距 = self._取布局像素(
-                        "详情大图.HOT.下内边距",
-                        max(6, int(hot高 * 0.10)),
-                        最小=-99999,
-                        最大=99999,
-                    )
-                    hotx偏移 = self._取布局像素(
-                        "详情大图.HOT.x偏移", +int(hotw * 0.50), 最小=-99999, 最大=99999
-                    )
-                    hoty偏移 = self._取布局像素(
-                        "详情大图.HOT.y偏移", +int(hoth * 0.10), 最小=-99999, 最大=99999
-                    )
-
-                    hx = 大框.right - hotw - int(hot右内边距) + int(hotx偏移)
-                    hy = 大框.bottom - hoth - int(hot下内边距) + int(hoty偏移)
-                    hot占位宽 = hotw + max(8, int(hot高 * 0.14))
-                    self.屏幕.blit(hot图, (hx, hy))
-
-        # ========= NEW =========
-        if bool(getattr(歌, "是否NEW", False)):
-            new路径 = _资源路径("UI-img", "选歌界面资源", "NEW绿色.png")
-            new原 = 获取UI原图(new路径, 透明=True)
-            if new原 is not None:
-                new高占比 = self._取布局值("详情大图.NEW.高占比", 0.26)
-                try:
-                    new高占比 = float(new高占比)
-                except Exception:
-                    new高占比 = 0.26
-                new高占比 = max(0.02, min(0.90, new高占比))
-
-                new高 = max(14, int(大框.h * new高占比))
-                new图 = _按高等比缩放(new原, new高)
-                if new图 is not None:
-                    try:
-                        new图.set_alpha(alpha)
-                    except Exception:
-                        pass
-
-                    neww, newh = new图.get_size()
-
-                    new右内边距 = self._取布局像素(
-                        "详情大图.NEW.右内边距",
-                        max(6, int(new高 * 0.10)),
-                        最小=-99999,
-                        最大=99999,
-                    )
-                    new下内边距 = self._取布局像素(
-                        "详情大图.NEW.下内边距",
-                        max(6, int(new高 * 0.10)),
-                        最小=-99999,
-                        最大=99999,
-                    )
-                    newx偏移 = self._取布局像素(
-                        "详情大图.NEW.x偏移", +int(neww * 0.15), 最小=-99999, 最大=99999
-                    )  # 默认略往外
-                    newy偏移 = self._取布局像素(
-                        "详情大图.NEW.y偏移", +int(newh * 0.15), 最小=-99999, 最大=99999
-                    )  # 默认略往外
-
-                    nx = 大框.right - neww - int(new右内边距) + int(newx偏移)
-                    if hot占位宽 > 0:
-                        nx -= hot占位宽
-                    ny = 大框.bottom - newh - int(new下内边距) + int(newy偏移)
-                    self.屏幕.blit(new图, (nx, ny))
+        _渲染详情角标模块(
+            screen=self.屏幕,
+            song=歌,
+            panel_rect=大框,
+            alpha=int(alpha),
+            play_count=int(游玩次数),
+            vip_path=_资源路径("UI-img", "选歌界面资源", "vip.png"),
+            hot_path=_资源路径("UI-img", "选歌界面资源", "热门.png"),
+            new_path=_资源路径("UI-img", "选歌界面资源", "NEW绿色.png"),
+            get_ui_image=获取UI原图,
+            scale_to_height=_按高等比缩放,
+            get_layout_value=self._取布局值,
+            get_layout_pixel=self._取布局像素,
+            needs_hot=_需要HOT标记,
+        )
 
     def 当前歌曲列表与映射(self) -> Tuple[List[歌曲信息], List[int]]:
         """
@@ -5817,8 +5324,10 @@ class 选歌游戏:
             "背景文件名": str(背景文件名),
             "箭头文件名": str(箭头文件名),
             "关闭视频背景": bool(
-                str(设置参数.get("动态背景", "关闭") or "关闭").strip() != "关闭"
-                or str(设置参数.get("背景模式", 设置参数.get("变速", "图片")) or "图片").strip()
+                str(
+                    设置参数.get("背景模式", 设置参数.get("变速", "图片"))
+                    or "图片"
+                ).strip()
                 != "视频"
             ),
             # ✅ 给 StepMania 用
@@ -6365,11 +5874,10 @@ class 选歌游戏:
                     except Exception:
                         背景文件名 = ""
 
-            动态背景 = str(设置参数.get("动态背景", "关闭") or "关闭").strip()
             背景模式 = str(
                 设置参数.get("背景模式", 设置参数.get("变速", "图片")) or "图片"
             ).strip()
-            if 背景模式 == "图片" and 动态背景 == "关闭" and 背景文件名:
+            if 背景模式 == "图片" and 背景文件名:
                 路径 = _公共取首个存在路径(
                     _公共取冷资源路径("backimages", "背景图", 背景文件名),
                     _公共取冷资源路径("backimages", 背景文件名),
@@ -6447,14 +5955,24 @@ class 选歌游戏:
 
     def _取动态背景模式(self) -> str:
         参数 = self._取当前背景设置参数()
-        值 = str(参数.get("动态背景", "关闭") or "关闭").strip()
-        return DynamicBackgroundManager.normalize_mode(值)
+        背景模式 = str(
+            参数.get("背景模式", 参数.get("变速", "图片")) or "图片"
+        ).strip()
+        if 背景模式 != "动态背景":
+            return "关闭"
+        值 = DynamicBackgroundManager.normalize_mode(
+            str(参数.get("动态背景", "关闭") or "关闭").strip()
+        )
+        return 值 if 值 != "关闭" else "唱片"
 
     def _取背景渲染模式(self) -> str:
-        if self._取动态背景模式() != "关闭":
-            return "动态背景"
         参数 = self._取当前背景设置参数()
-        return str(参数.get("背景模式", 参数.get("变速", "图片")) or "图片").strip()
+        值 = str(参数.get("背景模式", 参数.get("变速", "图片")) or "图片").strip()
+        if 值 == "视频":
+            return "视频"
+        if 值 == "动态背景":
+            return "动态背景"
+        return "图片"
 
     def _同步动态背景管理器(self, 重置: bool = False):
         管理器 = getattr(self, "_动态背景管理器", None)
@@ -6689,6 +6207,56 @@ class 选歌游戏:
             int(getattr(按钮对象, "透明度", 255) or 255),
         )
 
+    def _取卡片缩略图封面缓存键(
+        self, 卡片对象
+    ) -> Optional[Tuple[str, int, int, int, str]]:
+        if 卡片对象 is None:
+            return None
+        歌曲 = getattr(卡片对象, "歌曲", None)
+        try:
+            路径 = str(getattr(歌曲, "封面路径", "") or "")
+        except Exception:
+            路径 = ""
+        if not 路径:
+            return None
+        try:
+            矩形 = getattr(卡片对象, "矩形", pygame.Rect(0, 0, 0, 0))
+        except Exception:
+            矩形 = pygame.Rect(0, 0, 0, 0)
+
+        框路径 = _资源路径("UI-img", "选歌界面资源", "缩略图小.png")
+        局部布局 = 计算缩略图卡片布局(矩形, 框路径)
+        封面矩形 = 局部布局["封面矩形"]
+        return (
+            路径,
+            max(1, int(封面矩形.w)),
+            max(1, int(封面矩形.h)),
+            0,
+            "cover",
+        )
+
+    def _卡片封面已就绪(self, 卡片对象) -> bool:
+        缓存键 = self._取卡片缩略图封面缓存键(卡片对象)
+        if not 缓存键:
+            return False
+        try:
+            return isinstance(self.图缓存.获取(*缓存键), pygame.Surface)
+        except Exception:
+            return False
+
+    def _当前页缺失封面数(self) -> int:
+        缺失数 = 0
+        for 卡片 in list(getattr(self, "当前页卡片", []) or []):
+            缓存键 = self._取卡片缩略图封面缓存键(卡片)
+            if not 缓存键:
+                continue
+            try:
+                if self.图缓存.获取(*缓存键) is None:
+                    缺失数 += 1
+            except Exception:
+                缺失数 += 1
+        return int(缺失数)
+
     def _卡片状态签名(self, 卡片对象) -> Tuple[object, ...]:
         if 卡片对象 is None:
             return ("none",)
@@ -6704,6 +6272,7 @@ class 选歌游戏:
             int(getattr(矩形, "y", 0) or 0),
             int(getattr(矩形, "w", 0) or 0),
             int(getattr(矩形, "h", 0) or 0),
+            bool(self._卡片封面已就绪(卡片对象)),
             bool(getattr(卡片对象, "悬停", False)),
             bool(getattr(卡片对象, "踏板高亮", False)),
             int(序号),
@@ -6745,33 +6314,6 @@ class 选歌游戏:
         )
 
     def _取GPU内容层缓存键(self) -> Tuple[object, ...]:
-        if bool(getattr(self, "是否详情页", False)):
-            原始 = self.当前原始歌曲列表()
-            歌 = None
-            try:
-                if 原始:
-                    歌 = 原始[int(self.当前选择原始索引)]
-            except Exception:
-                歌 = None
-            现在毫秒 = int(pygame.time.get_ticks() or 0)
-            开始毫秒 = int(getattr(self, "_浮动大图入场开始毫秒", 0) or 0)
-            时长毫秒 = max(1, int(getattr(self, "_浮动大图入场时长毫秒", 500) or 500))
-            if 开始毫秒 > 0 and 现在毫秒 < 开始毫秒 + 时长毫秒:
-                进度键 = int(max(0.0, min(1.0, (现在毫秒 - 开始毫秒) / float(时长毫秒))) * 1000)
-            else:
-                进度键 = 1000
-            return (
-                "detail",
-                int(self.宽),
-                int(self.高),
-                str(getattr(歌, "sm路径", "") or ""),
-                bool(getattr(歌, "是否收藏", False)),
-                int(进度键),
-                self._按钮状态签名(getattr(self, "按钮_详情上一首", None)),
-                self._按钮状态签名(getattr(self, "按钮_详情下一首", None)),
-                self._按钮状态签名(getattr(self, "按钮_详情收藏", None)),
-            )
-
         return (
             "list",
             int(self.宽),
@@ -6911,19 +6453,6 @@ class 选歌游戏:
             self._GPU列表按钮层缓存键 = 列表按钮键
 
         内容键 = self._取GPU内容层缓存键()
-        if bool(getattr(self, "是否详情页", False)):
-            if self._GPU内容层缓存图 is None or self._GPU内容层缓存键 != 内容键:
-                def _绘制内容():
-                    self.绘制详情浮层()
-                    try:
-                        self.绘制详情角标_大图()
-                    except Exception:
-                        pass
-
-                self._GPU内容层缓存图 = self._构建GPU界面层(_绘制内容)
-                self._GPU内容层缓存键 = 内容键
-            return
-
         if self._GPU内容层缓存图 is None or self._GPU内容层缓存键 != 内容键:
             self._GPU内容层缓存图 = self._取GPU列表页层(
                 int(getattr(self, "当前页", 0) or 0),
@@ -7488,14 +7017,9 @@ class 选歌游戏:
         卡片间距x = int(原间距x * 倍率x)
         卡片间距y = int(原间距y * 倍率y)
 
-        区域 = self.中间区域.inflate(-外留白 * 2, -上下留白 * 2)
-
         区域最小宽 = self._取布局像素("卡片网格.区域最小宽", 500, 最小=200, 最大=9999)
         区域最小高 = self._取布局像素("卡片网格.区域最小高", 200, 最小=120, 最大=9999)
         兜底留白 = self._取布局像素("卡片网格.区域兜底留白", 40, 最小=0, 最大=9999)
-
-        if 区域.w < 区域最小宽 or 区域.h < 区域最小高:
-            区域 = self.中间区域.inflate(-兜底留白, -兜底留白)
 
         原卡片宽最小 = self._取布局像素(
             "卡片网格.原卡片宽最小", 140, 最小=60, 最大=9999
@@ -7503,9 +7027,6 @@ class 选歌游戏:
         原卡片高最小 = self._取布局像素(
             "卡片网格.原卡片高最小", 120, 最小=60, 最大=9999
         )
-
-        原卡片宽 = max(原卡片宽最小, (区域.w - (列数 - 1) * 卡片间距x) // 列数)
-        原卡片高 = max(原卡片高最小, (区域.h - (行数 - 1) * 卡片间距y) // 行数)
 
         宽缩放 = self._取布局值("卡片网格.卡片宽缩放", 0.95)
         高缩放 = self._取布局值("卡片网格.卡片高缩放", 1.00)
@@ -7523,62 +7044,56 @@ class 选歌游戏:
         卡片宽最小 = self._取布局像素("卡片网格.卡片宽最小", 120, 最小=40, 最大=9999)
         卡片高最小 = self._取布局像素("卡片网格.卡片高最小", 110, 最小=40, 最大=9999)
 
-        卡片宽 = max(卡片宽最小, int(原卡片宽 * 宽缩放))
-        卡片高 = max(卡片高最小, int(原卡片高 * 高缩放))
-
-        起始索引 = int(页码) * int(self.每页数量)
-        卡片列表: List[歌曲卡片] = []
-
-        整块宽 = 列数 * 卡片宽 + (列数 - 1) * 卡片间距x
-        整块高 = 行数 * 卡片高 + (行数 - 1) * 卡片间距y
-
-        起点x = 区域.centerx - 整块宽 // 2
-        起点y = 区域.centery - 整块高 // 2
-
         上移占比 = self._取布局值("卡片网格.整体上移占比", 0.05)
         try:
             上移占比 = float(上移占比)
         except Exception:
             上移占比 = 0.05
         上移占比 = max(-0.50, min(0.50, 上移占比))
-        起点y -= int(区域.h * 上移占比)
-
-        for 行 in range(行数):
-            for 列 in range(列数):
-                相对 = 行 * 列数 + 列
-                视图索引 = 起始索引 + 相对
-                if 视图索引 >= len(列表):
-                    continue
-
-                x = 起点x + 列 * (卡片宽 + 卡片间距x)
-                y = 起点y + 行 * (卡片高 + 卡片间距y)
-                卡片列表.append(
-                    歌曲卡片(列表[视图索引], pygame.Rect(x, y, 卡片宽, 卡片高))
-                )
+        网格配置 = _卡片网格配置模块(
+            columns=int(列数),
+            rows=int(行数),
+            outer_padding=int(外留白),
+            vertical_padding=int(上下留白),
+            gap_x=int(卡片间距x),
+            gap_y=int(卡片间距y),
+            min_region_w=int(区域最小宽),
+            min_region_h=int(区域最小高),
+            fallback_padding=int(兜底留白),
+            min_raw_card_w=int(原卡片宽最小),
+            min_raw_card_h=int(原卡片高最小),
+            card_scale_x=float(宽缩放),
+            card_scale_y=float(高缩放),
+            min_card_w=int(卡片宽最小),
+            min_card_h=int(卡片高最小),
+            vertical_shift_ratio=float(上移占比),
+        )
+        卡片矩形列表 = _构建卡片网格矩形模块(
+            container_rect=self.中间区域,
+            page_index=int(页码),
+            page_size=int(self.每页数量),
+            total_items=len(列表),
+            config=网格配置,
+        )
+        起始索引 = int(页码) * int(self.每页数量)
+        卡片列表 = [
+            歌曲卡片(列表[起始索引 + idx], pygame.Rect(矩形))
+            for idx, 矩形 in enumerate(卡片矩形列表)
+            if (起始索引 + idx) < len(列表)
+        ]
 
         self._写入页卡片缓存(缓存键, 卡片列表)
         return 卡片列表
 
     def _取预加载页顺序(self, 基准页: int) -> List[int]:
         try:
-            总页 = int(self.总页数())
+            总页数 = int(self.总页数())
         except Exception:
-            总页 = 1
-        if 总页 <= 0:
-            总页 = 1
-
-        页集合: List[int] = []
-        已加入 = set()
-        for 页码 in (
-            int(基准页),
-            int(基准页) + 1,
-            int(基准页) - 1,
-            int(基准页) + 2,
-        ):
-            if 0 <= 页码 < 总页 and 页码 not in 已加入:
-                页集合.append(页码)
-                已加入.add(页码)
-        return 页集合
+            总页数 = 1
+        return _构建预加载页顺序模块(
+            base_page=int(基准页),
+            total_pages=int(总页数),
+        )
 
     def _收集预加载封面键列表(
         self, 基准页: int
@@ -7589,36 +7104,28 @@ class 选歌游戏:
         if not 列表:
             return []
 
-        需要保留键列表: List[Tuple[str, int, int, int, str]] = []
-        已收录键集合: Set[Tuple[str, int, int, int, str]] = set()
         框路径 = _资源路径("UI-img", "选歌界面资源", "缩略图小.png")
-
-        for 页码 in self._取预加载页顺序(int(基准页)):
-            卡片列表 = self.生成指定页卡片(int(页码))
-            for 卡片 in 卡片列表:
-                try:
-                    路径 = str(getattr(卡片.歌曲, "封面路径", "") or "")
-                except Exception:
-                    路径 = ""
-
-                if (not 路径) or (not os.path.isfile(路径)):
-                    continue
-
-                # ✅ 必须跟实际绘制使用同一套“小框等比矩形算法”
-                框矩形 = 计算缩略图小框矩形(卡片.矩形, 框路径)
-                布局 = 计算框体槽位布局(框矩形, 是否大图=False)
-                封面矩形 = 布局["封面矩形"]
-
-                缓存键 = (
-                    路径,
-                    max(1, int(封面矩形.w)),
-                    max(1, int(封面矩形.h)),
-                    0,
-                    "cover",
-                )
-                if 缓存键 not in 已收录键集合:
-                    已收录键集合.add(缓存键)
-                    需要保留键列表.append(缓存键)
+        try:
+            总页数 = int(self.总页数())
+        except Exception:
+            总页数 = 1
+        需要保留键列表 = _收集预加载封面键列表模块(
+            base_page=int(基准页),
+            total_pages=int(总页数),
+            get_cards_for_page=self.生成指定页卡片,
+            get_card_cover_path=lambda 卡片: str(
+                getattr(getattr(卡片, "歌曲", None), "封面路径", "") or ""
+            ),
+            get_card_rect=lambda 卡片: getattr(卡片, "矩形", pygame.Rect(0, 0, 0, 0)),
+            frame_path=框路径,
+            get_ui_image=获取UI原图,
+            frame_scale_x=_缩略图小框_宽缩放,
+            frame_scale_y=_缩略图小框_高缩放,
+            frame_x_offset=_缩略图小框_x偏移,
+            frame_y_offset_ratio=_缩略图小框_y偏移,
+            target_ratio=4.0 / 3.0,
+        )
+        已收录键集合: Set[Tuple[str, int, int, int, str]] = set(需要保留键列表)
 
         if bool(getattr(self, "是否详情页", False)):
             原始列表 = self.当前原始歌曲列表()
@@ -7707,6 +7214,10 @@ class 选歌游戏:
         except Exception:
             每帧数量 = 3
         每帧数量 = max(1, min(30, 每帧数量))
+
+        当前页缺失封面数 = self._当前页缺失封面数()
+        if 当前页缺失封面数 > 0:
+            每帧数量 = max(每帧数量, min(12, max(4, 当前页缺失封面数)))
 
         try:
             当前类型小写 = str(self.当前类型名() or "").strip().lower()
@@ -8566,9 +8077,14 @@ class 选歌游戏:
 
         self._同步踏板卡片高亮()
 
-        # ✅ 关键修复：第二个参数是字体，第三个参数才是图缓存
+        # 列表页禁止同步读封面；冷资源先占位，等后台预加载补齐。
         for 卡片 in self.当前页卡片:
-            卡片.绘制(self.屏幕, self.小字体, self.图缓存)
+            卡片.绘制(
+                self.屏幕,
+                self.小字体,
+                self.图缓存,
+                允许同步封面加载=False,
+            )
 
     def 绘制列表页_动画(self):
         旧偏移, 新偏移 = self._取列表翻页动画偏移()
@@ -8577,7 +8093,12 @@ class 选歌游戏:
             原矩形 = 卡片.矩形
             try:
                 卡片.矩形 = 原矩形.move(旧偏移, 0)
-                卡片.绘制(self.屏幕, self.小字体, self.图缓存)
+                卡片.绘制(
+                    self.屏幕,
+                    self.小字体,
+                    self.图缓存,
+                    允许同步封面加载=False,
+                )
             finally:
                 卡片.矩形 = 原矩形
 
@@ -8585,7 +8106,12 @@ class 选歌游戏:
             原矩形 = 卡片.矩形
             try:
                 卡片.矩形 = 原矩形.move(新偏移, 0)
-                卡片.绘制(self.屏幕, self.小字体, self.图缓存)
+                卡片.绘制(
+                    self.屏幕,
+                    self.小字体,
+                    self.图缓存,
+                    允许同步封面加载=False,
+                )
             finally:
                 卡片.矩形 = 原矩形
 
@@ -8739,62 +8265,6 @@ class 选歌游戏:
         内容偏移y = int(-总上)
         贴图绘制x = int(局部贴图左 - 总左)
         贴图绘制y = int(局部贴图上 - 总上)
-        try:
-            游玩次数 = int(max(0, int(getattr(歌, "游玩次数", 0) or 0)))
-        except Exception:
-            游玩次数 = 0
-
-        详情缓存键 = (
-            float(_选歌布局_修改时间),
-            float(getattr(self, "_布局配置_修改时间", 0.0) or 0.0),
-            str(getattr(歌, "sm路径", "") or ""),
-            str(getattr(歌, "封面路径", "") or ""),
-            bool(getattr(歌, "是否带MV", False)),
-            int(getattr(歌, "星级", 0) or 0),
-            int(getattr(歌, "序号", 0) or 0),
-            str(getattr(歌, "bpm", "") or ""),
-            int(游玩次数),
-            int(内容基础矩形.w),
-            int(内容基础矩形.h),
-            int(局部封面框.w),
-            int(局部封面框.h),
-            int(局部信息条.w),
-            int(局部信息条.h),
-            int(装饰贴图宽),
-            int(装饰贴图高),
-            int(贴图绘制x),
-            int(贴图绘制y),
-            int(内容偏移x),
-            int(内容偏移y),
-            int(总宽),
-            int(总高),
-        )
-        局部画布 = (
-            self._详情浮层静态缓存图
-            if self._详情浮层静态缓存键 == 详情缓存键
-            else None
-        )
-        if 局部画布 is None:
-            局部画布 = self._构建详情浮层静态图(
-                歌,
-                框路径,
-                内容基础矩形,
-                局部封面框,
-                局部信息条,
-                局部星星区域,
-                局部游玩区域,
-                局部bpm区域,
-                装饰贴图宽,
-                装饰贴图高,
-                贴图绘制x,
-                贴图绘制y,
-                内容偏移x,
-                内容偏移y,
-                总宽,
-                总高,
-            )
-            self._详情浮层静态缓存键 = 详情缓存键
-            self._详情浮层静态缓存图 = 局部画布
 
         现在毫秒 = 0
         try:
@@ -8810,37 +8280,72 @@ class 选歌游戏:
             进度 = (现在毫秒 - 开始毫秒) / max(1, 时长毫秒)
             进度 = _夹紧(进度, 0.0, 1.0)
 
-        if 进度 < 0.6:
-            片段进度 = 进度 / 0.6
-            入场缩放 = 0.92 + (1.06 - 0.92) * _缓出(片段进度)
-        else:
-            片段进度 = (进度 - 0.6) / 0.4
-            入场缩放 = 1.06 + (1.00 - 1.06) * _缓出(片段进度)
-
-        入场透明度 = int(255 * _缓出(进度))
+        缓动进度 = _缓出(进度)
+        入场透明度 = int(255 * 缓动进度)
         入场透明度 = max(0, min(255, 入场透明度))
+        入场y偏移 = int(
+            round((1.0 - 缓动进度) * max(18, min(48, int(self.高 * 0.035))))
+        )
+        遮罩透明度 = int(round(150 * 缓动进度))
+        遮罩透明度 = max(0, min(220, 遮罩透明度))
 
         self._详情浮层_alpha = int(入场透明度)
-        self._详情浮层_最后缩放 = float(入场缩放)
+        # 详情页改成设置页同类的叠加层：保留独立局部画布，避免把整块大图再做逐帧 smoothscale。
+        self._详情浮层_最后缩放 = 1.0
 
-        if 入场缩放 != 1.0:
-            绘制宽 = max(1, int(round(局部画布.get_width() * 入场缩放)))
-            绘制高 = max(1, int(round(局部画布.get_height() * 入场缩放)))
-            绘制画布 = pygame.transform.smoothscale(局部画布, (绘制宽, 绘制高)).convert_alpha()
-        elif 入场透明度 < 255:
-            绘制画布 = 局部画布.copy()
-        else:
-            绘制画布 = 局部画布
+        if 遮罩透明度 > 0:
+            遮罩键 = (int(self.宽), int(self.高), int(遮罩透明度))
+            遮罩 = (
+                self._详情浮层遮罩缓存图
+                if self._详情浮层遮罩缓存键 == 遮罩键
+                else None
+            )
+            if 遮罩 is None:
+                遮罩 = pygame.Surface((int(self.宽), int(self.高)), pygame.SRCALPHA)
+                遮罩.fill((0, 0, 0, int(遮罩透明度)))
+                self._详情浮层遮罩缓存图 = 遮罩
+                self._详情浮层遮罩缓存键 = 遮罩键
+            self.屏幕.blit(遮罩, (0, 0))
 
-        if 入场透明度 < 255 or 绘制画布 is not 局部画布:
-            try:
-                绘制画布.set_alpha(入场透明度)
-            except Exception:
-                pass
+        画布尺寸 = (int(总宽), int(总高))
+        局部画布 = (
+            self._详情浮层面板缓存图
+            if self._详情浮层面板缓存尺寸 == 画布尺寸
+            else None
+        )
+        if 局部画布 is None:
+            局部画布 = pygame.Surface(画布尺寸, pygame.SRCALPHA)
+            self._详情浮层面板缓存图 = 局部画布
+            self._详情浮层面板缓存尺寸 = 画布尺寸
 
-        当前大框 = 绘制画布.get_rect(center=内容基础矩形.center)
+        self._绘制详情浮层面板内容(
+            局部画布,
+            歌,
+            框路径,
+            内容基础矩形,
+            局部封面框,
+            局部信息条,
+            局部星星区域,
+            局部游玩区域,
+            局部bpm区域,
+            装饰贴图宽,
+            装饰贴图高,
+            贴图绘制x,
+            贴图绘制y,
+            内容偏移x,
+            内容偏移y,
+            总宽,
+            总高,
+        )
+        try:
+            局部画布.set_alpha(int(入场透明度))
+        except Exception:
+            pass
+
+        当前大框 = 局部画布.get_rect(center=内容基础矩形.center)
+        当前大框.y += int(入场y偏移)
         self.详情大框矩形 = 当前大框
-        self.屏幕.blit(绘制画布, 当前大框.topleft)
+        self.屏幕.blit(局部画布, 当前大框.topleft)
         try:
             self._绘制详情浮层星星光泽(
                 当前大框=当前大框,
@@ -8862,19 +8367,52 @@ class 选歌游戏:
         else:
             原宽, 原高 = (150, 74)
 
-        按钮高 = max(72, int(当前大框.h * 0.22))
+        左右按钮高占比 = self._取布局值("详情大图.左右按钮.目标高占比", 0.22)
+        try:
+            左右按钮高占比 = float(左右按钮高占比)
+        except Exception:
+            左右按钮高占比 = 0.22
+        左右按钮高占比 = max(0.05, min(0.80, 左右按钮高占比))
+
+        按钮最小高 = self._取布局像素(
+            "详情大图.左右按钮.最小高", 72, 最小=24, 最大=99999
+        )
+        按钮最大高 = self._取布局像素(
+            "详情大图.左右按钮.最大高", 99999, 最小=按钮最小高, 最大=99999
+        )
+        按钮高 = max(按钮最小高, int(round(float(当前大框.h) * 左右按钮高占比)))
+        按钮高 = min(按钮高, 按钮最大高)
         按钮宽 = max(36, int(按钮高 * float(原宽) / float(max(1, 原高))))
-        按钮外间距 = max(24, int(self.宽 * 0.022))
-        按钮y偏移 = 0
+        按钮外间距 = self._取布局像素(
+            "详情大图.左右按钮.外间距",
+            max(24, int(self.宽 * 0.022)),
+            最小=0,
+            最大=99999,
+        )
+        按钮y偏移 = self._取布局像素(
+            "详情大图.左右按钮.y偏移", 0, 最小=-99999, 最大=99999
+        )
+        按钮边距 = self._取布局像素(
+            "详情大图.左右按钮.边距", 12, 最小=0, 最大=99999
+        )
+        上一首x偏移 = self._取布局像素(
+            "详情大图.左右按钮.上一首x偏移", 0, 最小=-99999, 最大=99999
+        )
+        下一首x偏移 = self._取布局像素(
+            "详情大图.左右按钮.下一首x偏移", 0, 最小=-99999, 最大=99999
+        )
 
         左按钮矩形 = pygame.Rect(
-            max(12, 当前大框.left - 按钮外间距 - 按钮宽),
+            max(按钮边距, 当前大框.left - 按钮外间距 - 按钮宽 + 上一首x偏移),
             当前大框.centery - 按钮高 // 2 + 按钮y偏移,
             按钮宽,
             按钮高,
         )
         右按钮矩形 = pygame.Rect(
-            min(self.宽 - 12 - 按钮宽, 当前大框.right + 按钮外间距),
+            min(
+                self.宽 - 按钮边距 - 按钮宽,
+                当前大框.right + 按钮外间距 + 下一首x偏移,
+            ),
             当前大框.centery - 按钮高 // 2 + 按钮y偏移,
             按钮宽,
             按钮高,
@@ -9347,1456 +8885,6 @@ class 选歌游戏:
         self._返回状态 = "RESELECT_MAIN"
         self._需要退出 = True
 
-    def 主循环(self):
-        self._确保公共交互()
-
-        while True:
-            if self._需要退出:
-                try:
-                    if self.音频可用:
-                        pygame.mixer.music.stop()
-                except Exception:
-                    pass
-
-                if not getattr(self, "_是否嵌入模式", False):
-                    try:
-                        pygame.quit()
-                    except Exception:
-                        pass
-
-                return self._返回状态
-
-            self.时钟.tick(60)
-
-            self.每帧执行预加载(每帧数量=3)
-            self.更新动画状态()
-            self._更新连续翻页()
-            self._更新过渡()
-
-            # ===== 绘制 =====
-            self.绘制背景()
-            self.绘制顶部()
-
-            if self.动画中:
-                self.绘制列表页_动画()
-            else:
-                self.绘制列表页()
-
-            if not self.是否详情页:
-                self._绘制列表翻页按钮()
-
-            if self.是否详情页:
-                self.绘制详情浮层()
-                # ✅ 大图角标（不改绘制详情浮层巨型函数）
-                try:
-                    self.绘制详情角标_大图()
-                except Exception:
-                    pass
-            else:
-                self.确保播放背景音乐()
-
-            self.绘制底部()
-
-            if self.是否星级筛选页:
-                self.绘制星级筛选页()
-
-            if bool(getattr(self, "是否设置页", False)):
-                try:
-                    self.绘制设置页()
-                except Exception:
-                    pass
-
-            self._绘制过渡()
-
-            try:
-                if self._全局点击特效 is not None:
-                    self._全局点击特效.更新并绘制(self.屏幕)
-            except Exception:
-                pass
-
-            try:
-                self._绘制消息提示()
-            except Exception:
-                pass
-
-            pygame.display.flip()
-
-            # ===== 事件 =====
-            for 事件 in pygame.event.get():
-                if 事件.type == pygame.QUIT:
-                    self._返回状态 = "NORMAL"
-                    self._需要退出 = True
-                    break
-
-                if 事件.type == pygame.VIDEORESIZE:
-                    新宽 = max(900, 事件.w)
-                    新高 = max(600, 事件.h)
-                    self.屏幕 = pygame.display.set_mode((新宽, 新高), pygame.RESIZABLE)
-                    self.重算布局()
-                    self.安排预加载(基准页=self.当前页)
-
-                    try:
-                        if bool(getattr(self, "是否设置页", False)):
-                            self._重算设置页布局()
-                    except Exception:
-                        pass
-                    continue
-
-                # ✅ 全局点击特效（保持原逻辑）
-                if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-                    try:
-                        if self._全局点击特效 is not None:
-                            x, y = 事件.pos
-                            self._全局点击特效.触发(int(x), int(y))
-                    except Exception:
-                        pass
-
-                # ✅ 过渡播放中：只允许 hover
-                try:
-                    if self._过渡_特效 is not None and self._过渡_特效.是否动画中():
-                        if 事件.type == pygame.MOUSEMOTION:
-                            pass
-                        else:
-                            continue
-                except Exception:
-                    pass
-
-                # ✅ 设置页优先
-                if bool(getattr(self, "是否设置页", False)):
-                    try:
-                        self._设置页_处理事件(事件)
-                    except Exception:
-                        pass
-                    continue
-
-                # ===== 星级筛选页优先 =====
-                if self.是否星级筛选页:
-                    if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-                        if not self.筛选页面板矩形.collidepoint(事件.pos):
-                            self._启动过渡(
-                                self._特效_按钮,
-                                pygame.Rect(事件.pos[0] - 20, 事件.pos[1] - 20, 40, 40),
-                                self.关闭星级筛选页,
-                            )
-                            continue
-
-                    if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_ESCAPE:
-                        self._启动过渡(
-                            self._特效_按钮,
-                            pygame.Rect(
-                                self.筛选页面板矩形.centerx - 60,
-                                self.筛选页面板矩形.y + 20,
-                                120,
-                                50,
-                            ),
-                            self.关闭星级筛选页,
-                        )
-                        continue
-
-                    for 星, b in self.星级按钮列表:
-                        b.处理事件(事件)
-                    continue
-
-                # ===== 底部按钮 =====
-                if self.按钮_歌曲分类.处理事件(事件):
-                    self._启动过渡(
-                        self._特效_按钮, self.按钮_歌曲分类.矩形, self.打开星级筛选页
-                    )
-
-                if self.按钮_收藏夹.处理事件(事件):
-                    self._启动过渡(
-                        self._特效_按钮, self.按钮_收藏夹.矩形, self._切换收藏夹模式
-                    )
-
-                if self.按钮_ALL.处理事件(事件):
-                    self._启动过渡(
-                        self._特效_按钮,
-                        self.按钮_ALL.矩形,
-                        self._重置列表筛选,
-                    )
-
-                if self.按钮_2P加入.处理事件(事件):
-                    self._启动过渡(
-                        self._特效_按钮,
-                        self.按钮_2P加入.矩形,
-                        lambda: self.显示消息提示(
-                            "别做梦了你根本没有舞搭子 (*^__^*) 嘻嘻……", 持续秒=2.0
-                        ),
-                    )
-
-                if self.按钮_设置.处理事件(事件):
-                    self._启动过渡(
-                        self._特效_按钮, self.按钮_设置.矩形, self.打开设置页
-                    )
-
-                if self.按钮_重选模式.处理事件(事件):
-                    self._启动过渡(
-                        self._特效_按钮,
-                        self.按钮_重选模式.矩形,
-                        self.请求回主程序重新选歌,
-                    )
-                    continue
-
-                if self.动画中:
-                    continue
-
-                # ===== 详情页 =====
-                if self.是否详情页:
-                    上一首触发 = self.按钮_详情上一首.处理事件(事件)
-                    下一首触发 = self.按钮_详情下一首.处理事件(事件)
-                    收藏触发 = self.按钮_详情收藏.处理事件(事件)
-
-                    if 上一首触发:
-                        self._启动过渡(
-                            self._特效_按钮,
-                            self.按钮_详情上一首.矩形,
-                            self.上一首,
-                            覆盖图片=self.按钮_详情上一首._获取缩放图(),
-                        )
-                        continue
-                    if 下一首触发:
-                        self._启动过渡(
-                            self._特效_按钮,
-                            self.按钮_详情下一首.矩形,
-                            self.下一首,
-                            覆盖图片=self.按钮_详情下一首._获取缩放图(),
-                        )
-                        continue
-                    if 收藏触发:
-                        self._启动过渡(
-                            self._特效_按钮,
-                            self.按钮_详情收藏.矩形,
-                            self._切换当前歌曲收藏,
-                            覆盖图片=self.按钮_详情收藏._获取缩放图(),
-                        )
-                        continue
-
-                    if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-                        点在左右按钮 = self.按钮_详情上一首.矩形.collidepoint(
-                            事件.pos
-                        ) or self.按钮_详情下一首.矩形.collidepoint(
-                            事件.pos
-                        ) or self.按钮_详情收藏.矩形.collidepoint(事件.pos)
-
-                        if (not 点在左右按钮) and self.详情大框矩形.collidepoint(
-                            事件.pos
-                        ):
-                            self._启动过渡(
-                                self._特效_大图确认,
-                                self.详情大框矩形,
-                                self._记录并处理大图确认点击,
-                            )
-                            continue
-
-                        if (not 点在左右按钮) and (
-                            not self.详情大框矩形.collidepoint(事件.pos)
-                        ):
-                            self._启动过渡(
-                                self._特效_按钮,
-                                pygame.Rect(事件.pos[0] - 20, 事件.pos[1] - 20, 40, 40),
-                                self.返回列表,
-                            )
-                            continue
-
-                    # ✅ 键盘左右切歌：取消“切场景动效”，直接切
-                    if 事件.type == pygame.KEYDOWN:
-                        if 事件.key == pygame.K_ESCAPE:
-                            self._启动过渡(
-                                self._特效_按钮, self.详情大框矩形, self.返回列表
-                            )
-                        elif 事件.key == pygame.K_LEFT:
-                            try:
-                                self._播放按钮音效()
-                            except Exception:
-                                pass
-                            self.上一首()
-                        elif 事件.key == pygame.K_RIGHT:
-                            try:
-                                self._播放按钮音效()
-                            except Exception:
-                                pass
-                            self.下一首()
-                    continue
-
-                if self._处理列表页输入(事件):
-                    continue
-
-class 设置页布局调试器:
-    def __init__(self, 保存路径: str):
-        self.保存路径 = str(保存路径 or "")
-        self.是否启用 = False
-        self.当前选中键: str = ""
-        self.当前悬停键: str = ""
-        self.拖拽中 = False
-        self.拖拽起点局部 = (0, 0)
-        self.拖拽起点矩形 = pygame.Rect(0, 0, 0, 0)
-        self.当前组件矩形表: Dict[str, pygame.Rect] = {}
-        self.覆盖数据: Dict[str, dict] = {}
-        self.文字缩放数据: Dict[str, float] = {}
-        self._读取保存数据()
-
-    def 切换启用(self):
-        self.是否启用 = not bool(self.是否启用)
-        self.拖拽中 = False
-        self.当前悬停键 = ""
-
-    def _读取保存数据(self):
-        if (not self.保存路径) or (not os.path.isfile(self.保存路径)):
-            self.覆盖数据 = {}
-            self.文字缩放数据 = {}
-            return
-
-        for 编码 in ("utf-8-sig", "utf-8", "gbk"):
-            try:
-                with open(self.保存路径, "r", encoding=编码) as 文件:
-                    数据 = json.load(文件)
-                if isinstance(数据, dict):
-                    组件 = 数据.get("组件", {})
-                    文字 = 数据.get("文字缩放", {})
-                    self.覆盖数据 = dict(组件) if isinstance(组件, dict) else {}
-                    self.文字缩放数据 = dict(文字) if isinstance(文字, dict) else {}
-                    return
-            except Exception:
-                continue
-
-        self.覆盖数据 = {}
-        self.文字缩放数据 = {}
-
-    def 保存到文件(self, 面板宽: int, 面板高: int) -> bool:
-        try:
-            面板宽 = max(1, int(面板宽))
-            面板高 = max(1, int(面板高))
-        except Exception:
-            return False
-
-        输出组件 = {}
-        for 键名, 矩形 in self.当前组件矩形表.items():
-            if not isinstance(矩形, pygame.Rect):
-                continue
-            输出组件[str(键名)] = {
-                "x": float(矩形.x) / float(面板宽),
-                "y": float(矩形.y) / float(面板高),
-                "w": float(矩形.w) / float(面板宽),
-                "h": float(矩形.h) / float(面板高),
-            }
-
-        数据 = {
-            "版本": 2,
-            "基准": "设置背景图.png",
-            "组件": 输出组件,
-            "文字缩放": dict(self.文字缩放数据 or {}),
-        }
-
-        try:
-            os.makedirs(os.path.dirname(self.保存路径), exist_ok=True)
-            with open(self.保存路径, "w", encoding="utf-8") as 文件:
-                json.dump(数据, 文件, ensure_ascii=False, indent=2)
-            self.覆盖数据 = dict(输出组件)
-            return True
-        except Exception:
-            return False
-
-    def _记录转矩形(self, 记录: dict, 面板宽: int, 面板高: int) -> Optional[pygame.Rect]:
-        if not isinstance(记录, dict):
-            return None
-
-        try:
-            x = int(round(float(记录.get("x", 0.0)) * float(面板宽)))
-            y = int(round(float(记录.get("y", 0.0)) * float(面板高)))
-            w = int(round(float(记录.get("w", 0.0)) * float(面板宽)))
-            h = int(round(float(记录.get("h", 0.0)) * float(面板高)))
-        except Exception:
-            return None
-
-        w = max(1, w)
-        h = max(1, h)
-        return pygame.Rect(x, y, w, h)
-
-    def _归属行键(self, 组件键: str) -> str:
-        键 = str(组件键 or "")
-        if 键.startswith("行:"):
-            return 键.split(":", 1)[1]
-        if 键.startswith("控件:"):
-            片段 = 键.split(":")
-            if len(片段) >= 3:
-                return str(片段[1])
-        return ""
-
-    def 取行文字缩放(self, 行键: str) -> float:
-        try:
-            值 = float((self.文字缩放数据 or {}).get(str(行键 or ""), 1.0) or 1.0)
-        except Exception:
-            值 = 1.0
-        return max(0.50, min(3.00, 值))
-
-    def _调整当前选中文字缩放(self, 滚轮方向: int):
-        if not self.当前选中键:
-            return
-
-        行键 = self._归属行键(self.当前选中键)
-        if not 行键:
-            return
-
-        当前值 = self.取行文字缩放(行键)
-        新值 = 当前值 + (0.05 if int(滚轮方向) > 0 else -0.05)
-        新值 = max(0.50, min(3.00, 新值))
-        self.文字缩放数据[str(行键)] = float(round(新值, 2))
-
-    def _收集当前组件(self, 宿主):
-        组件表: Dict[str, pygame.Rect] = {}
-
-        try:
-            for 行键, 矩形 in dict(getattr(宿主, "_设置页_行矩形表", {}) or {}).items():
-                if isinstance(矩形, pygame.Rect):
-                    组件表[f"行:{行键}"] = 矩形.copy()
-        except Exception:
-            pass
-
-        try:
-            for 行键, 控件字典 in dict(getattr(宿主, "_设置页_控件矩形表", {}) or {}).items():
-                if not isinstance(控件字典, dict):
-                    continue
-                for 子键 in ("左", "右", "内容"):
-                    矩形 = 控件字典.get(子键)
-                    if isinstance(矩形, pygame.Rect):
-                        组件表[f"控件:{行键}:{子键}"] = 矩形.copy()
-        except Exception:
-            pass
-
-        try:
-            背景区 = getattr(宿主, "_设置页_背景区矩形", None)
-            if isinstance(背景区, pygame.Rect):
-                组件表["背景区"] = 背景区.copy()
-        except Exception:
-            pass
-
-        try:
-            背景控件 = dict(getattr(宿主, "_设置页_背景控件矩形", {}) or {})
-            for 子键 in ("左", "右", "预览"):
-                矩形 = 背景控件.get(子键)
-                if isinstance(矩形, pygame.Rect):
-                    组件表[f"背景控件:{子键}"] = 矩形.copy()
-        except Exception:
-            pass
-
-        try:
-            箭头预览 = getattr(宿主, "_设置页_箭头预览矩形", None)
-            if isinstance(箭头预览, pygame.Rect):
-                组件表["箭头预览区"] = 箭头预览.copy()
-        except Exception:
-            pass
-
-        try:
-            箭头控件 = dict(getattr(宿主, "_设置页_箭头预览控件矩形", {}) or {})
-            for 子键 in ("左", "右"):
-                矩形 = 箭头控件.get(子键)
-                if isinstance(矩形, pygame.Rect):
-                    组件表[f"箭头预览控件:{子键}"] = 矩形.copy()
-        except Exception:
-            pass
-
-        self.当前组件矩形表 = 组件表
-
-    def _写回宿主(self, 宿主):
-        for 键名, 矩形 in self.当前组件矩形表.items():
-            if not isinstance(矩形, pygame.Rect):
-                continue
-
-            if str(键名).startswith("行:"):
-                行键 = str(键名).split(":", 1)[1]
-                if 行键 in getattr(宿主, "_设置页_行矩形表", {}):
-                    宿主._设置页_行矩形表[行键] = 矩形.copy()
-                continue
-
-            if str(键名).startswith("控件:"):
-                _, 行键, 子键 = str(键名).split(":", 2)
-                控件表 = getattr(宿主, "_设置页_控件矩形表", {})
-                if 行键 in 控件表 and isinstance(控件表.get(行键), dict):
-                    控件表[行键][子键] = 矩形.copy()
-                continue
-
-            if 键名 == "背景区":
-                宿主._设置页_背景区矩形 = 矩形.copy()
-                continue
-
-            if str(键名).startswith("背景控件:"):
-                子键 = str(键名).split(":", 1)[1]
-                宿主._设置页_背景控件矩形[子键] = 矩形.copy()
-                continue
-
-            if 键名 == "箭头预览区":
-                宿主._设置页_箭头预览矩形 = 矩形.copy()
-                continue
-
-            if str(键名).startswith("箭头预览控件:"):
-                子键 = str(键名).split(":", 1)[1]
-                宿主._设置页_箭头预览控件矩形[子键] = 矩形.copy()
-                continue
-
-    def _屏幕点转面板局部(self, 宿主, 屏幕点) -> Tuple[int, int]:
-        面板绘制矩形 = getattr(宿主, "_设置页_面板绘制矩形", pygame.Rect(0, 0, 1, 1))
-        当前缩放 = float(getattr(宿主, "_设置页_最后缩放", 1.0) or 1.0)
-        当前缩放 = max(0.001, 当前缩放)
-        局部x = int((屏幕点[0] - 面板绘制矩形.x) / 当前缩放)
-        局部y = int((屏幕点[1] - 面板绘制矩形.y) / 当前缩放)
-        return (局部x, 局部y)
-
-    def _命中测试(self, 局部点) -> str:
-        候选键列表 = []
-        for 键名, 矩形 in self.当前组件矩形表.items():
-            if isinstance(矩形, pygame.Rect) and 矩形.collidepoint(局部点):
-                候选键列表.append((矩形.w * 矩形.h, str(键名)))
-
-        if not 候选键列表:
-            return ""
-
-        候选键列表.sort(key=lambda 项: 项[0])
-        return 候选键列表[0][1]
-
-    def _钳制当前选中矩形(self, 宿主):
-        if not self.当前选中键:
-            return
-        if self.当前选中键 not in self.当前组件矩形表:
-            return
-        self.当前组件矩形表[self.当前选中键] = _设置页_钳制矩形到面板(
-            宿主, self.当前组件矩形表[self.当前选中键]
-        )
-
-    def _调整当前选中矩形尺寸(self, 宿主, 滚轮方向: int, 是否调宽: bool, 是否调高: bool):
-        if not self.当前选中键:
-            return
-        if self.当前选中键 not in self.当前组件矩形表:
-            return
-
-        旧矩形 = self.当前组件矩形表[self.当前选中键].copy()
-
-        缩放倍数 = 1.05 if int(滚轮方向) > 0 else 0.95
-        新宽 = int(round(float(旧矩形.w) * 缩放倍数))
-        新高 = int(round(float(旧矩形.h) * 缩放倍数))
-
-        if 是否调宽 and (not 是否调高):
-            新高 = 旧矩形.h
-        elif 是否调高 and (not 是否调宽):
-            新宽 = 旧矩形.w
-
-        新宽 = max(8, 新宽)
-        新高 = max(8, 新高)
-
-        新矩形 = pygame.Rect(0, 0, 新宽, 新高)
-        新矩形.center = 旧矩形.center
-
-        self.当前组件矩形表[self.当前选中键] = _设置页_钳制矩形到面板(宿主, 新矩形)
-        self._写回宿主(宿主)
-
-    def _微调当前选中矩形(self, 宿主, dx: int, dy: int):
-        if not self.当前选中键:
-            return
-        if self.当前选中键 not in self.当前组件矩形表:
-            return
-
-        新矩形 = self.当前组件矩形表[self.当前选中键].copy()
-        新矩形.x += int(dx)
-        新矩形.y += int(dy)
-        self.当前组件矩形表[self.当前选中键] = _设置页_钳制矩形到面板(宿主, 新矩形)
-        self._写回宿主(宿主)
-
-    def 应用保存覆盖(self, 宿主):
-        self._收集当前组件(宿主)
-
-        try:
-            面板矩形 = getattr(宿主, "_设置页_面板基础矩形", pygame.Rect(0, 0, 1, 1))
-            面板宽 = max(1, int(面板矩形.w))
-            面板高 = max(1, int(面板矩形.h))
-        except Exception:
-            面板宽 = 1
-            面板高 = 1
-
-        for 键名, 记录 in dict(self.覆盖数据 or {}).items():
-            if 键名 not in self.当前组件矩形表:
-                continue
-            新矩形 = self._记录转矩形(记录, 面板宽, 面板高)
-            if isinstance(新矩形, pygame.Rect):
-                self.当前组件矩形表[键名] = _设置页_钳制矩形到面板(宿主, 新矩形)
-
-        self._写回宿主(宿主)
-
-    def 处理事件(self, 宿主, 事件) -> bool:
-        if not bool(self.是否启用):
-            return False
-
-        self._收集当前组件(宿主)
-
-        if 事件.type == pygame.KEYDOWN:
-            if 事件.key == pygame.K_s and (pygame.key.get_mods() & pygame.KMOD_CTRL):
-                try:
-                    面板矩形 = getattr(宿主, "_设置页_面板基础矩形", pygame.Rect(0, 0, 1, 1))
-                    保存成功 = self.保存到文件(int(面板矩形.w), int(面板矩形.h))
-                    if 保存成功 and hasattr(宿主, "显示消息提示"):
-                        宿主.显示消息提示("设置页调试器：布局已保存", 持续秒=1.6)
-                except Exception:
-                    pass
-                return True
-
-            if 事件.key == pygame.K_UP:
-                self._微调当前选中矩形(宿主, 0, -1)
-                return True
-            if 事件.key == pygame.K_DOWN:
-                self._微调当前选中矩形(宿主, 0, 1)
-                return True
-            if 事件.key == pygame.K_LEFT:
-                self._微调当前选中矩形(宿主, -1, 0)
-                return True
-            if 事件.key == pygame.K_RIGHT:
-                self._微调当前选中矩形(宿主, 1, 0)
-                return True
-
-        if 事件.type == pygame.MOUSEMOTION:
-            局部点 = self._屏幕点转面板局部(宿主, 事件.pos)
-            self.当前悬停键 = self._命中测试(局部点)
-
-            if self.拖拽中 and self.当前选中键 in self.当前组件矩形表:
-                dx = int(局部点[0] - self.拖拽起点局部[0])
-                dy = int(局部点[1] - self.拖拽起点局部[1])
-
-                新矩形 = self.拖拽起点矩形.copy()
-                新矩形.x += dx
-                新矩形.y += dy
-                self.当前组件矩形表[self.当前选中键] = _设置页_钳制矩形到面板(宿主, 新矩形)
-                self._写回宿主(宿主)
-            return True
-
-        if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-            局部点 = self._屏幕点转面板局部(宿主, 事件.pos)
-            命中键 = self._命中测试(局部点)
-            self.当前选中键 = str(命中键 or "")
-            if self.当前选中键 and self.当前选中键 in self.当前组件矩形表:
-                self.拖拽中 = True
-                self.拖拽起点局部 = (int(局部点[0]), int(局部点[1]))
-                self.拖拽起点矩形 = self.当前组件矩形表[self.当前选中键].copy()
-            else:
-                self.拖拽中 = False
-            return True
-
-        if 事件.type == pygame.MOUSEBUTTONUP and 事件.button == 1:
-            self.拖拽中 = False
-            return True
-
-        if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button in (4, 5):
-            局部点 = self._屏幕点转面板局部(宿主, 事件.pos)
-            命中键 = self._命中测试(局部点)
-            if 命中键:
-                self.当前选中键 = str(命中键)
-
-            if not self.当前选中键:
-                return True
-
-            滚轮方向 = 1 if int(事件.button) == 4 else -1
-            按键状态 = pygame.key.get_mods()
-            是否Ctrl = bool(按键状态 & pygame.KMOD_CTRL)
-            是否Shift = bool(按键状态 & pygame.KMOD_SHIFT)
-            是否Alt = bool(按键状态 & pygame.KMOD_ALT)
-
-            if 是否Alt:
-                self._调整当前选中文字缩放(滚轮方向)
-                return True
-
-            if 是否Ctrl:
-                self._调整当前选中矩形尺寸(宿主, 滚轮方向, 是否调宽=False, 是否调高=True)
-            elif 是否Shift:
-                self._调整当前选中矩形尺寸(宿主, 滚轮方向, 是否调宽=True, 是否调高=False)
-            else:
-                self._调整当前选中矩形尺寸(宿主, 滚轮方向, 是否调宽=True, 是否调高=True)
-            return True
-
-        return False
-
-    def 绘制覆盖(self, 宿主, 面板画布: pygame.Surface):
-        if not bool(self.是否启用):
-            return
-
-        self._收集当前组件(宿主)
-
-        try:
-            字体 = 获取字体(18, 是否粗体=True)
-            小字体 = 获取字体(14, 是否粗体=False)
-        except Exception:
-            return
-
-        for 键名, 矩形 in self.当前组件矩形表.items():
-            if not isinstance(矩形, pygame.Rect):
-                continue
-
-            if str(键名) == str(self.当前选中键):
-                边框色 = (255, 120, 80, 255)
-                填充色 = (255, 120, 80, 28)
-                线宽 = 1
-            elif str(键名) == str(self.当前悬停键):
-                边框色 = (80, 220, 255, 255)
-                填充色 = (80, 220, 255, 20)
-                线宽 = 1
-            else:
-                边框色 = (120, 255, 140, 170)
-                填充色 = (120, 255, 140, 10)
-                线宽 = 1
-
-            try:
-                填充面 = pygame.Surface((矩形.w, 矩形.h), pygame.SRCALPHA)
-                填充面.fill(填充色)
-                面板画布.blit(填充面, 矩形.topleft)
-                pygame.draw.rect(面板画布, 边框色, 矩形, width=线宽, border_radius=2)
-            except Exception:
-                pass
-
-            try:
-                if str(键名) == str(self.当前选中键) or str(键名) == str(self.当前悬停键):
-                    标签面 = 字体.render(str(键名), True, (255, 255, 255))
-                    标签底 = pygame.Surface(
-                        (标签面.get_width() + 8, 标签面.get_height() + 4), pygame.SRCALPHA
-                    )
-                    标签底.fill((0, 0, 0, 150))
-                    标签x = max(0, 矩形.x)
-                    标签y = max(0, 矩形.y - 标签底.get_height())
-                    面板画布.blit(标签底, (标签x, 标签y))
-                    面板画布.blit(标签面, (标签x + 4, 标签y + 2))
-            except Exception:
-                pass
-
-        try:
-            提示文本 = "F6开关调试 | 拖动移动 | 滚轮等比缩放 | Ctrl+滚轮改高 | Shift+滚轮改宽 | Alt+滚轮改字 | 方向键1px微调 | Ctrl+S保存"
-            提示面 = 小字体.render(提示文本, True, (255, 255, 255))
-            提示底 = pygame.Surface((提示面.get_width() + 12, 提示面.get_height() + 8), pygame.SRCALPHA)
-            提示底.fill((0, 0, 0, 170))
-            面板画布.blit(提示底, (8, 8))
-            面板画布.blit(提示面, (14, 12))
-        except Exception:
-            pass
-
-
-
-
-def 设置页_布局基准配置() -> dict:
-    return {
-        "设计宽": 2048,
-        "设计高": 1152,
-        "布局缩放最小": 0.68,
-        "布局缩放最大": 1.18,
-
-        "面板宽占比": 0.82,
-        "面板高占比": 0.76,
-        "面板最小边距": 24,
-        "面板最大宽": 1540,
-        "面板最大高": 860,
-        "面板最小宽": 1160,
-        "面板最小高": 640,
-
-        "内容左边距": 64,
-        "内容右边距": 58,
-        "内容上边距": 56,
-        "内容下边距": 42,
-        "左右列间距": 72,
-
-        "左列宽占比": 0.34,
-        "左列上偏移": 18,
-        "左列行区高占比": 0.64,
-
-        "行列表": ["调速", "变速", "变速类型", "隐藏", "轨迹", "方向", "大小"],
-        "行间距": 16,
-        "行高最小": 54,
-        "行高最大": 86,
-
-        "行内左右边距": 8,
-        "小箭头宽": 28,
-        "小箭头高占行高": 0.54,
-        "内容左右内边距": 12,
-
-        "右列顶部预留": 6,
-        "右列上下分区间距": 28,
-        "右列上区高占比": 0.58,
-
-        "背景区左右箭头宽": 60,
-        "背景区左右箭头高": 118,
-        "背景区箭头与预览间距": 18,
-        "背景区预览上下内边距": 20,
-        "背景区左右内边距": 12,
-
-        "箭头预览左右箭头宽": 56,
-        "箭头预览左右箭头高": 108,
-        "箭头预览箭头间距": 18,
-        "箭头预览上下内边距": 10,
-        "箭头预览底部文字间距": 18,
-        "箭头预览底部保护边距": 6,
-        "箭头预览内边距": 0,
-
-        "标签字号占行高": 0.44,
-        "选项字号占行高": 0.48,
-        "小字字号占行高": 0.31,
-        "名称下移": 1,
-    }
-
-def 计算设置页布局(屏幕宽: int, 屏幕高: int) -> dict:
-    配置 = 设置页_布局基准配置()
-
-    try:
-        屏幕宽 = int(屏幕宽)
-    except Exception:
-        屏幕宽 = 1280
-
-    try:
-        屏幕高 = int(屏幕高)
-    except Exception:
-        屏幕高 = 720
-
-    屏幕宽 = max(960, 屏幕宽)
-    屏幕高 = max(600, 屏幕高)
-
-    设计宽 = float(配置.get("设计宽", 2048) or 2048)
-    设计高 = float(配置.get("设计高", 1152) or 1152)
-
-    布局缩放 = min(float(屏幕宽) / 设计宽, float(屏幕高) / 设计高)
-    布局缩放 = max(
-        float(配置.get("布局缩放最小", 0.68) or 0.68),
-        min(float(配置.get("布局缩放最大", 1.18) or 1.18), float(布局缩放)),
-    )
-
-    def _夹紧浮点(值, 最小值: float, 最大值: float) -> float:
-        try:
-            值 = float(值)
-        except Exception:
-            值 = float(最小值)
-        return max(float(最小值), min(float(最大值), 值))
-
-    def _夹紧整数(值, 最小值: int, 最大值: int) -> int:
-        try:
-            值 = int(round(float(值)))
-        except Exception:
-            值 = int(最小值)
-        return max(int(最小值), min(int(最大值), 值))
-
-    def _源像素转屏幕像素(值) -> int:
-        try:
-            return int(round(float(值) * float(布局缩放)))
-        except Exception:
-            return 0
-
-    def _局部矩形(x: int, y: int, w: int, h: int) -> pygame.Rect:
-        return pygame.Rect(int(x), int(y), max(1, int(w)), max(1, int(h)))
-
-    面板宽占比 = _夹紧浮点(配置.get("面板宽占比", 0.82), 0.20, 1.20)
-    面板高占比 = _夹紧浮点(配置.get("面板高占比", 0.76), 0.20, 1.20)
-
-    面板宽 = int(round(屏幕宽 * 面板宽占比))
-    面板高 = int(round(屏幕高 * 面板高占比))
-
-    面板边距 = max(12, _源像素转屏幕像素(配置.get("面板最小边距", 24)))
-    面板最小宽 = _源像素转屏幕像素(配置.get("面板最小宽", 1160))
-    面板最小高 = _源像素转屏幕像素(配置.get("面板最小高", 640))
-    面板最大宽 = _源像素转屏幕像素(配置.get("面板最大宽", 1540))
-    面板最大高 = _源像素转屏幕像素(配置.get("面板最大高", 860))
-
-    面板宽 = _夹紧整数(
-        面板宽,
-        面板最小宽,
-        min(max(面板最小宽, 屏幕宽 - 面板边距 * 2), 面板最大宽),
-    )
-    面板高 = _夹紧整数(
-        面板高,
-        面板最小高,
-        min(max(面板最小高, 屏幕高 - 面板边距 * 2), 面板最大高),
-    )
-
-    面板矩形 = pygame.Rect(0, 0, 面板宽, 面板高)
-    面板矩形.center = (屏幕宽 // 2, 屏幕高 // 2)
-
-    if 面板矩形.left < 面板边距:
-        面板矩形.x = 面板边距
-    if 面板矩形.top < 面板边距:
-        面板矩形.y = 面板边距
-    if 面板矩形.right > 屏幕宽 - 面板边距:
-        面板矩形.x = 屏幕宽 - 面板边距 - 面板矩形.w
-    if 面板矩形.bottom > 屏幕高 - 面板边距:
-        面板矩形.y = 屏幕高 - 面板边距 - 面板矩形.h
-
-    内容左边距 = _源像素转屏幕像素(配置.get("内容左边距", 64))
-    内容右边距 = _源像素转屏幕像素(配置.get("内容右边距", 58))
-    内容上边距 = _源像素转屏幕像素(配置.get("内容上边距", 56))
-    内容下边距 = _源像素转屏幕像素(配置.get("内容下边距", 42))
-    左右列间距 = _源像素转屏幕像素(配置.get("左右列间距", 72))
-
-    内容区矩形 = pygame.Rect(
-        面板矩形.x + 内容左边距,
-        面板矩形.y + 内容上边距,
-        max(1, 面板矩形.w - 内容左边距 - 内容右边距),
-        max(1, 面板矩形.h - 内容上边距 - 内容下边距),
-    )
-
-    左列宽占比 = _夹紧浮点(配置.get("左列宽占比", 0.34), 0.15, 0.70)
-    左列宽 = int(round(内容区矩形.w * 左列宽占比))
-    左列宽 = max(_源像素转屏幕像素(280), min(左列宽, 内容区矩形.w - 左右列间距 - _源像素转屏幕像素(260)))
-
-    右列宽 = max(1, 内容区矩形.w - 左列宽 - 左右列间距)
-
-    左列矩形 = pygame.Rect(
-        内容区矩形.x,
-        内容区矩形.y + _源像素转屏幕像素(配置.get("左列上偏移", 18)),
-        左列宽,
-        max(1, 内容区矩形.h - _源像素转屏幕像素(配置.get("左列上偏移", 18))),
-    )
-
-    右列矩形 = pygame.Rect(
-        左列矩形.right + 左右列间距,
-        内容区矩形.y + _源像素转屏幕像素(配置.get("右列顶部预留", 6)),
-        右列宽,
-        max(1, 内容区矩形.h - _源像素转屏幕像素(配置.get("右列顶部预留", 6))),
-    )
-
-    行键列表 = list(配置.get("行列表", []) or [])
-    行数量 = max(1, len(行键列表))
-    行间距 = max(0, _源像素转屏幕像素(配置.get("行间距", 16)))
-    行高最小 = max(24, _源像素转屏幕像素(配置.get("行高最小", 54)))
-    行高最大 = max(行高最小, _源像素转屏幕像素(配置.get("行高最大", 86)))
-
-    左列行区高占比 = _夹紧浮点(配置.get("左列行区高占比", 0.64), 0.20, 1.00)
-    左列可用高 = max(1, int(round(左列矩形.h * 左列行区高占比)))
-    行高 = (左列可用高 - (行数量 - 1) * 行间距) // 行数量
-    行高 = max(行高最小, min(行高最大, 行高))
-
-    小箭头宽 = max(12, _源像素转屏幕像素(配置.get("小箭头宽", 28)))
-    小箭头高 = max(18, int(round(float(行高) * float(配置.get("小箭头高占行高", 0.54) or 0.54))))
-    行内左右边距 = max(4, _源像素转屏幕像素(配置.get("行内左右边距", 8)))
-    内容左右内边距 = max(4, _源像素转屏幕像素(配置.get("内容左右内边距", 12)))
-
-    行矩形表: Dict[str, pygame.Rect] = {}
-    控件矩形表: Dict[str, Dict[str, pygame.Rect]] = {}
-
-    for 行序号, 行键 in enumerate(行键列表):
-        行x = 左列矩形.x
-        行y = 左列矩形.y + 行序号 * (行高 + 行间距)
-        行矩形 = _局部矩形(行x, 行y, 左列矩形.w, 行高)
-        行矩形表[行键] = 行矩形
-
-        左箭矩形 = _局部矩形(
-            行矩形.x + 行内左右边距,
-            行矩形.centery - 小箭头高 // 2,
-            小箭头宽,
-            小箭头高,
-        )
-        右箭矩形 = _局部矩形(
-            行矩形.right - 行内左右边距 - 小箭头宽,
-            行矩形.centery - 小箭头高 // 2,
-            小箭头宽,
-            小箭头高,
-        )
-
-        内容左 = 左箭矩形.right + 内容左右内边距
-        内容右 = 右箭矩形.x - 内容左右内边距
-        内容矩形 = _局部矩形(
-            内容左,
-            行矩形.y,
-            max(12, 内容右 - 内容左),
-            行矩形.h,
-        )
-
-        控件矩形表[行键] = {
-            "左": 左箭矩形,
-            "右": 右箭矩形,
-            "内容": 内容矩形,
-        }
-
-    右列上下分区间距 = max(0, _源像素转屏幕像素(配置.get("右列上下分区间距", 28)))
-    右列上区高占比 = _夹紧浮点(配置.get("右列上区高占比", 0.58), 0.20, 0.85)
-
-    背景区高 = int(round((右列矩形.h - 右列上下分区间距) * 右列上区高占比))
-    背景区高 = max(_源像素转屏幕像素(220), min(背景区高, right_h := max(1, 右列矩形.h - 右列上下分区间距 - _源像素转屏幕像素(140))))
-    箭头区高 = max(1, 右列矩形.h - 背景区高 - 右列上下分区间距)
-
-    背景区矩形 = pygame.Rect(
-        右列矩形.x,
-        右列矩形.y,
-        右列矩形.w,
-        背景区高,
-    )
-    箭头预览矩形 = pygame.Rect(
-        右列矩形.x,
-        背景区矩形.bottom + 右列上下分区间距,
-        右列矩形.w,
-        箭头区高,
-    )
-
-    背景箭头宽 = max(18, _源像素转屏幕像素(配置.get("背景区左右箭头宽", 60)))
-    背景箭头高 = max(28, _源像素转屏幕像素(配置.get("背景区左右箭头高", 118)))
-    背景箭间距 = max(8, _源像素转屏幕像素(配置.get("背景区箭头与预览间距", 18)))
-    背景上下内边距 = max(0, _源像素转屏幕像素(配置.get("背景区预览上下内边距", 20)))
-    背景左右内边距 = max(0, _源像素转屏幕像素(配置.get("背景区左右内边距", 12)))
-
-    背景左箭矩形 = _局部矩形(
-        背景区矩形.x + 背景左右内边距,
-        背景区矩形.centery - 背景箭头高 // 2,
-        背景箭头宽,
-        背景箭头高,
-    )
-    背景右箭矩形 = _局部矩形(
-        背景区矩形.right - 背景左右内边距 - 背景箭头宽,
-        背景区矩形.centery - 背景箭头高 // 2,
-        背景箭头宽,
-        背景箭头高,
-    )
-
-    背景预览矩形 = _局部矩形(
-        背景左箭矩形.right + 背景箭间距,
-        背景区矩形.y + 背景上下内边距,
-        max(40, 背景右箭矩形.x - 背景箭间距 - (背景左箭矩形.right + 背景箭间距)),
-        max(40, 背景区矩形.h - 背景上下内边距 * 2),
-    )
-
-    箭头箭头宽 = max(18, _源像素转屏幕像素(配置.get("箭头预览左右箭头宽", 56)))
-    箭头箭头高 = max(28, _源像素转屏幕像素(配置.get("箭头预览左右箭头高", 108)))
-    箭头箭间距 = max(8, _源像素转屏幕像素(配置.get("箭头预览箭头间距", 18)))
-    箭头上下内边距 = max(0, _源像素转屏幕像素(配置.get("箭头预览上下内边距", 10)))
-
-    箭头左箭矩形 = _局部矩形(
-        箭头预览矩形.x + 背景左右内边距,
-        箭头预览矩形.centery - 箭头箭头高 // 2,
-        箭头箭头宽,
-        箭头箭头高,
-    )
-    箭头右箭矩形 = _局部矩形(
-        箭头预览矩形.right - 背景左右内边距 - 箭头箭头宽,
-        箭头预览矩形.centery - 箭头箭头高 // 2,
-        箭头箭头宽,
-        箭头箭头高,
-    )
-
-    中间预览宽 = max(60, 箭头右箭矩形.x - 箭头箭间距 - (箭头左箭矩形.right + 箭头箭间距))
-    中间预览高 = max(60, 箭头预览矩形.h - 箭头上下内边距 * 2)
-    预览边长 = min(中间预览宽, 中间预览高)
-
-    箭头预览核心矩形 = _局部矩形(
-        箭头预览矩形.centerx - 预览边长 // 2,
-        箭头预览矩形.y + 箭头上下内边距,
-        预览边长,
-        预览边长,
-    )
-
-    标签字号 = max(14, int(round(行高 * float(配置.get("标签字号占行高", 0.44) or 0.44))))
-    选项字号 = max(16, int(round(行高 * float(配置.get("选项字号占行高", 0.48) or 0.48))))
-    小字字号 = max(12, int(round(行高 * float(配置.get("小字字号占行高", 0.31) or 0.31))))
-
-    视觉参数 = {
-        "标签字号": 标签字号,
-        "选项字号": 选项字号,
-        "小字字号": 小字字号,
-        "内容内边距": max(4, 内容左右内边距),
-        "名称下移": _源像素转屏幕像素(配置.get("名称下移", 1)),
-        "箭头名称上间距": max(6, _源像素转屏幕像素(配置.get("箭头预览底部文字间距", 18))),
-        "底部保护边距": max(4, _源像素转屏幕像素(配置.get("箭头预览底部保护边距", 6))),
-        "箭头预览内边距": max(0, _源像素转屏幕像素(配置.get("箭头预览内边距", 0))),
-    }
-
-    return {
-        "布局缩放": float(布局缩放),
-        "面板基础矩形": 面板矩形,
-        "行矩形表": 行矩形表,
-        "控件矩形表": 控件矩形表,
-        "背景区矩形": 背景区矩形,
-        "背景控件矩形": {
-            "左": 背景左箭矩形,
-            "右": 背景右箭矩形,
-            "预览": 背景预览矩形,
-        },
-        "箭头预览矩形": 箭头预览核心矩形,
-        "箭头预览控件矩形": {
-            "左": 箭头左箭矩形,
-            "右": 箭头右箭矩形,
-        },
-        "视觉参数": 视觉参数,
-    }
-
-def 设置菜单行键列表() -> List[str]:
-    """
-    选歌设置菜单左侧可调行（保留旧布局顺序，兼容旧 json 偏移）。
-    """
-    return ["调速", "变速", "变速类型", "隐藏", "轨迹", "方向", "大小"]
-
-
-
-
-
-def 设置菜单默认调速选项() -> List[str]:
-    # 固定档位：1.0 ~ 7.0（保留低速档与原有 0.5 步进）
-    return get_select_scroll_speed_options()
-
-
-
-
-def 设置菜单行显示名(行键: str) -> str:
-    键 = str(行键 or "")
-    if 键 == "变速":
-        return "背景"
-    if 键 == "变速类型":
-        return "谱面"
-    return 键
-
-
-def 设置菜单行值(
-    行键: str,
-    设置参数: Optional[Dict[str, str]] = None,
-) -> str:
-    参数 = dict(设置参数 or {})
-    键 = str(行键 or "")
-    if 键 == "变速":
-        动态背景 = str(参数.get("动态背景", "") or "").strip()
-        if 动态背景 and 动态背景 != "关闭":
-            return "动态背景"
-        return str(参数.get("背景模式", "图片") or "图片")
-    if 键 == "变速类型":
-        return str(参数.get("谱面", "正常") or "正常")
-    if 键 == "隐藏":
-        return str(参数.get("隐藏", "关闭") or "关闭")
-    if 键 == "轨迹":
-        return str(参数.get("轨迹", "正常") or "正常")
-    if 键 == "方向":
-        return str(参数.get("方向", "关闭") or "关闭")
-    if 键 == "大小":
-        return str(参数.get("大小", "正常") or "正常")
-    if 键 == "调速":
-        return format_select_scroll_speed(参数.get("调速", ""), prefix="X")
-    return ""
-
-
-def 设置参数文本提取值(参数文本: str, 键名: str) -> str:
-    try:
-        文本 = str(参数文本 or "")
-        m = re.search(rf"{re.escape(str(键名))}\s*=\s*([^\s]+)", 文本)
-        if not m:
-            return ""
-        return str(m.group(1)).strip()
-    except Exception:
-        return ""
-
-
-def 构建设置参数文本(
-    设置参数: Optional[Dict[str, object]] = None,
-    背景文件名: str = "",
-    箭头文件名: str = "",
-) -> str:
-    参数 = dict(设置参数 or {})
-    参数片段: List[str] = []
-    顺序键 = ["调速", "背景模式", "谱面", "隐藏", "轨迹", "方向", "大小"]
-    if ("背景模式" not in 参数) and ("变速" in 参数):
-        参数["背景模式"] = 参数.get("变速")
-
-    try:
-        for 键 in 顺序键:
-            if 键 in 参数:
-                参数片段.append(f"{键}={参数.get(键)}")
-        for 键, 值 in 参数.items():
-            if 键 in 顺序键:
-                continue
-            参数片段.append(f"{键}={值}")
-    except Exception:
-        参数片段 = []
-
-    if 背景文件名:
-        参数片段.append(f"背景={背景文件名}")
-    if 箭头文件名:
-        参数片段.append(f"箭头={箭头文件名}")
-    return "设置参数：" + ("  ".join(参数片段) if 参数片段 else "默认")
-
-
-def 取非透明裁切矩形(图: pygame.Surface) -> pygame.Rect:
-    """
-    返回图像 alpha>0 的最小包围盒；若无 alpha 或找不到，则返回整图。
-    """
-    try:
-        w, h = 图.get_size()
-    except Exception:
-        return pygame.Rect(0, 0, 1, 1)
-    if w <= 0 or h <= 0:
-        return pygame.Rect(0, 0, 1, 1)
-
-    try:
-        mask = pygame.mask.from_surface(图, threshold=1)
-        bbox = mask.get_bounding_rects()
-        if bbox:
-            # 合并所有 rect，避免多块分离导致裁切不全
-            out = bbox[0].copy()
-            for r in bbox[1:]:
-                out = out.union(r)
-            if out.w > 0 and out.h > 0:
-                return out
-    except Exception:
-        pass
-    return pygame.Rect(0, 0, int(w), int(h))
-
-
-def 绘制_cover裁切预览(
-    目标面: pygame.Surface,
-    原图: Optional[pygame.Surface],
-    目标区域: pygame.Rect,
-) -> bool:
-    """
-    在目标区域内按 cover 方式绘制并裁切，保证超出部分不外溢。
-    """
-    if 原图 is None or (not isinstance(目标区域, pygame.Rect)):
-        return False
-    if 目标区域.w <= 0 or 目标区域.h <= 0:
-        return False
-
-    try:
-        裁切源 = 取非透明裁切矩形(原图)
-        ow, oh = int(裁切源.w), int(裁切源.h)
-    except Exception:
-        return False
-    if ow <= 0 or oh <= 0:
-        return False
-
-    比例 = max(float(目标区域.w) / float(ow), float(目标区域.h) / float(oh))
-    nw = max(1, int(round(float(ow) * 比例)))
-    nh = max(1, int(round(float(oh) * 比例)))
-
-    try:
-        源图 = 原图.subsurface(裁切源).copy().convert_alpha()
-        图 = pygame.transform.smoothscale(源图, (nw, nh)).convert_alpha()
-    except Exception:
-        try:
-            源图 = 原图.subsurface(裁切源).copy().convert_alpha()
-            图 = pygame.transform.scale(源图, (nw, nh)).convert_alpha()
-        except Exception:
-            return False
-
-    src_x = max(0, (nw - 目标区域.w) // 2)
-    src_y = max(0, (nh - 目标区域.h) // 2)
-    src = pygame.Rect(src_x, src_y, int(目标区域.w), int(目标区域.h))
-    src = src.clip(pygame.Rect(0, 0, nw, nh))
-
-    try:
-        目标面.blit(图, 目标区域.topleft, area=src)
-        return True
-    except Exception:
-        return False
-
-def _设置页_钳制矩形到面板(self, 矩形: pygame.Rect) -> pygame.Rect:
-    if not isinstance(矩形, pygame.Rect):
-        return pygame.Rect(0, 0, 1, 1)
-
-    try:
-        面板矩形 = getattr(self, "_设置页_面板基础矩形", pygame.Rect(0, 0, 1, 1))
-        面板宽 = max(1, int(面板矩形.w))
-        面板高 = max(1, int(面板矩形.h))
-    except Exception:
-        面板宽 = 1
-        面板高 = 1
-
-    新矩形 = 矩形.copy()
-    新矩形.w = max(1, int(新矩形.w))
-    新矩形.h = max(1, int(新矩形.h))
-
-    if 新矩形.w > 面板宽:
-        新矩形.w = 面板宽
-    if 新矩形.h > 面板高:
-        新矩形.h = 面板高
-
-    新矩形.x = max(0, min(int(新矩形.x), max(0, 面板宽 - 新矩形.w)))
-    新矩形.y = max(0, min(int(新矩形.y), max(0, 面板高 - 新矩形.h)))
-    return 新矩形
-
-def _设置页_统一行按钮尺寸(self):
-    行键列表 = ["调速", "变速", "变速类型", "隐藏", "轨迹", "方向", "大小"]
-
-    try:
-        调速控件 = dict(getattr(self, "_设置页_控件矩形表", {}) or {}).get("调速", {})
-    except Exception:
-        调速控件 = {}
-
-    标准左 = 调速控件.get("左")
-    if not isinstance(标准左, pygame.Rect):
-        return
-
-    标准宽 = max(1, int(标准左.w))
-    标准高 = max(1, int(标准左.h))
-
-    控件表 = getattr(self, "_设置页_控件矩形表", {})
-    if not isinstance(控件表, dict):
-        return
-
-    for 行键 in 行键列表:
-        行控件 = 控件表.get(行键)
-        if not isinstance(行控件, dict):
-            continue
-
-        左矩形 = 行控件.get("左")
-        右矩形 = 行控件.get("右")
-
-        if isinstance(左矩形, pygame.Rect):
-            新左 = 左矩形.copy()
-            新左.size = (标准宽, 标准高)
-            新左.y = 左矩形.centery - 标准高 // 2
-            行控件["左"] = _设置页_钳制矩形到面板(self, 新左)
-
-        if isinstance(右矩形, pygame.Rect):
-            新右 = 右矩形.copy()
-            新右.size = (标准宽, 标准高)
-            新右.y = 右矩形.centery - 标准高 // 2
-            行控件["右"] = _设置页_钳制矩形到面板(self, 新右)
-
-def _设置页_钳制全部控件到面板(self):
-    try:
-        行矩形表 = getattr(self, "_设置页_行矩形表", {})
-        if isinstance(行矩形表, dict):
-            for 行键, 矩形 in list(行矩形表.items()):
-                if isinstance(矩形, pygame.Rect):
-                    行矩形表[行键] = _设置页_钳制矩形到面板(self, 矩形)
-    except Exception:
-        pass
-
-    try:
-        控件矩形表 = getattr(self, "_设置页_控件矩形表", {})
-        if isinstance(控件矩形表, dict):
-            for 行键, 控件 in list(控件矩形表.items()):
-                if not isinstance(控件, dict):
-                    continue
-                for 子键 in ("左", "右", "内容"):
-                    矩形 = 控件.get(子键)
-                    if isinstance(矩形, pygame.Rect):
-                        控件[子键] = _设置页_钳制矩形到面板(self, 矩形)
-    except Exception:
-        pass
-
-    try:
-        背景区 = getattr(self, "_设置页_背景区矩形", None)
-        if isinstance(背景区, pygame.Rect):
-            self._设置页_背景区矩形 = _设置页_钳制矩形到面板(self, 背景区)
-    except Exception:
-        pass
-
-    try:
-        背景控件 = getattr(self, "_设置页_背景控件矩形", {})
-        if isinstance(背景控件, dict):
-            for 子键 in ("左", "右", "预览"):
-                矩形 = 背景控件.get(子键)
-                if isinstance(矩形, pygame.Rect):
-                    背景控件[子键] = _设置页_钳制矩形到面板(self, 矩形)
-    except Exception:
-        pass
-
-    try:
-        箭头预览区 = getattr(self, "_设置页_箭头预览矩形", None)
-        if isinstance(箭头预览区, pygame.Rect):
-            self._设置页_箭头预览矩形 = _设置页_钳制矩形到面板(self, 箭头预览区)
-    except Exception:
-        pass
-
-    try:
-        箭头预览控件 = getattr(self, "_设置页_箭头预览控件矩形", {})
-        if isinstance(箭头预览控件, dict):
-            for 子键 in ("左", "右"):
-                矩形 = 箭头预览控件.get(子键)
-                if isinstance(矩形, pygame.Rect):
-                    箭头预览控件[子键] = _设置页_钳制矩形到面板(self, 矩形)
-    except Exception:
-        pass
-
-
-def 重算设置页布局(self, 强制: bool = False):
-    self._确保设置页资源()
-
-    try:
-        当前尺寸 = (int(getattr(self, "宽", 0) or 0), int(getattr(self, "高", 0) or 0))
-    except Exception:
-        当前尺寸 = (0, 0)
-
-    if (not 强制) and 当前尺寸 == tuple(getattr(self, "_设置页_上次屏幕尺寸", (0, 0))):
-        return
-
-    self._设置页_上次屏幕尺寸 = 当前尺寸
-
-    屏幕宽 = max(1, int(当前尺寸[0] or 0))
-    屏幕高 = max(1, int(当前尺寸[1] or 0))
-
-    布局 = 计算设置页布局(屏幕宽, 屏幕高)
-    if not isinstance(布局, dict):
-        布局 = {}
-
-    self._设置页_布局缩放 = float(布局.get("布局缩放", 1.0) or 1.0)
-
-    面板矩形 = 布局.get("面板基础矩形", pygame.Rect(0, 0, 10, 10))
-    if not isinstance(面板矩形, pygame.Rect):
-        面板矩形 = pygame.Rect(0, 0, 10, 10)
-    self._设置页_面板基础矩形 = 面板矩形
-
-    行矩形表 = 布局.get("行矩形表", {})
-    if not isinstance(行矩形表, dict):
-        行矩形表 = {}
-    self._设置页_行矩形表 = 行矩形表
-
-    控件矩形表 = 布局.get("控件矩形表", {})
-    if not isinstance(控件矩形表, dict):
-        控件矩形表 = {}
-    self._设置页_控件矩形表 = 控件矩形表
-
-    背景区矩形 = 布局.get("背景区矩形", pygame.Rect(0, 0, 10, 10))
-    if not isinstance(背景区矩形, pygame.Rect):
-        背景区矩形 = pygame.Rect(0, 0, 10, 10)
-    self._设置页_背景区矩形 = 背景区矩形
-
-    背景控件矩形 = 布局.get("背景控件矩形", {})
-    if not isinstance(背景控件矩形, dict):
-        背景控件矩形 = {}
-
-    self._设置页_背景控件矩形 = {
-        "左": 背景控件矩形.get("左", pygame.Rect(0, 0, 1, 1))
-        if isinstance(背景控件矩形.get("左", None), pygame.Rect)
-        else pygame.Rect(0, 0, 1, 1),
-        "右": 背景控件矩形.get("右", pygame.Rect(0, 0, 1, 1))
-        if isinstance(背景控件矩形.get("右", None), pygame.Rect)
-        else pygame.Rect(0, 0, 1, 1),
-        "预览": 背景控件矩形.get("预览", pygame.Rect(0, 0, 1, 1))
-        if isinstance(背景控件矩形.get("预览", None), pygame.Rect)
-        else pygame.Rect(0, 0, 1, 1),
-    }
-
-    箭头预览矩形 = 布局.get("箭头预览矩形", pygame.Rect(0, 0, 10, 10))
-    if not isinstance(箭头预览矩形, pygame.Rect):
-        箭头预览矩形 = pygame.Rect(0, 0, 10, 10)
-    self._设置页_箭头预览矩形 = 箭头预览矩形
-
-    箭头预览控件矩形 = 布局.get("箭头预览控件矩形", {})
-    if not isinstance(箭头预览控件矩形, dict):
-        箭头预览控件矩形 = {}
-
-    self._设置页_箭头预览控件矩形 = {
-        "左": 箭头预览控件矩形.get("左", pygame.Rect(0, 0, 1, 1))
-        if isinstance(箭头预览控件矩形.get("左", None), pygame.Rect)
-        else pygame.Rect(0, 0, 1, 1),
-        "右": 箭头预览控件矩形.get("右", pygame.Rect(0, 0, 1, 1))
-        if isinstance(箭头预览控件矩形.get("右", None), pygame.Rect)
-        else pygame.Rect(0, 0, 1, 1),
-    }
-
-    视觉参数 = 布局.get("视觉参数", {})
-    if not isinstance(视觉参数, dict):
-        视觉参数 = {}
-    self._设置页_视觉参数 = 视觉参数
-
-    self._设置页_面板绘制矩形 = 面板矩形.copy()
-
-    try:
-        if getattr(self, "_设置页_调试器", None) is not None:
-            self._设置页_调试器.应用保存覆盖(self)
-    except Exception:
-        pass
-
-    try:
-        _设置页_统一行按钮尺寸(self)
-    except Exception:
-        pass
-
-    try:
-        _设置页_钳制全部控件到面板(self)
-    except Exception:
-        pass
-
-
 def 绑定设置页方法到选歌游戏类():
     选歌游戏._设置页_持久化文件路径 = _设置页_持久化文件路径
     选歌游戏._设置页_从参数文本提取 = _设置页_从参数文本提取
@@ -10819,373 +8907,4 @@ def 绑定设置页方法到选歌游戏类():
     选歌游戏._设置页_处理事件 = _设置页_处理事件
     选歌游戏.绘制设置页 = 绘制设置页
 绑定设置页方法到选歌游戏类()
-
-def 选歌_绑定外部屏幕(self, 外部屏幕: pygame.Surface):
-    if 外部屏幕 is None:
-        return
-    try:
-        旧尺寸 = (int(getattr(self, "宽", 0) or 0), int(getattr(self, "高", 0) or 0))
-    except Exception:
-        旧尺寸 = (0, 0)
-
-    self.屏幕 = 外部屏幕
-    try:
-        self.宽, self.高 = self.屏幕.get_size()
-    except Exception:
-        self.宽, self.高 = (0, 0)
-
-    新尺寸 = (int(self.宽), int(self.高))
-    if 新尺寸 != 旧尺寸:
-        try:
-            self.重算布局()
-            self.安排预加载(基准页=int(getattr(self, "当前页", 0) or 0))
-        except Exception:
-            pass
-
-def 选歌_帧更新(self):
-    self._确保公共交互()
-
-    if bool(getattr(self, "_需要退出", False)):
-        return str(getattr(self, "_返回状态", "NORMAL") or "NORMAL")
-
-    try:
-        当前秒 = float(time.perf_counter())
-        上次秒 = float(getattr(self, "_动态背景上次刷新秒", 当前秒) or 当前秒)
-        self._动态背景上次刷新秒 = 当前秒
-        self._更新动态背景模块(float(max(0.0, 当前秒 - 上次秒)), 当前秒)
-        self.每帧执行预加载(每帧数量=3)
-        self.更新动画状态()
-        self._更新连续翻页()
-        self._更新过渡()
-    except Exception:
-        pass
-
-    if bool(getattr(self, "_需要退出", False)):
-        return str(getattr(self, "_返回状态", "NORMAL") or "NORMAL")
-    return None
-
-def 选歌_帧绘制(self):
-    self._确保公共交互()
-
-    try:
-        使用GPU界面 = bool(getattr(self, "_应使用GPU界面", lambda: False)())
-        try:
-            刷新选歌布局常量()
-        except Exception:
-            pass
-        self.绘制背景()
-        if not bool(使用GPU界面):
-            self.绘制顶部()
-
-            if bool(getattr(self, "动画中", False)):
-                self.绘制列表页_动画()
-            else:
-                self.绘制列表页()
-
-            if not bool(getattr(self, "是否详情页", False)):
-                self._绘制列表翻页按钮()
-
-            if bool(getattr(self, "是否详情页", False)):
-                self.绘制详情浮层()
-                try:
-                    self.绘制详情角标_大图()
-                except Exception:
-                    pass
-            else:
-                try:
-                    self.确保播放背景音乐()
-                except Exception:
-                    pass
-
-            self.绘制底部()
-        else:
-            try:
-                if not bool(getattr(self, "是否详情页", False)):
-                    self.确保播放背景音乐()
-            except Exception:
-                pass
-
-        if bool(getattr(self, "是否星级筛选页", False)):
-            self.绘制星级筛选页()
-
-        if bool(getattr(self, "是否设置页", False)):
-            try:
-                self.绘制设置页()
-            except Exception:
-                pass
-
-        self._绘制过渡()
-
-        try:
-            if getattr(self, "_全局点击特效", None) is not None:
-                self._全局点击特效.更新并绘制(self.屏幕)
-        except Exception:
-            pass
-
-        try:
-            self._绘制消息提示()
-        except Exception:
-            pass
-
-    except Exception:
-        pass
-
-def 选歌_处理事件_外部(self, 事件):
-    self._确保公共交互()
-
-    if 事件 is None:
-        return None
-
-    if 事件.type == pygame.VIDEORESIZE:
-        try:
-            新屏幕 = pygame.display.get_surface()
-            if 新屏幕 is not None:
-                self.屏幕 = 新屏幕
-            self.重算布局()
-            self.安排预加载(基准页=int(getattr(self, "当前页", 0) or 0))
-            if bool(getattr(self, "是否设置页", False)):
-                try:
-                    self._重算设置页布局()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        return None
-
-    if 事件.type == pygame.QUIT:
-        self._返回状态 = "NORMAL"
-        self._需要退出 = True
-        return "NORMAL"
-
-    if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-        try:
-            if getattr(self, "_全局点击特效", None) is not None:
-                x, y = 事件.pos
-                self._全局点击特效.触发(int(x), int(y))
-        except Exception:
-            pass
-
-    try:
-        if (
-            getattr(self, "_过渡_特效", None) is not None
-            and self._过渡_特效.是否动画中()
-        ):
-            if 事件.type == pygame.MOUSEMOTION:
-                pass
-            else:
-                return None
-    except Exception:
-        pass
-
-    if bool(getattr(self, "是否设置页", False)):
-        try:
-            self._设置页_处理事件(事件)
-        except Exception:
-            pass
-        return None
-
-    if bool(getattr(self, "是否星级筛选页", False)):
-        if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-            if not self.筛选页面板矩形.collidepoint(事件.pos):
-                self._启动过渡(
-                    self._特效_按钮,
-                    pygame.Rect(事件.pos[0] - 20, 事件.pos[1] - 20, 40, 40),
-                    self.关闭星级筛选页,
-                )
-                return None
-
-        if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_ESCAPE:
-            self._启动过渡(
-                self._特效_按钮,
-                pygame.Rect(
-                    self.筛选页面板矩形.centerx - 60,
-                    self.筛选页面板矩形.y + 20,
-                    120,
-                    50,
-                ),
-                self.关闭星级筛选页,
-            )
-            return None
-
-        for _星, 按钮对象 in self.星级按钮列表:
-            try:
-                按钮对象.处理事件(事件)
-            except Exception:
-                pass
-        return None
-
-    try:
-        if self.按钮_歌曲分类.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮, self.按钮_歌曲分类.矩形, self.打开星级筛选页
-            )
-    except Exception:
-        pass
-
-    try:
-        if self.按钮_收藏夹.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮, self.按钮_收藏夹.矩形, self._切换收藏夹模式
-            )
-    except Exception:
-        pass
-
-    try:
-        if self.按钮_ALL.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮, self.按钮_ALL.矩形, self._重置列表筛选
-            )
-    except Exception:
-        pass
-
-    try:
-        if self.按钮_2P加入.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮,
-                self.按钮_2P加入.矩形,
-                lambda: self.显示消息提示(
-                    "别做梦了你根本没有舞搭子 (*^__^*) 嘻嘻……", 持续秒=2.0
-                ),
-            )
-    except Exception:
-        pass
-
-    try:
-        if self.按钮_设置.处理事件(事件):
-            self._启动过渡(self._特效_按钮, self.按钮_设置.矩形, self.打开设置页)
-    except Exception:
-        pass
-
-    try:
-        if self.按钮_重选模式.处理事件(事件):
-            self._启动过渡(
-                self._特效_按钮, self.按钮_重选模式.矩形, self.请求回主程序重新选歌
-            )
-            return None
-    except Exception:
-        pass
-
-    if bool(getattr(self, "动画中", False)):
-        return None
-
-    if bool(getattr(self, "是否详情页", False)):
-        try:
-            上一首触发 = self.按钮_详情上一首.处理事件(事件)
-            下一首触发 = self.按钮_详情下一首.处理事件(事件)
-            收藏触发 = self.按钮_详情收藏.处理事件(事件)
-
-            if 上一首触发:
-                self._启动过渡(
-                    self._特效_按钮,
-                    self.按钮_详情上一首.矩形,
-                    self.上一首,
-                    覆盖图片=self.按钮_详情上一首._获取缩放图(),
-                )
-                return None
-            if 下一首触发:
-                self._启动过渡(
-                    self._特效_按钮,
-                    self.按钮_详情下一首.矩形,
-                    self.下一首,
-                    覆盖图片=self.按钮_详情下一首._获取缩放图(),
-                )
-                return None
-            if 收藏触发:
-                self._启动过渡(
-                    self._特效_按钮,
-                    self.按钮_详情收藏.矩形,
-                    self._切换当前歌曲收藏,
-                    覆盖图片=self.按钮_详情收藏._获取缩放图(),
-                )
-                return None
-        except Exception:
-            pass
-
-        if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-            try:
-                点在左右按钮 = self.按钮_详情上一首.矩形.collidepoint(
-                    事件.pos
-                ) or self.按钮_详情下一首.矩形.collidepoint(
-                    事件.pos
-                ) or self.按钮_详情收藏.矩形.collidepoint(事件.pos)
-            except Exception:
-                点在左右按钮 = False
-
-            if (not 点在左右按钮) and self.详情大框矩形.collidepoint(事件.pos):
-                self._启动过渡(
-                    self._特效_大图确认, self.详情大框矩形, self._记录并处理大图确认点击
-                )
-                return None
-
-            if (not 点在左右按钮) and (not self.详情大框矩形.collidepoint(事件.pos)):
-                self._启动过渡(
-                    self._特效_按钮,
-                    pygame.Rect(事件.pos[0] - 20, 事件.pos[1] - 20, 40, 40),
-                    self.返回列表,
-                )
-                return None
-
-        if 事件.type == pygame.KEYDOWN:
-            if 事件.key == pygame.K_ESCAPE:
-                self._启动过渡(self._特效_按钮, self.详情大框矩形, self.返回列表)
-                return None
-            if 事件.key == pygame.K_LEFT:
-                try:
-                    self._播放按钮音效()
-                except Exception:
-                    pass
-                self.上一首()
-                return None
-            if 事件.key == pygame.K_RIGHT:
-                try:
-                    self._播放按钮音效()
-                except Exception:
-                    pass
-                self.下一首()
-                return None
-
-        return None
-
-    self._处理列表页输入(事件)
-
-    if bool(getattr(self, "_需要退出", False)):
-        return str(getattr(self, "_返回状态", "NORMAL") or "NORMAL")
-    return None
-
-def 绑定场景化方法到选歌游戏类():
-    选歌游戏.绑定外部屏幕 = 选歌_绑定外部屏幕
-    选歌游戏.帧更新 = 选歌_帧更新
-    选歌游戏.帧绘制 = 选歌_帧绘制
-    选歌游戏.处理事件_外部 = 选歌_处理事件_外部
-
-绑定场景化方法到选歌游戏类()
-
-def main():
-    songs根目录 = _取songs根目录()
-    背景音乐路径 = _公共取冷资源路径("backsound", "devil.mp3")
-
-
-    游戏 = 选歌游戏(
-        songs根目录=songs根目录,
-        背景音乐路径=背景音乐路径,
-        是否继承已有窗口=False,
-    )
-    游戏.主循环()
-
-
-def 运行选歌(玩家数: int, 类型名: str, 模式名: str, 背景音乐路径: str):
-    songs根目录 = _取songs根目录()
-
-    游戏 = 选歌游戏(
-        songs根目录=songs根目录,
-        背景音乐路径=背景音乐路径,
-        指定类型名=类型名,
-        指定模式名=模式名,
-        玩家数=玩家数,
-        是否继承已有窗口=True,
-    )
-    return 游戏.主循环()
-
-
-if __name__ == "__main__":
-    main()
+_绑定选歌场景化方法模块(选歌游戏, 刷新选歌布局常量)

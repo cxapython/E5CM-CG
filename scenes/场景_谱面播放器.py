@@ -76,6 +76,7 @@ from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四
 from core.工具 import 绘制底部联网与信用
 from scenes.场景基类 import 场景基类
 from ui.game_esc_menu import GameEscMenuController
+from ui.settlement_scene_shared import 执行返回选歌 as _执行共享返回选歌
 from ui.结算前成就动画 import 结算前成就动画控制器
 from ui.准备动画 import (
     读取准备动画设置,
@@ -460,6 +461,10 @@ class _视频背景源(_对局背景源基类):
         现在秒: Optional[float] = None,
     ) -> Optional[pygame.Surface]:
         del 尺寸, 现在秒
+        try:
+            场景._准备动画最近视频快照命中 = False
+        except Exception:
+            pass
         目标路径 = ""
         try:
             if hasattr(场景, "_取当前视频背景来源"):
@@ -475,12 +480,20 @@ class _视频背景源(_对局背景源基类):
                 pass
         视频帧 = getattr(场景, "_背景视频上一有效帧", None)
         if isinstance(视频帧, pygame.Surface):
+            try:
+                场景._准备动画最近视频快照命中 = True
+            except Exception:
+                pass
             return 视频帧
         try:
             视频帧 = 场景._读取背景视频帧()
         except Exception:
             视频帧 = None
         if isinstance(视频帧, pygame.Surface):
+            try:
+                场景._准备动画最近视频快照命中 = True
+            except Exception:
+                pass
             return 视频帧
         return self._后备图片源.取CPU帧(场景, None)
 
@@ -548,19 +561,62 @@ def _解析_offset(sm文本: str) -> float:
         return 0.0
 
 
-def _取最常见间隔(line列表: List[int]) -> Optional[int]:
-    if len(line列表) < 3:
+def _解析_json_tick每拍(谱面数据: dict) -> int:
+    """
+    JSON 官谱优先按谱面数据里的分辨率字段解析；
+    社区包当前全部是 scoreInfo.version=3 的同构官谱，这一格式固定按 96 line/beat 处理。
+    """
+    默认tick每拍 = 96
+    候选键 = (
+        "tickPerBeat",
+        "ticksPerBeat",
+        "linePerBeat",
+        "linesPerBeat",
+        "rowPerBeat",
+        "rowsPerBeat",
+        "resolution",
+    )
+
+    def _转正整数(值: object) -> Optional[int]:
+        try:
+            数值 = int(round(float(值)))
+        except Exception:
+            return None
+        return 数值 if 数值 > 0 else None
+
+    def _从节点读取(节点: object) -> Optional[int]:
+        if not isinstance(节点, dict):
+            return None
+        for 键 in 候选键:
+            if 键 not in 节点:
+                continue
+            结果 = _转正整数(节点.get(键))
+            if 结果 is not None:
+                return int(结果)
         return None
-    排序后 = sorted(set(line列表))
-    间隔计数: Dict[int, int] = {}
-    for i in range(1, len(排序后)):
-        d = int(排序后[i]) - int(排序后[i - 1])
-        if d <= 0:
-            continue
-        间隔计数[d] = 间隔计数.get(d, 0) + 1
-    if not 间隔计数:
-        return None
-    return max(间隔计数.items(), key=lambda x: x[1])[0]
+
+    if not isinstance(谱面数据, dict):
+        return int(默认tick每拍)
+
+    for 节点 in (
+        谱面数据,
+        (谱面数据 or {}).get("scoreInfo", {}),
+        ((谱面数据 or {}).get("boards", []) or [{}])[0],
+    ):
+        结果 = _从节点读取(节点)
+        if 结果 is not None:
+            return int(结果)
+
+    for 节点 in (谱面数据 or {}).get("sectionNodes", []) or []:
+        结果 = _从节点读取(节点)
+        if 结果 is not None:
+            return int(结果)
+
+    版本 = _转正整数((谱面数据 or {}).get("scoreInfo", {}).get("version", 0))
+    if int(版本 or 0) == 3:
+        return int(默认tick每拍)
+
+    return int(默认tick每拍)
 
 
 def _解析_json基础信息(谱面数据: dict) -> Tuple[float, List[Tuple[int, float]], List[Tuple[int, int, int, int]]]:
@@ -601,6 +657,70 @@ def _解析_json基础信息(谱面数据: dict) -> Tuple[float, List[Tuple[int,
                 continue
     音符.sort(key=lambda x: x[0])
     return offset, bpm点, 音符
+
+
+def _清洗_json总时长用bpm点(
+    bpms_line: List[Tuple[int, float]],
+    音符: List[Tuple[int, int, int, int]],
+    tick每拍: int,
+    可播放aTypes: Tuple[int, ...] = (1, 2, 4, 6, 7),
+) -> List[Tuple[int, float]]:
+    """
+    社区包里有少量 JSON 谱会在结尾写 0.001 BPM 之类的“锁尾”值。
+    这些值若直接参与总时长估算，会把倒计时拉到数百上千分钟。
+    这里只在“总时长估算”时忽略异常的末尾极小 BPM，不改事件本身的时间轴。
+    """
+    if tick每拍 <= 0:
+        tick每拍 = 96
+
+    有效bpm点: List[Tuple[int, float]] = []
+    for lineNo, bpm in bpms_line or []:
+        try:
+            lineNo = int(lineNo)
+            bpm = float(bpm)
+        except Exception:
+            continue
+        if bpm > 0.0:
+            有效bpm点.append((lineNo, bpm))
+    if not 有效bpm点:
+        return [(0, 120.0)]
+
+    最末可播放行: Optional[int] = None
+    for lineNo, aType, length, _player in 音符 or []:
+        try:
+            if int(aType) not in 可播放aTypes:
+                continue
+            行末 = int(lineNo) + max(0, int(length))
+        except Exception:
+            continue
+        if 最末可播放行 is None or 行末 > 最末可播放行:
+            最末可播放行 = int(行末)
+    if 最末可播放行 is None:
+        return list(有效bpm点)
+
+    极小BPM阈值 = 1.0
+    尾段异常时长阈值秒 = 30.0
+    结果 = list(有效bpm点)
+
+    while len(结果) > 1:
+        lineNo, bpm = 结果[-1]
+        bpm = float(bpm)
+        if bpm >= 极小BPM阈值:
+            break
+
+        剩余line = int(最末可播放行) - int(lineNo)
+        if 剩余line <= 0:
+            结果.pop()
+            continue
+
+        剩余beat = float(剩余line) / float(max(1, tick每拍))
+        预计尾段秒 = 剩余beat * 60.0 / bpm
+        if 预计尾段秒 < 尾段异常时长阈值秒:
+            break
+
+        结果.pop()
+
+    return 结果 or [(0, 120.0)]
 
 
 def _json_bpms转beat(bpms_line: List[Tuple[int, float]], tick每拍: int) -> List[Tuple[float, float]]:
@@ -1245,20 +1365,26 @@ def _构建_json事件列表(
 
     offset, bpm点, 音符 = _解析_json基础信息(数据)
 
-    tick每拍候选 = [96, 48, 192]
-    tick每拍 = 96
-    line列表 = [ln for ln, _, _, _ in 音符]
-    最常见 = _取最常见间隔(line列表)
-    if 最常见 is not None and 最常见 in tick每拍候选:
-        tick每拍 = int(最常见)
+    tick每拍 = int(_解析_json_tick每拍(数据) or 96)
 
     bpms_beat = _json_bpms转beat(bpm点, tick每拍)
     bpm段 = _生成时间轴段(bpms_beat)
 
     # aType -> 轨道（默认映射：1,2,4,6,7）
     aType映射 = {1: 0, 2: 1, 4: 2, 6: 3, 7: 4}
+    总时长bpms_beat = _json_bpms转beat(
+        _清洗_json总时长用bpm点(
+            bpm点,
+            音符,
+            tick每拍,
+            可播放aTypes=tuple(aType映射.keys()),
+        ),
+        tick每拍,
+    )
+    总时长bpm段 = _生成时间轴段(总时长bpms_beat)
     事件: List[音符事件] = []
     最大秒 = 0.0
+    总时长最大秒 = 0.0
     见过玩家2 = False
 
     for lineNo, aType, length, player in 音符:
@@ -1276,9 +1402,13 @@ def _构建_json事件列表(
 
         st_sec = _beat转秒(st_beat, bpm段) - float(offset)
         ed_sec = _beat转秒(ed_beat, bpm段) - float(offset)
+        st_sec_总时长 = _beat转秒(st_beat, 总时长bpm段) - float(offset)
+        ed_sec_总时长 = _beat转秒(ed_beat, 总时长bpm段) - float(offset)
         if ed_sec < st_sec:
             st_sec, ed_sec = ed_sec, st_sec
             st_beat, ed_beat = ed_beat, st_beat
+        if ed_sec_总时长 < st_sec_总时长:
+            st_sec_总时长, ed_sec_总时长 = ed_sec_总时长, st_sec_总时长
 
         if int(length) > 0:
             事件.append(
@@ -1292,6 +1422,7 @@ def _构建_json事件列表(
                 )
             )
             最大秒 = max(最大秒, float(ed_sec))
+            总时长最大秒 = max(总时长最大秒, float(ed_sec_总时长))
         else:
             事件.append(
                 音符事件(
@@ -1304,11 +1435,12 @@ def _构建_json事件列表(
                 )
             )
             最大秒 = max(最大秒, float(st_sec))
+            总时长最大秒 = max(总时长最大秒, float(st_sec_总时长))
 
     事件.sort(key=lambda e: e.开始秒)
     列数 = 10 if (见过玩家2 or bool(优先double)) else 5
     charttype = "pump-double" if 列数 >= 10 else "pump-single"
-    总时长 = max(0.0, 最大秒 + 2.0)
+    总时长 = max(0.0, 总时长最大秒 + 2.0)
     return 事件, float(offset), float(总时长), int(列数), str(charttype), bpm点, int(tick每拍)
 
 
@@ -1724,6 +1856,8 @@ class 场景_谱面播放器(场景基类):
         )
         self._准备动画设置: Dict[str, float] = {}
         self._准备动画背景无蒙版: Optional[pygame.Surface] = None
+        self._准备动画背景快照类型: str = ""
+        self._准备动画最近视频快照命中: bool = False
         self._准备动画基础场景图: Optional[pygame.Surface] = None
         self._准备动画判定区图层: Optional[pygame.Surface] = None
         self._准备动画判定区矩形: Optional[pygame.Rect] = None
@@ -3016,7 +3150,7 @@ class 场景_谱面播放器(场景基类):
                 self._规范动态背景模式(getattr(self, "_动态背景模式", "关闭") or "关闭")
             )
             if 当前背景模式 == "动态背景":
-                参数["背景模式"] = "图片"
+                参数["背景模式"] = "动态背景"
                 参数["动态背景"] = 当前动态背景
             else:
                 参数["背景模式"] = "视频" if 当前背景模式 == "视频" else "图片"
@@ -3398,6 +3532,11 @@ class 场景_谱面播放器(场景基类):
             except Exception:
                 现在系统秒 = 0.0
 
+        当前背景模式 = str(self._取背景渲染模式() or "图片")
+        try:
+            self._准备动画最近视频快照命中 = False
+        except Exception:
+            pass
         当前背景源 = self._取当前背景源()
         背景图 = None
         if 当前背景源 is not None and hasattr(当前背景源, "取准备动画快照"):
@@ -3416,6 +3555,15 @@ class 场景_谱面播放器(场景基类):
             return getattr(self, "_准备动画背景无蒙版", None)
 
         背景快照 = getattr(self, "_准备动画背景无蒙版", None)
+        旧快照类型 = str(getattr(self, "_准备动画背景快照类型", "") or "")
+        if (
+            当前背景模式 == "视频"
+            and (not bool(getattr(self, "_准备动画最近视频快照命中", False)))
+            and isinstance(背景快照, pygame.Surface)
+            and 背景快照.get_size() == (宽, 高)
+            and 旧快照类型 == "视频"
+        ):
+            return 背景快照
         if (not isinstance(背景快照, pygame.Surface)) or 背景快照.get_size() != (宽, 高):
             try:
                 背景快照 = pygame.Surface((宽, 高), pygame.SRCALPHA).convert_alpha()
@@ -3432,6 +3580,16 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             return getattr(self, "_准备动画背景无蒙版", None)
         self._准备动画背景无蒙版 = 背景快照
+        if 当前背景模式 == "视频":
+            self._准备动画背景快照类型 = (
+                "视频"
+                if bool(getattr(self, "_准备动画最近视频快照命中", False))
+                else "图片"
+            )
+        elif 当前背景模式 == "动态背景":
+            self._准备动画背景快照类型 = "动态背景"
+        else:
+            self._准备动画背景快照类型 = "图片"
         return 背景快照
 
     def _菜单切换动态背景(self):
@@ -3982,7 +4140,8 @@ class 场景_谱面播放器(场景基类):
         self._关闭ESC菜单视频预览播放器()
         self._游戏ESC菜单控制器.close()
         if str(target) == "match":
-            return {"切换到": "选歌", "禁用黑屏过渡": True}
+            状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else None
+            return _执行共享返回选歌(状态, getattr(self, "_载荷", {}))
         if str(target) == "desktop":
             return {"退出程序": True}
         return None
@@ -4379,6 +4538,8 @@ class 场景_谱面播放器(场景基类):
             self._显示准备动画 and self._取准备动画动态背景预展示秒() > 0.0
         )
         self._准备动画背景无蒙版 = None
+        self._准备动画背景快照类型 = ""
+        self._准备动画最近视频快照命中 = False
         self._准备动画基础场景图 = None
         self._准备动画判定区图层 = None
         self._准备动画判定区矩形 = None
@@ -4937,6 +5098,17 @@ class 场景_谱面播放器(场景基类):
             self._播放中 = False
             self._暂停时刻谱面秒 = 0.0
             self._准备动画开始秒 = time.perf_counter()
+            self._准备动画背景快照类型 = ""
+            self._准备动画最近视频快照命中 = False
+            if str(self._取背景渲染模式() or "图片") == "视频":
+                try:
+                    屏幕 = self.上下文.get("屏幕", None)
+                    if isinstance(屏幕, pygame.Surface):
+                        self._刷新准备动画背景快照(
+                            屏幕.get_size(), self._准备动画开始秒
+                        )
+                except Exception:
+                    pass
         else:
             self.播放()
 
@@ -4982,6 +5154,8 @@ class 场景_谱面播放器(场景基类):
                     self._准备音效已播放 = False
                     self._准备动画基础场景图 = None
                     self._准备动画背景无蒙版 = None
+                    self._准备动画背景快照类型 = ""
+                    self._准备动画最近视频快照命中 = False
                     self._准备动画判定区图层 = None
                     self._准备动画判定区矩形 = None
                     self._准备动画顶部HUD图层 = None
@@ -5003,6 +5177,8 @@ class 场景_谱面播放器(场景基类):
                 self._准备动画已完成 = True
                 self._准备动画基础场景图 = None
                 self._准备动画背景无蒙版 = None
+                self._准备动画背景快照类型 = ""
+                self._准备动画最近视频快照命中 = False
                 self._准备动画判定区图层 = None
                 self._准备动画判定区矩形 = None
                 self._准备动画顶部HUD图层 = None
@@ -6732,6 +6908,7 @@ class 场景_谱面播放器(场景基类):
 
         双踏板模式 = bool(getattr(self, "_是否双踏板模式", False))
         GPU背景层启用 = bool(self._应使用GPU背景层())
+        当前背景模式 = str(self._取背景渲染模式() or "图片")
         经过秒 = max(
             0.0, float(time.perf_counter() - float(self._准备动画开始秒 or 0.0))
         )
@@ -6766,11 +6943,27 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             动画设置 = dict(getattr(self, "_准备动画设置", {}) or {})
 
-        if bool(self._动态背景已启用()):
+        if 当前背景模式 == "动态背景":
             try:
                 时间轴 = 计算准备动画时间轴(dict(动画设置 or {}))
                 if 动画经过秒 <= float(时间轴.get("背景结束", 0.0)):
                     self._刷新准备动画动态背景截图(
+                        屏幕.get_size(), time.perf_counter()
+                    )
+            except Exception:
+                pass
+        elif 当前背景模式 == "视频":
+            try:
+                当前快照 = getattr(self, "_准备动画背景无蒙版", None)
+                当前快照类型 = str(
+                    getattr(self, "_准备动画背景快照类型", "") or ""
+                )
+                if (
+                    (not isinstance(当前快照, pygame.Surface))
+                    or 当前快照.get_size() != 屏幕.get_size()
+                    or 当前快照类型 != "视频"
+                ):
+                    self._刷新准备动画背景快照(
                         屏幕.get_size(), time.perf_counter()
                     )
             except Exception:
@@ -6783,6 +6976,22 @@ class 场景_谱面播放器(场景基类):
                     self._刷新准备动画背景快照(
                         屏幕.get_size(), time.perf_counter()
                     )
+                except Exception:
+                    pass
+            elif 当前背景模式 == "视频":
+                try:
+                    当前快照 = getattr(self, "_准备动画背景无蒙版", None)
+                    当前快照类型 = str(
+                        getattr(self, "_准备动画背景快照类型", "") or ""
+                    )
+                    if (
+                        (not isinstance(当前快照, pygame.Surface))
+                        or 当前快照.get_size() != 屏幕.get_size()
+                        or 当前快照类型 != "视频"
+                    ):
+                        self._刷新准备动画背景快照(
+                            屏幕.get_size(), time.perf_counter()
+                        )
                 except Exception:
                     pass
             try:
@@ -7440,26 +7649,49 @@ class 场景_谱面播放器(场景基类):
         ):
             if bool(self._准备动画处于动态预展示()):
                 self._刷新准备动画动态背景截图((w, h), time.perf_counter())
-            elif bool(self._动态背景已启用()):
-                self._刷新准备动画动态背景截图((w, h), time.perf_counter())
-            elif bool(self._应使用GPU背景层()):
-                self._刷新准备动画背景快照((w, h), time.perf_counter())
             else:
-                需刷新无蒙版 = False
-                try:
-                    if (
-                        self._准备动画背景无蒙版 is None
-                        or self._准备动画背景无蒙版.get_size() != (w, h)
-                    ):
-                        需刷新无蒙版 = True
-                except Exception:
-                    需刷新无蒙版 = True
-
-                if 需刷新无蒙版:
+                当前背景模式 = str(self._取背景渲染模式() or "图片")
+                if 当前背景模式 == "动态背景":
+                    self._刷新准备动画动态背景截图((w, h), time.perf_counter())
+                elif 当前背景模式 == "视频":
+                    需刷新视频快照 = False
                     try:
-                        self._准备动画背景无蒙版 = 屏幕.copy()
+                        当前快照 = getattr(self, "_准备动画背景无蒙版", None)
+                        当前快照类型 = str(
+                            getattr(self, "_准备动画背景快照类型", "") or ""
+                        )
+                        if (
+                            (not isinstance(当前快照, pygame.Surface))
+                            or 当前快照.get_size() != (w, h)
+                            or 当前快照类型 != "视频"
+                        ):
+                            需刷新视频快照 = True
                     except Exception:
-                        self._准备动画背景无蒙版 = None
+                        需刷新视频快照 = True
+
+                    if 需刷新视频快照:
+                        self._刷新准备动画背景快照((w, h), time.perf_counter())
+                elif bool(self._应使用GPU背景层()):
+                    self._刷新准备动画背景快照((w, h), time.perf_counter())
+                else:
+                    需刷新无蒙版 = False
+                    try:
+                        if (
+                            self._准备动画背景无蒙版 is None
+                            or self._准备动画背景无蒙版.get_size() != (w, h)
+                        ):
+                            需刷新无蒙版 = True
+                    except Exception:
+                        需刷新无蒙版 = True
+
+                    if 需刷新无蒙版:
+                        try:
+                            self._准备动画背景无蒙版 = 屏幕.copy()
+                            self._准备动画背景快照类型 = "图片"
+                        except Exception:
+                            self._准备动画背景无蒙版 = None
+                            self._准备动画背景快照类型 = ""
+                        self._准备动画最近视频快照命中 = False
 
         try:
             if int(getattr(self, "_背景暗层alpha", 0) or 0) > 0:

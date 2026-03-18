@@ -20,7 +20,7 @@ from core.踏板控制 import 解析踏板动作
 from core.工具 import 获取字体
 from core.音频 import 音乐管理
 from core.视频 import 全局视频循环播放器, 选择第一个视频
-from core.软件版本 import 比较版本号, 规范版本比较值, 规范版本号, 读取当前版本号
+from core.软件版本 import 比较版本号, 规范版本号, 读取当前版本号
 from core.sqlite_store import (
     SCOPE_GLOBAL_SETTINGS as _全局设置存储作用域,
     read_scope as _读取存储作用域,
