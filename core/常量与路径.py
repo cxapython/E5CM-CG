@@ -153,7 +153,17 @@ def _尝试迁移目录(目标目录: str, *旧目录列表: str) -> str:
 def 取运行根目录() -> str:
     try:
         if getattr(sys, "frozen", False):
-            return os.path.dirname(os.path.abspath(sys.executable))
+            # PyInstaller 打包后的可执行文件路径
+            executable_dir = os.path.dirname(os.path.abspath(sys.executable))
+            # 检测是否在 macOS .app bundle 中 (Contents/MacOS/)
+            if sys.platform == "darwin":
+                parts = os.path.normpath(executable_dir).split(os.sep)
+                if len(parts) >= 3 and parts[-2] == "Contents" and parts[-1] == "MacOS":
+                    # 返回 Contents/Resources/ 目录 (.app/Contents/MacOS -> .app/Contents/Resources)
+                    resources_dir = os.path.join(os.sep.join(parts[:-1]), "Resources")
+                    if os.path.isdir(resources_dir):
+                        return resources_dir
+            return executable_dir
     except Exception:
         pass
 
