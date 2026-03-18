@@ -78,6 +78,17 @@ def _弹窗提示缺少曲包(songs根目录: str):
         "5. 重启软件",
     ]
 
+    # macOS 上 pygame 和 tkinter 有 SDL 冲突，使用终端输出
+    if sys.platform == 'darwin':
+        print(f"\n{'='*60}")
+        print(f"【{标题}】")
+        print(正文)
+        print("下载曲包：https://e5cg.vip")
+        for 文本 in 操作步骤:
+            print(文本)
+        print(f"{'='*60}\n")
+        return
+
     try:
         import tkinter as tk
     except Exception:
@@ -301,6 +312,19 @@ def _后台检查软件更新(当前版本号: str, 结果容器: dict):
 def _弹窗下载新版安装包(更新信息: dict, 父窗体=None) -> bool:
     下载链接 = str(更新信息.get("downloadUrl", "") or "").strip()
     if not 下载链接:
+        return False
+
+    # macOS 上 pygame 和 tkinter 有 SDL 冲突，使用终端输出
+    if sys.platform == 'darwin':
+        print(f"\n{'='*60}")
+        print("发现新版本，请手动下载更新：")
+        print(f"下载链接：{下载链接}")
+        print(f"版本：{更新信息.get('versionLabel', 更新信息.get('version', '未知'))}")
+        print(f"{'='*60}\n")
+        try:
+            webbrowser.open(下载链接)
+        except Exception:
+            pass
         return False
 
     try:
@@ -572,6 +596,27 @@ def _弹窗提示软件更新(当前版本号: str, 更新信息: dict) -> bool:
     if not 远端版本号:
         return False
     if 比较版本号(远端版本号, 当前版本号) <= 0:
+        return False
+
+    # macOS 上 pygame 和 tkinter 有 SDL 冲突，使用终端输出
+    if sys.platform == 'darwin':
+        print(f"\n{'='*60}")
+        print("【发现新版本】")
+        print(f"当前版本：{规范版本号(当前版本号, 默认值='未知版本')}")
+        print(f"新版本号：{远端版本号}")
+        版本提示 = str(更新信息.get("versionLabel", "") or "").strip()
+        if 版本提示 and 版本提示 != 远端版本号:
+            print(f"更新提示：{版本提示}")
+        更新内容 = str(更新信息.get("updateContent", "") or "").strip() or "暂无更新说明"
+        print(f"更新内容：{更新内容}")
+        下载链接 = str(更新信息.get("downloadUrl", "") or "").strip()
+        if 下载链接:
+            print(f"下载链接：{下载链接}")
+            try:
+                webbrowser.open(下载链接)
+            except Exception:
+                pass
+        print(f"{'='*60}\n")
         return False
 
     try:
