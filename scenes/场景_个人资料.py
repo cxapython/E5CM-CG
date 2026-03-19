@@ -2183,10 +2183,13 @@ class 场景_个人资料:
         运行根 = str(getattr(self, "_运行根", _公共取运行根目录()) or _公共取运行根目录())
         资源根 = str(getattr(self, "_资源根", _公共取项目根目录()) or _公共取项目根目录())
 
-        if 文本.startswith(f"json{os.sep}") or 文本.startswith(
-            f"userdata{os.sep}profile{os.sep}avatars{os.sep}"
-        ):
+        if 文本.startswith(f"json{os.sep}"):
             return os.path.join(运行根, 文本)
+        if 文本.startswith(f"userdata{os.sep}profile{os.sep}avatars{os.sep}"):
+            # macOS 打包后头像目录在 ~/Library/Application Support/应用名/
+            头像目录 = _公共取个人资料头像目录(运行根)
+            文件名 = os.path.basename(文本)
+            return os.path.join(头像目录, 文件名)
         if 文本.startswith(f"UI-img{os.sep}"):
             return os.path.join(资源根, 文本)
 

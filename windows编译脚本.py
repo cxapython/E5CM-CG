@@ -147,10 +147,21 @@ def 清理目录(路径对象: Path):
 def 清理旧文件(项目根目录: Path):
     print("[STEP] 清理旧的编译文件")
 
+    # 首先检查并删除已存在的输出目录
+    程序输出目录 = 获取程序输出目录(项目根目录)
+    if 程序输出目录.exists():
+        print(f"  [INFO] 发现已存在的编译结果: {程序输出目录}")
+        try:
+            shutil.rmtree(程序输出目录)
+            print(f"  [OK] 已删除旧编译结果: {程序输出目录}")
+        except Exception as e:
+            print(f"  [WARN] 删除旧编译结果失败: {e}")
+
     待清理列表 = [
         获取编译结果目录(项目根目录),
         项目根目录 / "build",
         项目根目录 / "E5CM-CG.spec",
+        项目根目录 / "__pycache__",
     ]
 
     for 路径对象 in 待清理列表:

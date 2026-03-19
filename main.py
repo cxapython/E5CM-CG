@@ -1318,6 +1318,7 @@ def 主函数():
 
     启动调试设置 = _读取启动调试设置()
     当前版本号 = 读取当前版本号(_取运行根目录())
+    # 更新检查状态：不再启动时自动检查，改为用户手动触发
     更新检查状态 = {
         "线程已启动": False,
         "已完成": False,
@@ -1326,25 +1327,12 @@ def 主函数():
         "发现新版本": False,
         "错误": "",
         "数据": None,
+        "手动触发": False,  # 标记是否为用户手动触发
     }
     os.environ.setdefault(
         "E5CM_GPU_PIPELINE",
         "1" if bool(启动调试设置.get("默认GPU谱面管线", True)) else "0",
     )
-
-    try:
-        import threading
-
-        threading.Thread(
-            target=_后台检查软件更新,
-            args=(当前版本号, 更新检查状态),
-            name="E5CM-CG-UpdateCheck",
-            daemon=True,
-        ).start()
-        更新检查状态["线程已启动"] = True
-    except Exception:
-        更新检查状态["线程已启动"] = False
-        更新检查状态["已完成"] = True
 
     songs根目录 = os.path.join(_取运行根目录(), "songs")
     if not _songs目录含有曲包(songs根目录):
@@ -1976,10 +1964,49 @@ def 主函数():
             0.8,
         )
 
+    def _手动检查更新():
+        """用户手动触发检查更新"""
+        nonlocal 更新检查状态
+
+        # 如果正在检查中，提示用户
+        if bool(更新检查状态.get("线程已启动", False)) and not bool(更新检查状态.get("已完成", False)):
+            _显示调试提示("正在检查更新中，请稍候...", 1.5)
+            return
+
+        # 重置更新检查状态
+        更新检查状态 = {
+            "线程已启动": False,
+            "已完成": False,
+            "已提示": False,
+            "查询成功": False,
+            "发现新版本": False,
+            "错误": "",
+            "数据": None,
+            "手动触发": True,  # 标记为用户手动触发
+        }
+
+        _显示调试提示("正在检查更新...", 1.5)
+
+        try:
+            import threading
+
+            threading.Thread(
+                target=_后台检查软件更新,
+                args=(当前版本号, 更新检查状态),
+                name="E5CM-CG-UpdateCheck",
+                daemon=True,
+            ).start()
+            更新检查状态["线程已启动"] = True
+        except Exception as e:
+            更新检查状态["线程已启动"] = False
+            更新检查状态["已完成"] = True
+            _显示调试提示(f"检查更新失败: {e}", 2.0)
+
     def _取非游戏菜单项() -> list[str]:
         菜单项 = [
             f"设置投币快捷键（当前：{str(状态.get('投币快捷键显示', 投币快捷键显示))}）",
             "开启背景音乐" if bool(非游戏菜单背景音乐关闭) else "关闭背景音乐",
+            "检查软件更新",
         ]
         菜单项.append("退出到桌面")
         return 菜单项
@@ -2032,6 +2059,9 @@ def 主函数():
             return
         if "背景音乐" in 选项:
             _切换非游戏背景音乐()
+            return
+        if "检查软件更新" in 选项:
+            _手动检查更新()
             return
         if 选项 == "退出到桌面":
             _退出程序()
@@ -2568,10 +2598,11 @@ def 主函数():
                 结果 = 当前场景.处理事件(事件)
                 _处理场景返回结果(结果)
 
+        # 处理手动触发的更新检查
         if (
-            bool(更新检查状态.get("已完成", False))
+            bool(更新检查状态.get("手动触发", False))
+            and bool(更新检查状态.get("已完成", False))
             and (not bool(更新检查状态.get("已提示", False)))
-            and bool(更新检查状态.get("发现新版本", False))
             and (not bool(非游戏菜单开启))
             and (not bool(选歌ESC菜单宿主.is_open()))
             and (not bool(开发调试菜单开启))
@@ -2579,11 +2610,23 @@ def 主函数():
             and 当前场景名 not in ("谱面播放器", "结算")
         ):
             更新检查状态["已提示"] = True
-            if _弹窗提示软件更新(
-                当前版本号,
-                dict(更新检查状态.get("数据") or {}),
-            ):
-                _退出程序()
+            if bool(更新检查状态.get("发现新版本", False)):
+                # 发现新版本，弹窗提示是否下载
+                if _弹窗提示软件更新(
+                    当前版本号,
+                    dict(更新检查状态.get("数据") or {}),
+                ):
+                    _退出程序()
+            elif bool(更新检查状态.get("查询成功", False)):
+                # 没有新版本
+                _显示调试提示("当前已是最新版本", 2.0)
+            else:
+                # 检查失败
+                错误信息 = str(更新检查状态.get("错误", "") or "")
+                if 错误信息:
+                    _显示调试提示(f"检查更新失败: {错误信息[:50]}", 2.0)
+                else:
+                    _显示调试提示("检查更新失败，请检查网络连接", 2.0)
 
         if (not 过渡.是否进行中()) and hasattr(当前场景, "更新"):
             try:

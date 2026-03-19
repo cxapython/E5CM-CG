@@ -270,6 +270,13 @@ def 取个人资料目录(根目录: str | None = None) -> str:
 
 
 def 取个人资料路径(根目录: str | None = None) -> str:
+    # macOS 打包后，用户数据存到 ~/Library/Application Support/应用名/
+    macos_app_support = _取macOS应用支持目录()
+    if macos_app_support:
+        目标目录 = os.path.join(macos_app_support, "userdata", "profile")
+        os.makedirs(目标目录, exist_ok=True)
+        return os.path.join(目标目录, "个人资料.json")
+
     根 = _取根目录(根目录)
     return _尝试迁移文件(
         os.path.join(根, "userdata", "profile", "个人资料.json"),
@@ -277,7 +284,38 @@ def 取个人资料路径(根目录: str | None = None) -> str:
     )
 
 
+def _取macOS应用支持目录() -> str | None:
+    """macOS 打包应用返回 ~/Library/Application Support/应用名/，否则返回 None"""
+    if sys.platform != "darwin" or not getattr(sys, "frozen", False):
+        return None
+    try:
+        # 从可执行路径提取 .app 包名
+        # 例如: /path/MyApp.app/Contents/MacOS/MyApp -> MyApp
+        executable_dir = os.path.dirname(os.path.abspath(sys.executable))
+        parts = os.path.normpath(executable_dir).split(os.sep)
+        if len(parts) >= 3 and parts[-2] == "Contents" and parts[-1] == "MacOS":
+            # 向上找 .app 目录
+            for i in range(len(parts) - 3, -1, -1):
+                if parts[i].endswith(".app"):
+                    app_name = parts[i][:-4]  # 去掉 .app 后缀
+                    if app_name:
+                        return os.path.expanduser(f"~/Library/Application Support/{app_name}")
+            # 如果找不到 .app，使用可执行文件名
+            app_name = os.path.basename(sys.executable)
+            return os.path.expanduser(f"~/Library/Application Support/{app_name}")
+    except Exception:
+        pass
+    return None
+
+
 def 取个人资料头像目录(根目录: str | None = None) -> str:
+    # macOS 打包后，用户数据存到 ~/Library/Application Support/应用名/
+    macos_app_support = _取macOS应用支持目录()
+    if macos_app_support:
+        目标目录 = os.path.join(macos_app_support, "userdata", "profile", "avatars")
+        os.makedirs(目标目录, exist_ok=True)
+        return 目标目录
+
     根 = _取根目录(根目录)
     return _尝试迁移目录(
         os.path.join(根, "userdata", "profile", "avatars"),
