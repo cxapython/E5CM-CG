@@ -779,9 +779,9 @@ def 创建dmg(项目根目录: Path, 版本号: str):
         目标App = 临时dmg目录 / "E5CM-CG.app"
         shutil.copytree(app路径, 目标App)
 
-        # 创建应用程序快捷方式
+        # 创建指向 /Applications 的符号链接，让用户可拖拽安装
         应用程序别名 = 临时dmg目录 / "Applications"
-        应用程序别名.mkdir()
+        os.symlink("/Applications", str(应用程序别名))
 
         # 使用 hdiutil 创建 DMG
         print(f"  [INFO] 正在创建 {dmg名称}...")
@@ -807,6 +807,26 @@ def 创建dmg(项目根目录: Path, 版本号: str):
         # 清理临时目录
         if 临时dmg目录.exists():
             shutil.rmtree(临时dmg目录)
+
+    # 清理多余的 .app 和目录，只保留 dmg
+    print("  [STEP] 清理多余的编译产物，只保留 DMG")
+
+    # 删除 E5CM-CG 目录（onedir 模式产生的原始目录）
+    多余目录 = 获取编译结果目录(项目根目录) / "E5CM-CG"
+    if 多余目录.exists() and 多余目录.is_dir():
+        try:
+            shutil.rmtree(多余目录)
+            print(f"  [OK] 已删除多余目录: {多余目录.name}")
+        except Exception as e:
+            print(f"  [WARN] 删除多余目录失败: {e}")
+
+    # 删除 .app（已经打包进 DMG）
+    if app路径.exists():
+        try:
+            shutil.rmtree(app路径)
+            print(f"  [OK] 已删除 .app: {app路径.name}")
+        except Exception as e:
+            print(f"  [WARN] 删除 .app 失败: {e}")
 
     print()
     return True
@@ -853,15 +873,9 @@ def 主程序():
     清理临时编译文件(项目根目录)
 
     # 询问是否创建 DMG
-    print("是否创建 DMG 安装包？(y/n): ", end="")
-    try:
-        用户输入 = input().strip().lower()
-    except EOFError:
-        用户输入 = "n"
-
-    if 用户输入 == "y":
-        版本号 = 读取版本配置((项目根目录 / "config" / "app" / 版本文件名)).get("version", 默认版本号)
-        创建dmg(项目根目录, 版本号)
+    print("创建 DMG 安装包", end="")
+    版本号 = 读取版本配置((项目根目录 / "config" / "app" / 版本文件名)).get("version", 默认版本号)
+    创建dmg(项目根目录, 版本号)
 
     print("=" * 60)
     print("[DONE] 打包成功")
