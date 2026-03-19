@@ -7479,13 +7479,18 @@ class 场景_谱面播放器(场景基类):
             文本 = 文本.replace("/", os.sep).replace("\\", os.sep)
             候选路径列表: List[str] = []
 
-            if 文本.startswith(f"json{os.sep}") or 文本.startswith(
-                f"userdata{os.sep}profile{os.sep}avatars{os.sep}"
-            ):
+            if 文本.startswith(f"json{os.sep}"):
                 if 运行根目录:
                     候选路径列表.append(os.path.join(运行根目录, 文本))
                 if 资源根目录:
                     候选路径列表.append(os.path.join(资源根目录, 文本))
+            elif 文本.startswith(f"userdata{os.sep}profile{os.sep}avatars{os.sep}"):
+                # macOS 打包后头像在 ~/Library/Application Support/应用名/ 下
+                文件名 = os.path.basename(文本)
+                头像目录 = _公共取个人资料头像目录(运行根目录 or None)
+                候选路径列表.append(os.path.join(头像目录, 文件名))
+                if 运行根目录:
+                    候选路径列表.append(os.path.join(运行根目录, 文本))
             elif 文本.startswith(f"UI-img{os.sep}"):
                 if 资源根目录:
                     候选路径列表.append(os.path.join(资源根目录, 文本))
