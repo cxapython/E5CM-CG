@@ -793,7 +793,7 @@ Next
             # 异步删除脚本，不等待
             try:
                 os.unlink(script_path)
-            except:
+            except Exception:
                 pass
             return
         except Exception:
@@ -1368,7 +1368,6 @@ def 主函数():
 
     时钟 = pygame.time.Clock()
     资源 = 默认资源路径()
-    运行根目录 = 取运行根目录()
 
     音乐 = 音乐管理()
     字体 = {

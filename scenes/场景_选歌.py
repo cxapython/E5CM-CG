@@ -1099,6 +1099,195 @@ def _设置页_持久化文件路径(self) -> str:
 def _设置页_从参数文本提取(参数文本: str, 键名: str) -> str:
     return 设置参数文本提取值(str(参数文本 or ""), str(键名 or ""))
 
+def _取当前对局关卡(self, 默认值: int = 1) -> int:
+    try:
+        上下文 = getattr(self, "上下文", {})
+    except Exception:
+        上下文 = {}
+    状态 = {}
+    if isinstance(上下文, dict):
+        值 = 上下文.get("状态", {})
+        if isinstance(值, dict):
+            状态 = 值
+    try:
+        当前关卡 = int(取当前关卡(状态, int(默认值 or 1)) or 默认值)
+    except Exception:
+        当前关卡 = int(默认值 or 1)
+    return max(1, int(当前关卡))
+
+def _规范化关卡背景映射(
+    原始映射: Optional[dict],
+    可用背景文件名列表: Optional[List[str]] = None,
+) -> Dict[str, str]:
+    if not isinstance(原始映射, dict):
+        return {}
+    可用集合: Optional[Set[str]] = None
+    if isinstance(可用背景文件名列表, list) and 可用背景文件名列表:
+        可用集合 = {
+            str(文件名 or "").strip()
+            for 文件名 in 可用背景文件名列表
+            if str(文件名 or "").strip()
+        }
+    输出: Dict[str, str] = {}
+    for 原键, 原值 in 原始映射.items():
+        try:
+            关卡 = max(1, int(原键))
+        except Exception:
+            continue
+        文件名 = str(原值 or "").strip()
+        if not 文件名:
+            continue
+        if 可用集合 is not None and 文件名 not in 可用集合:
+            continue
+        输出[str(int(关卡))] = 文件名
+    return 输出
+
+def _同步关卡背景状态(self, 关卡背景映射: Optional[dict] = None):
+    try:
+        上下文 = getattr(self, "上下文", {})
+    except Exception:
+        上下文 = {}
+    if not isinstance(上下文, dict):
+        return
+    状态 = 上下文.get("状态", {})
+    if not isinstance(状态, dict):
+        return
+    if not isinstance(关卡背景映射, dict):
+        关卡背景映射 = getattr(self, "设置_背景文件名按关卡", {})
+    状态["对局_关卡背景图"] = _规范化关卡背景映射(关卡背景映射)
+
+def _读取关卡背景映射(
+    self,
+    持久化数据: Optional[dict] = None,
+    可用背景文件名列表: Optional[List[str]] = None,
+) -> Dict[str, str]:
+    候选映射 = getattr(self, "设置_背景文件名按关卡", {})
+    if not isinstance(候选映射, dict):
+        候选映射 = {}
+    if (not 候选映射) and isinstance(持久化数据, dict):
+        try:
+            值 = 持久化数据.get("背景文件名_按关卡", {})
+            if isinstance(值, dict):
+                候选映射 = dict(值)
+        except Exception:
+            候选映射 = {}
+    if not 候选映射:
+        try:
+            上下文 = getattr(self, "上下文", {})
+        except Exception:
+            上下文 = {}
+        if isinstance(上下文, dict):
+            状态 = 上下文.get("状态", {})
+            if isinstance(状态, dict):
+                值 = 状态.get("对局_关卡背景图", {})
+                if isinstance(值, dict):
+                    候选映射 = dict(值)
+    关卡背景映射 = _规范化关卡背景映射(
+        候选映射,
+        可用背景文件名列表=可用背景文件名列表,
+    )
+    self.设置_背景文件名按关卡 = dict(关卡背景映射)
+    _同步关卡背景状态(self, 关卡背景映射)
+    return dict(关卡背景映射)
+
+def _按关卡解析图片背景文件名(
+    self,
+    背景文件名: str,
+    背景模式: str,
+    持久化数据: Optional[dict] = None,
+    自动补全: bool = False,
+    可用背景文件名列表: Optional[List[str]] = None,
+) -> str:
+    模式文本 = str(背景模式 or "图片").strip()
+    if 模式文本 != "图片":
+        return str(背景文件名 or "").strip()
+
+    if isinstance(可用背景文件名列表, list):
+        可用背景文件名列表 = [
+            str(文件名 or "").strip()
+            for 文件名 in 可用背景文件名列表
+            if str(文件名 or "").strip()
+        ]
+    else:
+        可用背景文件名列表 = list(getattr(self, "设置_背景大图文件名列表", []) or [])
+    关卡背景映射 = _读取关卡背景映射(
+        self,
+        持久化数据=持久化数据,
+        可用背景文件名列表=可用背景文件名列表 if 可用背景文件名列表 else None,
+    )
+    当前关卡 = _取当前对局关卡(self, 1)
+    关卡键 = str(int(当前关卡))
+
+    # 图片模式下按关卡轮询背景图：第N局使用列表中的第N张（超出后循环）
+    if 可用背景文件名列表:
+        轮询背景 = str(
+            可用背景文件名列表[
+                int((int(当前关卡) - 1) % len(可用背景文件名列表))
+            ]
+            or ""
+        ).strip()
+        if 轮询背景:
+            已更新 = str(关卡背景映射.get(关卡键, "") or "").strip() != 轮询背景
+            if 已更新:
+                关卡背景映射[关卡键] = str(轮询背景)
+                self.设置_背景文件名按关卡 = dict(关卡背景映射)
+                _同步关卡背景状态(self, 关卡背景映射)
+                if bool(自动补全):
+                    try:
+                        _写入存储作用域(
+                            _选歌设置存储作用域,
+                            {
+                                "背景文件名_按关卡": dict(关卡背景映射),
+                                "背景文件名": str(轮询背景),
+                            },
+                        )
+                    except Exception:
+                        pass
+            return 轮询背景
+
+    选中背景 = str(关卡背景映射.get(关卡键, "") or "").strip()
+    if (not 选中背景) and bool(自动补全):
+        候选背景 = str(背景文件名 or "").strip()
+        if 可用背景文件名列表 and 候选背景 not in 可用背景文件名列表:
+            候选背景 = ""
+        if (not 候选背景) and 可用背景文件名列表:
+            候选背景 = str(
+                可用背景文件名列表[
+                    int((int(当前关卡) - 1) % len(可用背景文件名列表))
+                ]
+                or ""
+            ).strip()
+        if 候选背景:
+            关卡背景映射[关卡键] = 候选背景
+            self.设置_背景文件名按关卡 = dict(关卡背景映射)
+            _同步关卡背景状态(self, 关卡背景映射)
+            try:
+                _写入存储作用域(
+                    _选歌设置存储作用域,
+                    {
+                        "背景文件名_按关卡": dict(关卡背景映射),
+                        "背景文件名": str(候选背景),
+                    },
+                )
+            except Exception:
+                pass
+            选中背景 = 候选背景
+
+    if 选中背景:
+        return 选中背景
+    return str(背景文件名 or "").strip()
+
+def _关卡背景映射签名(关卡背景映射: Optional[dict]) -> str:
+    try:
+        return json.dumps(
+            _规范化关卡背景映射(关卡背景映射),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except Exception:
+        return ""
+
 def _设置页_构建参数文本(
     self,
     设置参数: Optional[dict] = None,
@@ -1136,6 +1325,9 @@ def _设置页_提取同步快照(数据: Optional[dict]) -> dict:
         "设置参数文本": str(原始.get("设置参数文本", "") or ""),
         "动态背景": str(原始.get("动态背景", "") or ""),
         "背景文件名": str(原始.get("背景文件名", "") or ""),
+        "背景文件名_按关卡": _规范化关卡背景映射(
+            原始.get("背景文件名_按关卡", {})
+        ),
         "视频背景文件名": str(原始.get("视频背景文件名", "") or ""),
         "箭头文件名": str(原始.get("箭头文件名", "") or ""),
         "索引": dict(索引),
@@ -1192,6 +1384,7 @@ def _设置页_同步外部持久化设置(
         str(旧参数.get("背景模式", 旧参数.get("变速", "图片")) or "图片").strip(),
         str(旧参数.get("动态背景", "关闭") or "关闭").strip(),
         str(getattr(self, "设置_背景大图文件名", "") or "").strip(),
+        _关卡背景映射签名(getattr(self, "设置_背景文件名按关卡", {})),
     )
     旧箭头文件名 = str(getattr(self, "设置_箭头文件名", "") or "").strip()
 
@@ -1214,6 +1407,7 @@ def _设置页_同步外部持久化设置(
         str(新参数.get("背景模式", 新参数.get("变速", "图片")) or "图片").strip(),
         str(新参数.get("动态背景", "关闭") or "关闭").strip(),
         str(getattr(self, "设置_背景大图文件名", "") or "").strip(),
+        _关卡背景映射签名(getattr(self, "设置_背景文件名按关卡", {})),
     )
     新箭头文件名 = str(getattr(self, "设置_箭头文件名", "") or "").strip()
 
@@ -1265,6 +1459,15 @@ def _设置页_加载持久化设置(self):
         )
         or "图片"
     ).strip()
+    关卡背景映射 = _规范化关卡背景映射(
+        数据.get("背景文件名_按关卡", {}),
+        可用背景文件名列表=list(getattr(self, "设置_背景大图文件名列表", []) or []),
+    )
+    self.设置_背景文件名按关卡 = dict(关卡背景映射)
+    if 背景模式 == "图片":
+        当前关卡键 = str(int(_取当前对局关卡(self, 1)))
+        背景文件名 = str(关卡背景映射.get(当前关卡键, 背景文件名) or 背景文件名)
+    _同步关卡背景状态(self, 关卡背景映射)
 
     if not 背景文件名:
         背景文件名 = _设置页_从参数文本提取(参数文本, "背景")
@@ -1334,6 +1537,12 @@ def _设置页_保存持久化设置(self) -> bool:
     设置参数 = dict(getattr(self, "设置_参数", {}) or {})
     背景文件名 = str(getattr(self, "设置_背景大图文件名", "") or "")
     箭头文件名 = str(getattr(self, "设置_箭头文件名", "") or "")
+    背景文件名按关卡 = _规范化关卡背景映射(
+        getattr(self, "设置_背景文件名按关卡", {}),
+        可用背景文件名列表=list(getattr(self, "设置_背景大图文件名列表", []) or []),
+    )
+    self.设置_背景文件名按关卡 = dict(背景文件名按关卡)
+    _同步关卡背景状态(self, 背景文件名按关卡)
 
     索引表: Dict[str, int] = {}
     for _行键, 定义 in 配置定义.items():
@@ -1356,6 +1565,7 @@ def _设置页_保存持久化设置(self) -> bool:
         "设置参数": 设置参数,
         "动态背景": str(设置参数.get("动态背景", "关闭") or "关闭"),
         "背景文件名": 背景文件名,
+        "背景文件名_按关卡": dict(背景文件名按关卡),
         "箭头文件名": 箭头文件名,
         "设置参数文本": _设置页_构建参数文本(
             self,
@@ -1439,6 +1649,7 @@ def _确保设置页资源(self):
 
     self.设置_参数 = {}
     self.设置_背景大图文件名 = ""
+    self.设置_背景文件名按关卡 = {}
     self.设置_箭头文件名 = ""
     self._设置页_同步最近读取时间 = -999.0
     self._设置页_最近持久化签名 = ""
@@ -1562,6 +1773,16 @@ def _设置页_同步参数(self):
             self.设置_箭头文件名 = 当前值
         elif 参数键 == "背景":
             self.设置_背景大图文件名 = 当前值
+            关卡背景映射 = _规范化关卡背景映射(
+                getattr(self, "设置_背景文件名按关卡", {}),
+                可用背景文件名列表=list(getattr(self, "设置_背景大图文件名列表", []) or []),
+            )
+            当前关卡键 = str(int(_取当前对局关卡(self, 1)))
+            if 当前值:
+                关卡背景映射[当前关卡键] = str(当前值)
+            else:
+                关卡背景映射.pop(当前关卡键, None)
+            self.设置_背景文件名按关卡 = dict(关卡背景映射)
         elif 参数键 == "背景模式":
             旧参数 = getattr(self, "设置_参数", {})
             if not isinstance(旧参数, dict):
@@ -1585,8 +1806,11 @@ def _设置页_同步参数(self):
         self.设置_箭头文件名 = ""
     if not hasattr(self, "设置_背景大图文件名"):
         self.设置_背景大图文件名 = ""
+    if not hasattr(self, "设置_背景文件名按关卡"):
+        self.设置_背景文件名按关卡 = {}
 
     self.设置_参数 = 输出参数
+    _同步关卡背景状态(self)
 
 def _设置页_取缩放图(
     self, 缓存键前缀: str, 原图: Optional[pygame.Surface], 目标宽: int, 目标高: int
@@ -5895,6 +6119,32 @@ class 选歌游戏:
         当前关卡 = 取当前关卡(状态, 1)
         累计S数 = 取累计S数(状态)
         已赠送第四把 = 是否赠送第四把(状态)
+        背景模式 = str(
+            设置参数.get("背景模式", 设置参数.get("变速", "图片")) or "图片"
+        ).strip()
+        背景文件名 = _按关卡解析图片背景文件名(
+            self,
+            背景文件名=背景文件名,
+            背景模式=背景模式,
+            持久化数据=持久化数据 if isinstance(持久化数据, dict) else None,
+            自动补全=True,
+            可用背景文件名列表=list(
+                getattr(self, "设置_背景大图文件名列表", []) or []
+            ),
+        )
+        if 背景文件名:
+            try:
+                self.设置_背景大图文件名 = str(背景文件名)
+            except Exception:
+                pass
+        try:
+            设置参数文本 = self._设置页_构建参数文本(
+                设置参数=设置参数,
+                背景文件名=背景文件名,
+                箭头文件名=箭头文件名,
+            )
+        except Exception:
+            pass
         当前页码 = 0
         try:
             当前页码 = max(0, int(getattr(self, "当前页", 0) or 0))
@@ -5913,6 +6163,9 @@ class 选歌游戏:
             "设置参数": dict(设置参数),
             "设置参数文本": str(设置参数文本),
             "背景文件名": str(背景文件名),
+            "背景文件名_按关卡": dict(
+                _规范化关卡背景映射(getattr(self, "设置_背景文件名按关卡", {}))
+            ),
             "箭头文件名": str(箭头文件名),
             "关闭视频背景": bool(
                 str(
@@ -6439,6 +6692,19 @@ class 选歌游戏:
         try:
             默认路径 = _公共取冷资源路径("backimages", "选歌界面.png")
             路径 = 默认路径
+            可用背景文件名列表 = list(
+                getattr(self, "设置_背景大图文件名列表", []) or []
+            )
+            if not 可用背景文件名列表:
+                背景目录 = _资源路径("冷资源", "backimages", "背景图")
+                if os.path.isdir(背景目录):
+                    支持后缀 = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
+                    try:
+                        for 文件名 in sorted(os.listdir(背景目录)):
+                            if str(文件名 or "").lower().endswith(支持后缀):
+                                可用背景文件名列表.append(str(文件名))
+                    except Exception:
+                        可用背景文件名列表 = []
 
             设置参数 = {}
             背景文件名 = ""
@@ -6450,6 +6716,7 @@ class 选歌游戏:
                 设置参数 = {}
                 背景文件名 = ""
 
+            持久化数据 = {}
             try:
                 持久化数据 = self._设置页_读取持久化设置()
             except Exception:
@@ -6471,11 +6738,41 @@ class 选歌游戏:
             背景模式 = str(
                 设置参数.get("背景模式", 设置参数.get("变速", "图片")) or "图片"
             ).strip()
+            背景文件名 = _按关卡解析图片背景文件名(
+                self,
+                背景文件名=背景文件名,
+                背景模式=背景模式,
+                持久化数据=持久化数据 if isinstance(持久化数据, dict) else None,
+                自动补全=True,
+                可用背景文件名列表=可用背景文件名列表
+                if 可用背景文件名列表
+                else None,
+            )
             if 背景模式 == "图片" and 背景文件名:
+                self.设置_背景大图文件名 = str(背景文件名)
+                if 可用背景文件名列表:
+                    try:
+                        self.设置_背景索引 = int(
+                            max(
+                                0,
+                                min(
+                                    len(可用背景文件名列表) - 1,
+                                    可用背景文件名列表.index(str(背景文件名)),
+                                ),
+                            )
+                        )
+                    except Exception:
+                        pass
                 路径 = _公共取首个存在路径(
                     _公共取冷资源路径("backimages", "背景图", 背景文件名),
                     _公共取冷资源路径("backimages", 背景文件名),
                     路径,
+                )
+            else:
+                _读取关卡背景映射(
+                    self,
+                    持久化数据=持久化数据 if isinstance(持久化数据, dict) else None,
+                    可用背景文件名列表=可用背景文件名列表 if 可用背景文件名列表 else None,
                 )
 
             if os.path.isfile(路径):

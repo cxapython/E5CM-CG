@@ -3,6 +3,8 @@ import os
 import sys
 import re
 import time
+import queue
+import threading
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -26,6 +28,7 @@ from core.game_esc_menu_settings import (
     GAME_ESC_SETTINGS_KEY_BINDINGS,
     GAME_ESC_SETTINGS_KEY_BPM_SCROLL_EFFECT,
     GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS,
+    GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW,
     PROFILE_DOUBLE,
     PROFILE_LABELS,
     PROFILE_SINGLE,
@@ -1878,6 +1881,8 @@ class 场景_谱面播放器(场景基类):
         self._GPU背景视频纹理渲染器id: int = 0
         self._GPU背景视频纹理尺寸: Tuple[int, int] = (0, 0)
         self._GPU背景视频纹理源键: Tuple[Any, ...] = ()
+        self._GPU背景转场旧纹理 = None
+        self._GPU背景转场旧纹理键: Tuple[Any, ...] = ()
         self._图片GIF背景源 = _图片GIF背景源()
         self._视频背景源 = _视频背景源()
         self._动态背景源 = _动态背景源()
@@ -1923,6 +1928,29 @@ class 场景_谱面播放器(场景基类):
         self._背景GIF总时长: float = 0.0
         self._背景GIF开始时间: float = 0.0
         self._背景GIF路径: str = ""
+        self._背景轮播路径列表: List[str] = []
+        self._背景轮播当前索引: int = 0
+        self._背景轮播间隔秒: float = 10.0
+        self._背景轮播上次切换秒: float = 0.0
+        self._背景轮播启用: bool = False
+        self._图片幻灯片模式开启: bool = False
+        self._背景异步加载线程: Optional[threading.Thread] = None
+        self._背景异步停止事件 = threading.Event()
+        self._背景异步请求队列: queue.Queue = queue.Queue(maxsize=1)
+        self._背景异步结果队列: queue.Queue = queue.Queue(maxsize=2)
+        self._背景异步请求序号: int = 0
+        self._背景异步最后应用序号: int = 0
+        self._背景异步待切换路径: str = ""
+        self._背景异步待切换索引: int = -1
+        self._背景转场启用: bool = True
+        self._背景转场时长秒: float = 0.32
+        self._背景转场开始秒: float = 0.0
+        self._背景转场进行中: bool = False
+        self._背景转场旧源图: Optional[pygame.Surface] = None
+        self._背景转场新源图: Optional[pygame.Surface] = None
+        self._背景转场旧帧: Optional[pygame.Surface] = None
+        self._背景转场新帧: Optional[pygame.Surface] = None
+        self._背景转场帧尺寸: Tuple[int, int] = (0, 0)
         self._谱面设置: str = "正常"
 
         # 血条/HP
@@ -2169,6 +2197,8 @@ class 场景_谱面播放器(场景基类):
         self._GPU背景视频纹理渲染器id = 当前渲染器id
         self._GPU背景视频纹理尺寸 = (0, 0)
         self._GPU背景视频纹理源键 = ()
+        self._GPU背景转场旧纹理 = None
+        self._GPU背景转场旧纹理键 = ()
 
     def _取GPU背景静态纹理(self, 渲染器, 图: Optional[pygame.Surface]):
         if _sdl2_video is None or 渲染器 is None or not isinstance(图, pygame.Surface):
@@ -2187,6 +2217,28 @@ class 场景_谱面播放器(场景基类):
             return None
         self._GPU背景静态纹理 = 纹理
         self._GPU背景静态纹理键 = 缓存键
+        return 纹理
+
+    def _取GPU背景转场旧纹理(self, 渲染器, 图: Optional[pygame.Surface]):
+        if _sdl2_video is None or 渲染器 is None or not isinstance(图, pygame.Surface):
+            return None
+        缓存键 = (
+            int(id(渲染器)),
+            int(id(图)),
+            int(图.get_width()),
+            int(图.get_height()),
+        )
+        if (
+            self._GPU背景转场旧纹理 is not None
+            and tuple(getattr(self, "_GPU背景转场旧纹理键", ())) == tuple(缓存键)
+        ):
+            return self._GPU背景转场旧纹理
+        try:
+            纹理 = _sdl2_video.Texture.from_surface(渲染器, 图)
+        except Exception:
+            return None
+        self._GPU背景转场旧纹理 = 纹理
+        self._GPU背景转场旧纹理键 = tuple(缓存键)
         return 纹理
 
     def _取GPU背景遮罩纹理(self, 渲染器, alpha: int):
@@ -2272,10 +2324,20 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
 
-    def _绘制GPU封面背景图(self, 渲染器, 图: Optional[pygame.Surface], 屏宽: int, 屏高: int):
+    def _绘制GPU封面背景图(
+        self,
+        渲染器,
+        图: Optional[pygame.Surface],
+        屏宽: int,
+        屏高: int,
+        alpha: int = 255,
+        指定纹理: Optional[Any] = None,
+    ):
         if _sdl2_video is None or 渲染器 is None or not isinstance(图, pygame.Surface):
             return
-        if 图 is getattr(self, "_背景原图", None):
+        if 指定纹理 is not None:
+            纹理 = 指定纹理
+        elif 图 is getattr(self, "_背景原图", None):
             纹理 = self._取GPU背景静态纹理(渲染器, 图)
         else:
             try:
@@ -2292,10 +2354,28 @@ class 场景_谱面播放器(场景基类):
         新高 = int(max(1, round(float(原高) * 比例)))
         x = int((屏宽 - 新宽) // 2)
         y = int((屏高 - 新高) // 2)
+        目标alpha = int(max(0, min(255, int(alpha))))
+        已设置alpha = False
+        原alpha = 255
+        if 目标alpha < 255:
+            try:
+                原alpha = int(getattr(纹理, "alpha", 255) or 255)
+            except Exception:
+                原alpha = 255
+            try:
+                纹理.alpha = int(目标alpha)
+                已设置alpha = True
+            except Exception:
+                已设置alpha = False
         try:
             纹理.draw(dstrect=(int(x), int(y), int(新宽), int(新高)))
         except Exception:
             pass
+        if 已设置alpha:
+            try:
+                纹理.alpha = int(原alpha)
+            except Exception:
+                pass
 
     def _绘制GPU视频背景图(
         self,
@@ -2436,9 +2516,13 @@ class 场景_谱面播放器(场景基类):
             except Exception:
                 已绘制背景 = False
         if (not 已绘制背景) and 背景模式 != "动态背景":
-            背景图 = self._取背景图片帧()
+            现在秒 = float(time.perf_counter())
+            背景图 = self._取背景图片帧(现在秒)
             if isinstance(背景图, pygame.Surface):
-                self._绘制GPU封面背景图(渲染器, 背景图, 屏宽, 屏高)
+                if not self._绘制GPU背景图片转场(渲染器, 屏宽, 屏高, 现在秒):
+                    self._绘制GPU封面背景图(渲染器, 背景图, 屏宽, 屏高)
+        elif 背景模式 != "图片":
+            self._停止背景转场()
 
         遮罩纹理 = self._取GPU背景遮罩纹理(
             渲染器, int(getattr(self, "_背景暗层alpha", 0) or 0)
@@ -3465,8 +3549,39 @@ class 场景_谱面播放器(场景基类):
             箭头文件名 = str(
                 self._载荷.get("箭头文件名", 数据.get("箭头文件名", "")) or ""
             ).strip()
+            try:
+                当前关卡 = int(
+                    self._载荷.get("当前关卡", self._载荷.get("局数", 0)) or 0
+                )
+            except Exception:
+                当前关卡 = 0
+            if 当前关卡 <= 0:
+                try:
+                    状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+                except Exception:
+                    状态 = {}
+                当前关卡 = 取当前关卡(状态, 1)
+            当前关卡 = max(1, int(当前关卡))
+            背景文件名按关卡: Dict[str, str] = {}
+            try:
+                原映射 = 数据.get("背景文件名_按关卡", {})
+                if isinstance(原映射, dict):
+                    for 原键, 原值 in 原映射.items():
+                        try:
+                            关卡键 = str(max(1, int(原键)))
+                        except Exception:
+                            continue
+                        文件名 = str(原值 or "").strip()
+                        if 文件名:
+                            背景文件名按关卡[关卡键] = 文件名
+            except Exception:
+                背景文件名按关卡 = {}
+            if 背景文件名:
+                背景文件名按关卡[str(int(当前关卡))] = str(背景文件名)
             if 背景文件名:
                 数据["背景文件名"] = 背景文件名
+            if 背景文件名按关卡:
+                数据["背景文件名_按关卡"] = dict(背景文件名按关卡)
             if 视频背景文件名:
                 数据["视频背景文件名"] = 视频背景文件名
             if 箭头文件名:
@@ -3505,12 +3620,20 @@ class 场景_谱面播放器(场景基类):
                 参数, 背景文件名=背景文件名, 箭头文件名=箭头文件名
             )
             _写入存储作用域(_选歌设置存储作用域, 数据)
+            try:
+                状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+                if isinstance(状态, dict):
+                    状态["对局_关卡背景图"] = dict(背景文件名按关卡)
+            except Exception:
+                pass
 
             self._载荷["设置参数"] = dict(参数)
             self._载荷["设置参数文本"] = str(数据.get("设置参数文本", "") or "")
             self._载荷["关闭视频背景"] = bool(getattr(self, "_视频背景关闭", True))
             if 背景文件名:
                 self._载荷["背景文件名"] = str(背景文件名)
+            if 背景文件名按关卡:
+                self._载荷["背景文件名_按关卡"] = dict(背景文件名按关卡)
             if 视频背景文件名:
                 self._载荷["视频背景文件名"] = str(视频背景文件名)
             if 箭头文件名:
@@ -3560,6 +3683,16 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             return None
 
+    def _读取游戏esc菜单图片幻灯片模式(self) -> Optional[bool]:
+        数据 = self._读取游戏esc菜单设置()
+
+        try:
+            if GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW not in 数据:
+                return None
+            return bool(数据.get(GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW, False))
+        except Exception:
+            return None
+
     def _取谱面偏移菜单文本(self) -> str:
         return format_chart_visual_offset_ms(getattr(self, "_谱面视觉偏移毫秒", 0))
 
@@ -3570,6 +3703,7 @@ class 场景_谱面播放器(场景基类):
         性能模式: Optional[bool] = None,
         BPM变速效果: Optional[bool] = None,
         谱面视觉偏移毫秒: Optional[int] = None,
+        图片幻灯片模式: Optional[bool] = None,
     ):
         原数据 = self._读取游戏esc菜单设置()
         if not isinstance(原数据, dict):
@@ -3601,6 +3735,9 @@ class 场景_谱面播放器(场景基类):
                 clamp_chart_visual_offset_ms(谱面视觉偏移毫秒, 0)
             )
 
+        if 图片幻灯片模式 is not None:
+            新数据[GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW] = bool(图片幻灯片模式)
+
         新数据["更新时间"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
         try:
@@ -3626,9 +3763,13 @@ class 场景_谱面播放器(场景基类):
                 self._载荷[GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS] = int(
                     clamp_chart_visual_offset_ms(谱面视觉偏移毫秒, 0)
                 )
+            if 图片幻灯片模式 is not None:
+                self._载荷[GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW] = bool(
+                    图片幻灯片模式
+                )
         except Exception:
             pass
-        
+
 
     def _同步电视跟跳状态(self):
         try:
@@ -4268,6 +4409,31 @@ class 场景_谱面播放器(场景基类):
             self._设置操作反馈(f"背景模式：{self._取背景渲染模式()}")
             return None
 
+        if 键名 == "image_slideshow_mode":
+            self._图片幻灯片模式开启 = not bool(
+                getattr(self, "_图片幻灯片模式开启", False)
+            )
+            try:
+                self._载荷[GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW] = bool(
+                    self._图片幻灯片模式开启
+                )
+            except Exception:
+                pass
+            self._保存游戏esc菜单设置(
+                图片幻灯片模式=bool(self._图片幻灯片模式开启)
+            )
+            if str(self._取背景渲染模式() or "图片") == "图片":
+                当前背景文件 = str(
+                    getattr(getattr(self, "_当前背景选项", None), "file_name", "")
+                    or self._载荷.get("背景文件名", "")
+                    or ""
+                ).strip()
+                self._加载背景(当前背景文件)
+            self._设置操作反馈(
+                f"图片幻灯片模式：{'开启' if self._图片幻灯片模式开启 else '关闭'}"
+            )
+            return None
+
         if 键名 == "dynamic_background":
             候选 = list(getattr(self, "_菜单动态背景选项", []) or []) or ["唱片"]
             当前 = str(getattr(self, "_动态背景模式", 候选[0]) or 候选[0])
@@ -4724,6 +4890,8 @@ class 场景_谱面播放器(场景基类):
             except Exception:
                 落盘载荷 = dict(载荷)
         self._载荷 = dict(落盘载荷) if isinstance(落盘载荷, dict) else {}
+        self._停止背景异步加载线程()
+        self._背景异步最后应用序号 = 0
         try:
             if isinstance(状态, dict):
                 状态.pop("加载页_载荷", None)
@@ -4763,6 +4931,7 @@ class 场景_谱面播放器(场景基类):
             )
 
         游戏esc菜单性能模式 = self._读取游戏esc菜单性能模式()
+        游戏esc菜单图片幻灯片模式 = self._读取游戏esc菜单图片幻灯片模式()
 
         载荷自动模式 = bool(
             self._载荷.get("自动播放", self._载荷.get("自动模式", False))
@@ -4787,6 +4956,13 @@ class 场景_谱面播放器(场景基类):
             self._性能模式 = bool(游戏esc菜单性能模式)
         else:
             self._性能模式 = bool(self._载荷.get("性能模式", False))
+
+        if 游戏esc菜单图片幻灯片模式 is not None:
+            self._图片幻灯片模式开启 = bool(游戏esc菜单图片幻灯片模式)
+        else:
+            self._图片幻灯片模式开启 = bool(
+                self._载荷.get(GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW, False)
+            )
 
         self._视频背景关闭 = bool(self._载荷.get("关闭视频背景", False))
         try:
@@ -5062,6 +5238,43 @@ class 场景_谱面播放器(场景基类):
         背景文件 = str(设置背景文件名 or "").strip()
         if not 背景文件:
             背景文件 = _从设置参数文本提取(参数文本, "背景")
+        当前关卡 = 0
+        try:
+            当前关卡 = int(self._载荷.get("当前关卡", self._载荷.get("局数", 0)) or 0)
+        except Exception:
+            当前关卡 = 0
+        if 当前关卡 <= 0:
+            try:
+                当前关卡 = int(
+                    取当前关卡(
+                        self.上下文.get("状态", {})
+                        if isinstance(self.上下文, dict)
+                        else {},
+                        1,
+                    )
+                    or 1
+                )
+            except Exception:
+                当前关卡 = 1
+        当前关卡 = max(1, int(当前关卡))
+        背景文件名按关卡: Dict[str, str] = {}
+        if isinstance(选歌设置, dict):
+            try:
+                原映射 = 选歌设置.get("背景文件名_按关卡", {})
+                if isinstance(原映射, dict):
+                    for 原键, 原值 in 原映射.items():
+                        try:
+                            关卡键 = str(max(1, int(原键)))
+                        except Exception:
+                            continue
+                        文件名 = str(原值 or "").strip()
+                        if 文件名:
+                            背景文件名按关卡[关卡键] = 文件名
+            except Exception:
+                背景文件名按关卡 = {}
+        当前关卡背景文件 = str(背景文件名按关卡.get(str(int(当前关卡)), "") or "").strip()
+        if 当前关卡背景文件:
+            背景文件 = 当前关卡背景文件
         self._当前背景选项 = resolve_background_option(self._菜单背景选项, 背景文件)
         if self._当前背景选项 is not None:
             背景文件 = str(self._当前背景选项.file_name or 背景文件)
@@ -5089,12 +5302,23 @@ class 场景_谱面播放器(场景基类):
         try:
             if 背景文件:
                 self._载荷["背景文件名"] = str(背景文件)
+            if 背景文件名按关卡:
+                self._载荷["背景文件名_按关卡"] = dict(背景文件名按关卡)
             if 视频背景文件:
                 self._载荷["视频背景文件名"] = str(视频背景文件)
             if 箭头文件:
                 self._载荷["箭头文件名"] = str(箭头文件)
             self._载荷["关闭视频背景"] = bool(self._视频背景关闭)
             self._载荷["自动播放"] = bool(self._是否自动模式)
+            self._载荷[GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW] = bool(
+                self._图片幻灯片模式开启
+            )
+        except Exception:
+            pass
+        try:
+            状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
+            if isinstance(状态, dict) and 背景文件名按关卡:
+                状态["对局_关卡背景图"] = dict(背景文件名按关卡)
         except Exception:
             pass
         if self._当前箭头选项 is not None:
@@ -6914,6 +7138,576 @@ class 场景_谱面播放器(场景基类):
         self._背景GIF开始时间 = 0.0
         self._背景GIF路径 = ""
 
+    def _停止背景转场(self):
+        self._背景转场进行中 = False
+        self._背景转场开始秒 = 0.0
+        self._背景转场旧源图 = None
+        self._背景转场新源图 = None
+        self._背景转场旧帧 = None
+        self._背景转场新帧 = None
+        self._背景转场帧尺寸 = (0, 0)
+        self._GPU背景转场旧纹理 = None
+        self._GPU背景转场旧纹理键 = ()
+
+    def _启动背景转场(
+        self,
+        旧图: Optional[pygame.Surface],
+        新图: Optional[pygame.Surface],
+    ):
+        if (
+            not bool(getattr(self, "_背景转场启用", True))
+            or bool(getattr(self, "_性能模式", False))
+            or (not isinstance(旧图, pygame.Surface))
+            or (not isinstance(新图, pygame.Surface))
+            or 旧图 is 新图
+        ):
+            self._停止背景转场()
+            return
+        self._背景转场旧源图 = 旧图
+        self._背景转场新源图 = 新图
+        self._背景转场旧帧 = None
+        self._背景转场新帧 = None
+        self._背景转场帧尺寸 = (0, 0)
+        self._背景转场开始秒 = float(time.perf_counter())
+        self._背景转场进行中 = True
+        self._GPU背景转场旧纹理 = None
+        self._GPU背景转场旧纹理键 = ()
+
+    @staticmethod
+    def _生成背景转场全屏帧(
+        原图: Optional[pygame.Surface], 目标尺寸: Tuple[int, int]
+    ) -> Optional[pygame.Surface]:
+        if not isinstance(原图, pygame.Surface):
+            return None
+        try:
+            目标宽, 目标高 = tuple(目标尺寸 or (0, 0))
+            目标宽 = int(max(1, int(目标宽)))
+            目标高 = int(max(1, int(目标高)))
+        except Exception:
+            目标宽, 目标高 = 1920, 1080
+
+        原宽 = int(max(1, 原图.get_width()))
+        原高 = int(max(1, 原图.get_height()))
+        比例 = max(float(目标宽) / float(原宽), float(目标高) / float(原高))
+        新宽 = int(max(1, round(float(原宽) * 比例)))
+        新高 = int(max(1, round(float(原高) * 比例)))
+        try:
+            缩放图 = pygame.transform.smoothscale(原图, (新宽, 新高))
+        except Exception:
+            try:
+                缩放图 = pygame.transform.scale(原图, (新宽, 新高))
+            except Exception:
+                return None
+
+        try:
+            结果图 = pygame.Surface((目标宽, 目标高)).convert()
+        except Exception:
+            结果图 = pygame.Surface((目标宽, 目标高))
+        结果图.fill((0, 0, 0))
+        x = int((目标宽 - 新宽) // 2)
+        y = int((目标高 - 新高) // 2)
+        try:
+            结果图.blit(缩放图, (x, y))
+        except Exception:
+            return None
+        return 结果图
+
+    def _确保背景转场帧(self, 屏幕尺寸: Tuple[int, int]) -> bool:
+        try:
+            屏宽, 屏高 = tuple(屏幕尺寸 or (0, 0))
+            屏宽 = int(max(1, int(屏宽)))
+            屏高 = int(max(1, int(屏高)))
+        except Exception:
+            屏宽, 屏高 = self._取背景加载目标尺寸()
+        目标尺寸 = (int(屏宽), int(屏高))
+        if (
+            isinstance(getattr(self, "_背景转场旧帧", None), pygame.Surface)
+            and isinstance(getattr(self, "_背景转场新帧", None), pygame.Surface)
+            and tuple(getattr(self, "_背景转场帧尺寸", (0, 0))) == tuple(目标尺寸)
+        ):
+            return True
+
+        旧源图 = getattr(self, "_背景转场旧源图", None)
+        新源图 = getattr(self, "_背景转场新源图", None)
+        旧帧 = self._生成背景转场全屏帧(旧源图, 目标尺寸)
+        新帧 = self._生成背景转场全屏帧(新源图, 目标尺寸)
+        if not isinstance(旧帧, pygame.Surface) or not isinstance(新帧, pygame.Surface):
+            return False
+
+        self._背景转场旧帧 = 旧帧
+        self._背景转场新帧 = 新帧
+        self._背景转场帧尺寸 = tuple(目标尺寸)
+        return True
+
+    def _绘制背景图片转场(self, 屏幕: pygame.Surface, 现在秒: float) -> bool:
+        if not bool(getattr(self, "_背景转场进行中", False)):
+            return False
+        if not isinstance(屏幕, pygame.Surface):
+            return False
+        if str(self._取背景渲染模式() or "图片") != "图片":
+            self._停止背景转场()
+            return False
+        时长秒 = float(getattr(self, "_背景转场时长秒", 0.32) or 0.32)
+        if 时长秒 <= 0.02:
+            self._停止背景转场()
+            return False
+
+        if not self._确保背景转场帧(屏幕.get_size()):
+            self._停止背景转场()
+            return False
+
+        进度 = (float(现在秒) - float(getattr(self, "_背景转场开始秒", 0.0) or 0.0)) / 时长秒
+        if 进度 >= 1.0:
+            self._停止背景转场()
+            return False
+        进度 = float(max(0.0, min(1.0, 进度)))
+        平滑进度 = 进度 * 进度 * (3.0 - 2.0 * 进度)
+
+        旧帧 = getattr(self, "_背景转场旧帧", None)
+        新帧 = getattr(self, "_背景转场新帧", None)
+        if not isinstance(旧帧, pygame.Surface) or not isinstance(新帧, pygame.Surface):
+            self._停止背景转场()
+            return False
+        try:
+            屏幕.blit(旧帧, (0, 0))
+            新帧.set_alpha(int(max(0, min(255, round(255.0 * 平滑进度)))))
+            屏幕.blit(新帧, (0, 0))
+            新帧.set_alpha(255)
+            return True
+        except Exception:
+            self._停止背景转场()
+            return False
+
+    def _绘制GPU背景图片转场(
+        self, 渲染器, 屏宽: int, 屏高: int, 现在秒: float
+    ) -> bool:
+        if _sdl2_video is None or 渲染器 is None:
+            return False
+        if not bool(getattr(self, "_背景转场进行中", False)):
+            return False
+        if str(self._取背景渲染模式() or "图片") != "图片":
+            self._停止背景转场()
+            return False
+        时长秒 = float(getattr(self, "_背景转场时长秒", 0.32) or 0.32)
+        if 时长秒 <= 0.02:
+            self._停止背景转场()
+            return False
+
+        进度 = (float(现在秒) - float(getattr(self, "_背景转场开始秒", 0.0) or 0.0)) / 时长秒
+        if 进度 >= 1.0:
+            self._停止背景转场()
+            return False
+        进度 = float(max(0.0, min(1.0, 进度)))
+        平滑进度 = 进度 * 进度 * (3.0 - 2.0 * 进度)
+
+        旧图 = getattr(self, "_背景转场旧源图", None)
+        新图 = getattr(self, "_背景转场新源图", None)
+        if not isinstance(旧图, pygame.Surface) or not isinstance(新图, pygame.Surface):
+            self._停止背景转场()
+            return False
+
+        try:
+            旧纹理 = self._取GPU背景转场旧纹理(渲染器, 旧图)
+            self._绘制GPU封面背景图(
+                渲染器,
+                旧图,
+                int(屏宽),
+                int(屏高),
+                alpha=255,
+                指定纹理=旧纹理,
+            )
+            self._绘制GPU封面背景图(
+                渲染器,
+                新图,
+                int(屏宽),
+                int(屏高),
+                alpha=int(max(0, min(255, round(255.0 * 平滑进度)))),
+            )
+            return True
+        except Exception:
+            self._停止背景转场()
+            return False
+
+    def _清理背景轮播状态(self):
+        self._背景轮播路径列表 = []
+        self._背景轮播当前索引 = 0
+        self._背景轮播上次切换秒 = 0.0
+        self._背景轮播启用 = False
+        self._背景异步待切换路径 = ""
+        self._背景异步待切换索引 = -1
+        self._停止背景转场()
+
+    def _取背景加载目标尺寸(self) -> Tuple[int, int]:
+        try:
+            屏幕 = self.上下文.get("屏幕", None) if isinstance(self.上下文, dict) else None
+            if isinstance(屏幕, pygame.Surface):
+                宽, 高 = 屏幕.get_size()
+                return int(max(1, 宽)), int(max(1, 高))
+        except Exception:
+            pass
+        try:
+            宽, 高 = tuple(getattr(self, "_屏幕尺寸", (0, 0)) or (0, 0))
+            if int(宽) > 0 and int(高) > 0:
+                return int(宽), int(高)
+        except Exception:
+            pass
+        return 1920, 1080
+
+    @staticmethod
+    def _后台解码背景图数据(
+        路径: str, 目标尺寸: Tuple[int, int]
+    ) -> Optional[Dict[str, Any]]:
+        路径 = str(路径 or "").strip()
+        if not 路径 or (not os.path.isfile(路径)):
+            return None
+        try:
+            from PIL import Image
+        except Exception:
+            return None
+
+        try:
+            目标宽 = int(max(1, int((目标尺寸 or (1920, 1080))[0])))
+            目标高 = int(max(1, int((目标尺寸 or (1920, 1080))[1])))
+        except Exception:
+            目标宽, 目标高 = 1920, 1080
+
+        原图 = None
+        图像 = None
+        try:
+            原图 = Image.open(路径)
+            if str(路径).lower().endswith(".gif"):
+                try:
+                    原图.seek(0)
+                except Exception:
+                    pass
+            try:
+                图像 = 原图.convert("RGB")
+                模式 = "RGB"
+            except Exception:
+                图像 = 原图.convert("RGBA")
+                模式 = "RGBA"
+
+            原宽, 原高 = tuple(getattr(图像, "size", (0, 0)) or (0, 0))
+            原宽 = int(max(1, int(原宽)))
+            原高 = int(max(1, int(原高)))
+            比例 = max(float(目标宽) / float(原宽), float(目标高) / float(原高))
+            新宽 = int(max(1, round(float(原宽) * 比例)))
+            新高 = int(max(1, round(float(原高) * 比例)))
+            if (新宽, 新高) != (原宽, 原高):
+                try:
+                    重采样 = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+                except Exception:
+                    重采样 = Image.BICUBIC
+                图像 = 图像.resize((int(新宽), int(新高)), 重采样)
+
+            try:
+                原始字节 = 图像.tobytes()
+            except Exception:
+                return None
+            return {
+                "模式": str(模式),
+                "尺寸": (int(新宽), int(新高)),
+                "字节": 原始字节,
+                "屏幕尺寸": (int(目标宽), int(目标高)),
+                "路径": str(路径),
+            }
+        except Exception:
+            return None
+        finally:
+            try:
+                if 图像 is not None and hasattr(图像, "close"):
+                    图像.close()
+            except Exception:
+                pass
+            try:
+                if 原图 is not None and hasattr(原图, "close"):
+                    原图.close()
+            except Exception:
+                pass
+
+    def _确保背景异步加载线程(self):
+        线程 = getattr(self, "_背景异步加载线程", None)
+        if isinstance(线程, threading.Thread) and 线程.is_alive():
+            return
+        try:
+            self._背景异步停止事件.clear()
+        except Exception:
+            pass
+        self._背景异步加载线程 = threading.Thread(
+            target=self._背景异步加载线程循环,
+            name="e5cm_bg_loader",
+            daemon=True,
+        )
+        self._背景异步加载线程.start()
+
+    def _停止背景异步加载线程(self):
+        try:
+            self._背景异步停止事件.set()
+        except Exception:
+            pass
+        try:
+            self._背景异步请求队列.put_nowait(None)
+        except Exception:
+            pass
+        线程 = getattr(self, "_背景异步加载线程", None)
+        if isinstance(线程, threading.Thread) and 线程.is_alive():
+            try:
+                线程.join(timeout=0.4)
+            except Exception:
+                pass
+        self._背景异步加载线程 = None
+        try:
+            while True:
+                self._背景异步请求队列.get_nowait()
+        except Exception:
+            pass
+        try:
+            while True:
+                self._背景异步结果队列.get_nowait()
+        except Exception:
+            pass
+        self._背景异步待切换路径 = ""
+        self._背景异步待切换索引 = -1
+        self._停止背景转场()
+
+    def _背景异步加载线程循环(self):
+        while not bool(getattr(self, "_背景异步停止事件", None) and self._背景异步停止事件.is_set()):
+            try:
+                任务 = self._背景异步请求队列.get(timeout=0.12)
+            except queue.Empty:
+                continue
+            except Exception:
+                continue
+            if 任务 is None:
+                continue
+            try:
+                序号, 路径, 目标尺寸 = tuple(任务)
+                序号 = int(序号)
+                路径 = str(路径 or "")
+                if not isinstance(目标尺寸, tuple) or len(目标尺寸) < 2:
+                    目标尺寸 = (1920, 1080)
+            except Exception:
+                continue
+            数据 = self._后台解码背景图数据(str(路径), tuple(目标尺寸)[:2])
+            结果项 = {
+                "序号": int(序号),
+                "路径": str(路径),
+                "数据": 数据,
+            }
+            while True:
+                try:
+                    self._背景异步结果队列.put_nowait(dict(结果项))
+                    break
+                except queue.Full:
+                    try:
+                        self._背景异步结果队列.get_nowait()
+                    except Exception:
+                        break
+                except Exception:
+                    break
+
+    def _提交背景异步加载(
+        self, 路径: str, 目标索引: Optional[int] = None
+    ) -> bool:
+        路径 = str(路径 or "").strip()
+        if not 路径 or (not os.path.isfile(路径)):
+            return False
+        self._确保背景异步加载线程()
+        self._背景异步请求序号 = int(getattr(self, "_背景异步请求序号", 0) or 0) + 1
+        序号 = int(self._背景异步请求序号)
+        目标尺寸 = self._取背景加载目标尺寸()
+        try:
+            while True:
+                self._背景异步请求队列.get_nowait()
+        except Exception:
+            pass
+        try:
+            self._背景异步请求队列.put_nowait((int(序号), str(路径), tuple(目标尺寸)))
+        except Exception:
+            return False
+        self._背景异步待切换路径 = str(路径)
+        if 目标索引 is not None:
+            try:
+                self._背景异步待切换索引 = int(目标索引)
+            except Exception:
+                self._背景异步待切换索引 = -1
+        return True
+
+    def _处理背景异步加载结果(self):
+        最新结果 = None
+        while True:
+            try:
+                最新结果 = self._背景异步结果队列.get_nowait()
+            except queue.Empty:
+                break
+            except Exception:
+                break
+        if not isinstance(最新结果, dict):
+            return
+
+        try:
+            序号 = int(最新结果.get("序号", 0) or 0)
+        except Exception:
+            序号 = 0
+        if 序号 < int(getattr(self, "_背景异步请求序号", 0) or 0):
+            return
+        if 序号 < int(getattr(self, "_背景异步最后应用序号", 0) or 0):
+            return
+
+        路径 = str(最新结果.get("路径", "") or "")
+        数据 = 最新结果.get("数据", None)
+        if not isinstance(数据, dict):
+            if str(路径) == str(getattr(self, "_背景异步待切换路径", "") or ""):
+                self._背景异步待切换路径 = ""
+                self._背景异步待切换索引 = -1
+            return
+
+        try:
+            模式 = str(数据.get("模式", "RGB") or "RGB").upper()
+            尺寸 = tuple(数据.get("尺寸", (0, 0)) or (0, 0))
+            原始字节 = 数据.get("字节", None)
+            if (
+                not isinstance(原始字节, (bytes, bytearray))
+                or len(尺寸) < 2
+                or int(尺寸[0]) <= 0
+                or int(尺寸[1]) <= 0
+            ):
+                return
+            图 = pygame.image.frombuffer(
+                bytes(原始字节),
+                (int(尺寸[0]), int(尺寸[1])),
+                str(模式),
+            )
+            if str(模式) == "RGBA":
+                图 = 图.convert_alpha()
+            else:
+                图 = 图.convert()
+        except Exception:
+            return
+
+        旧图 = getattr(self, "_背景原图", None)
+        if not isinstance(旧图, pygame.Surface):
+            旧图 = None
+        旧路径 = str(getattr(self, "_背景图片路径", "") or "")
+
+        self._背景原图 = 图
+        self._背景图片路径 = str(路径)
+        self._清理背景GIF缓存()
+        self._背景异步最后应用序号 = int(序号)
+
+        if (
+            isinstance(旧图, pygame.Surface)
+            and 旧图 is not 图
+            and str(路径) != str(旧路径)
+        ):
+            self._启动背景转场(旧图, 图)
+        else:
+            self._停止背景转场()
+
+        try:
+            屏幕尺寸 = tuple(数据.get("屏幕尺寸", (0, 0)) or (0, 0))
+            if len(屏幕尺寸) >= 2 and int(屏幕尺寸[0]) > 0 and int(屏幕尺寸[1]) > 0:
+                self._背景缩放缓存 = 图
+                self._背景缩放尺寸 = (int(屏幕尺寸[0]), int(屏幕尺寸[1]))
+            else:
+                self._背景缩放缓存 = None
+                self._背景缩放尺寸 = (0, 0)
+        except Exception:
+            self._背景缩放缓存 = None
+            self._背景缩放尺寸 = (0, 0)
+
+        if str(路径) == str(getattr(self, "_背景异步待切换路径", "") or ""):
+            if int(getattr(self, "_背景异步待切换索引", -1) or -1) >= 0:
+                self._背景轮播当前索引 = int(self._背景异步待切换索引)
+            self._背景异步待切换路径 = ""
+            self._背景异步待切换索引 = -1
+            self._背景轮播上次切换秒 = float(time.perf_counter())
+
+    def _收集背景轮播路径列表(self) -> List[str]:
+        根目录 = _取项目根目录()
+        背景目录 = os.path.join(根目录, "冷资源", "backimages", "背景图")
+        if not os.path.isdir(背景目录):
+            return []
+        允许扩展名 = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+        结果: List[str] = []
+        try:
+            文件名列表 = sorted(
+                os.listdir(背景目录), key=lambda 名: str(名 or "").lower()
+            )
+        except Exception:
+            return []
+        for 文件名 in 文件名列表:
+            完整路径 = os.path.join(背景目录, str(文件名))
+            if not os.path.isfile(完整路径):
+                continue
+            try:
+                扩展名 = str(os.path.splitext(str(文件名))[1] or "").lower()
+            except Exception:
+                扩展名 = ""
+            if 扩展名 not in 允许扩展名:
+                continue
+            结果.append(str(完整路径))
+        return 结果
+
+    def _按路径加载背景图(self, 路径: str) -> Optional[pygame.Surface]:
+        路径 = str(路径 or "").strip()
+        if not 路径 or (not os.path.isfile(路径)):
+            return None
+        self._背景图片路径 = ""
+        self._清理背景GIF缓存()
+        try:
+            小写路径 = str(路径).lower()
+            if 小写路径.endswith(".gif"):
+                背景图 = self._加载GIF背景(路径)
+                if isinstance(背景图, pygame.Surface):
+                    self._背景图片路径 = str(路径)
+                    return 背景图
+            背景图 = pygame.image.load(路径).convert()
+            self._背景图片路径 = str(路径)
+            return 背景图
+        except Exception:
+            return None
+
+    def _更新背景轮播(self, 现在秒: Optional[float] = None):
+        if not bool(getattr(self, "_背景轮播启用", False)):
+            return
+        轮播路径列表 = list(getattr(self, "_背景轮播路径列表", []) or [])
+        if len(轮播路径列表) <= 1:
+            return
+        待切换路径 = str(getattr(self, "_背景异步待切换路径", "") or "")
+        if 待切换路径:
+            return
+
+        if 现在秒 is None:
+            try:
+                现在秒 = float(time.perf_counter())
+            except Exception:
+                现在秒 = 0.0
+        try:
+            当前秒 = float(现在秒)
+        except Exception:
+            当前秒 = 0.0
+        if 当前秒 <= 0.0:
+            return
+
+        间隔秒 = float(getattr(self, "_背景轮播间隔秒", 10.0) or 10.0)
+        间隔秒 = max(0.2, 间隔秒)
+
+        上次切换秒 = float(getattr(self, "_背景轮播上次切换秒", 0.0) or 0.0)
+        if 上次切换秒 <= 0.0 or 当前秒 < 上次切换秒:
+            self._背景轮播上次切换秒 = float(当前秒)
+            return
+        if float(当前秒 - 上次切换秒) < float(间隔秒):
+            return
+
+        当前索引 = int(getattr(self, "_背景轮播当前索引", 0) or 0)
+        文件数 = int(len(轮播路径列表))
+        前进步数 = int(max(1, int((float(当前秒 - 上次切换秒)) // float(间隔秒))))
+        新索引 = int((int(当前索引) + int(前进步数)) % 文件数)
+        目标路径 = str(轮播路径列表[新索引] or "")
+        if self._提交背景异步加载(目标路径, 目标索引=int(新索引)):
+            self._背景轮播上次切换秒 = float(当前秒)
+
     def _加载GIF背景(self, 路径: str) -> Optional[pygame.Surface]:
         路径 = str(路径 or "").strip()
         if not 路径 or (not os.path.isfile(路径)):
@@ -6983,6 +7777,12 @@ class 场景_谱面播放器(场景基类):
         return 帧列表[0]
 
     def _取背景图片帧(self, 现在秒: Optional[float] = None) -> Optional[pygame.Surface]:
+        self._处理背景异步加载结果()
+        if (
+            str(self._取背景渲染模式() or "图片") == "图片"
+            and bool(getattr(self, "_图片幻灯片模式开启", False))
+        ):
+            self._更新背景轮播(现在秒)
         帧列表 = getattr(self, "_背景GIF帧列表", None) or []
         if 帧列表:
             if 现在秒 is None:
@@ -7008,7 +7808,47 @@ class 场景_谱面播放器(场景基类):
     def _加载背景(self, 背景文件名: str):
         根目录 = _取项目根目录()
         背景文件名 = str(背景文件名 or "").strip()
+        启用幻灯片 = bool(getattr(self, "_图片幻灯片模式开启", False))
+        if not 启用幻灯片:
+            self._停止背景异步加载线程()
+        self._处理背景异步加载结果()
         self._背景图片路径 = ""
+        self._清理背景轮播状态()
+
+        if 启用幻灯片:
+            self._确保背景异步加载线程()
+
+        轮播路径列表 = self._收集背景轮播路径列表() if 启用幻灯片 else []
+        if 轮播路径列表 and 启用幻灯片:
+            self._背景轮播路径列表 = list(轮播路径列表)
+            self._背景轮播启用 = True
+            当前索引 = 0
+            目标文件名 = str(背景文件名 or "").strip().lower()
+            if 目标文件名:
+                for idx, 路径 in enumerate(轮播路径列表):
+                    if str(os.path.basename(str(路径 or "")) or "").lower() == 目标文件名:
+                        当前索引 = int(idx)
+                        break
+
+            self._背景轮播当前索引 = int(当前索引)
+            self._背景轮播上次切换秒 = float(time.perf_counter())
+            目标路径 = str(轮播路径列表[当前索引] or "")
+            if (
+                isinstance(getattr(self, "_背景原图", None), pygame.Surface)
+                and str(getattr(self, "_背景图片路径", "") or "") == str(目标路径)
+            ):
+                return
+            if self._提交背景异步加载(目标路径, 目标索引=int(当前索引)):
+                return
+
+            # 异步提交失败时再回退同步加载，确保至少有图可用。
+            轮播图 = self._按路径加载背景图(目标路径)
+            if isinstance(轮播图, pygame.Surface):
+                self._背景原图 = 轮播图
+                self._背景缩放缓存 = None
+                self._背景缩放尺寸 = (0, 0)
+                return
+
         self._清理背景GIF缓存()
 
         候选路径: List[str] = []
@@ -7019,21 +7859,24 @@ class 场景_谱面播放器(场景基类):
             候选路径.append(os.path.join(根目录, "冷资源", "backimages", 背景文件名))
         候选路径.append(os.path.join(根目录, "冷资源", "backimages", "选歌界面.png"))
 
+        首个可用路径 = ""
+        for p in 候选路径:
+            if p and os.path.isfile(p):
+                首个可用路径 = str(p)
+                break
+        if (
+            启用幻灯片
+            and 首个可用路径
+            and self._提交背景异步加载(首个可用路径, 目标索引=None)
+        ):
+            return
+
         背景图 = None
         for p in 候选路径:
             if p and os.path.isfile(p):
-                try:
-                    小写路径 = str(p).lower()
-                    if 小写路径.endswith(".gif"):
-                        背景图 = self._加载GIF背景(p)
-                        if isinstance(背景图, pygame.Surface):
-                            self._背景图片路径 = str(p)
-                            break
-                    背景图 = pygame.image.load(p).convert()
-                    self._背景图片路径 = str(p)
+                背景图 = self._按路径加载背景图(p)
+                if isinstance(背景图, pygame.Surface):
                     break
-                except Exception:
-                    continue
 
         self._背景原图 = 背景图
         self._背景缩放缓存 = None
@@ -7848,6 +8691,7 @@ class 场景_谱面播放器(场景基类):
             return None
 
     def 退出(self):
+        self._停止背景异步加载线程()
         try:
             if self._GPU谱面渲染器 is not None:
                 self._GPU谱面渲染器.清空()
@@ -7934,6 +8778,8 @@ class 场景_谱面播放器(场景基类):
         背景模式 = self._取背景渲染模式()
         当前背景源 = self._取当前背景源()
         背景图 = None
+        if str(背景模式 or "图片") != "图片":
+            self._停止背景转场()
         if 当前背景源 is not None and hasattr(当前背景源, "取CPU帧"):
             try:
                 背景图 = 当前背景源.取CPU帧(self, time.perf_counter())
@@ -7956,10 +8802,13 @@ class 场景_谱面播放器(场景基类):
                 已绘制背景 = False
 
         if not 已绘制背景:
-            背景图 = self._取背景图片帧(time.perf_counter())
+            现在秒 = float(time.perf_counter())
+            背景图 = self._取背景图片帧(现在秒)
             if isinstance(背景图, pygame.Surface):
-                self._绘制cover背景面(屏幕, 背景图)
+                if not self._绘制背景图片转场(屏幕, 现在秒):
+                    self._绘制cover背景面(屏幕, 背景图)
             else:
+                self._停止背景转场()
                 屏幕.fill((15, 15, 18))
 
         if bool(getattr(self, "_显示准备动画", False)) and (

@@ -216,6 +216,13 @@ class EscMenuController:
                 "切换图片 / 视频 / 动态背景",
                 preview_kind="current",
             ),
+            MenuRow(
+                "image_slideshow_mode",
+                "图片幻灯片模式",
+                "开启" if bool(getattr(host, "_图片幻灯片模式开启", False)) else "关闭",
+                "仅图片背景生效；开启后每 10 秒自动切换一张背景图",
+                (104, 208, 255),
+            ),
             self._current_background_detail_row(),
             MenuRow(
                 "brightness",

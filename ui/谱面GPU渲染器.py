@@ -2408,6 +2408,8 @@ class 谱面GPU管线渲染器:
                 取去黑底 = None
             if callable(取去黑底):
                 try:
+                    原图 = 取去黑底(原图, 黑阈值=24) or 原图
+                except TypeError:
                     原图 = 取去黑底(原图) or 原图
                 except Exception:
                     pass

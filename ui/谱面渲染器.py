@@ -1527,11 +1527,17 @@ class 谱面渲染器:
         self._按参考宽重建手键像素偏移缓存()
         self._手键锚点配置脏标记 = True
 
-    def _取去黑底图(self, 图: Optional[pygame.Surface]) -> Optional[pygame.Surface]:
+    def _取去黑底图(
+        self, 图: Optional[pygame.Surface], 黑阈值: int = 12
+    ) -> Optional[pygame.Surface]:
         if 图 is None:
             return None
         try:
-            键 = (int(id(图)), int(图.get_width()), int(图.get_height()))
+            黑阈值 = int(max(0, min(255, int(黑阈值))))
+        except Exception:
+            黑阈值 = 12
+        try:
+            键 = (int(id(图)), int(图.get_width()), int(图.get_height()), int(黑阈值))
         except Exception:
             return 图
         缓存 = getattr(self, "_手键黑底透明缓存", {})
@@ -1546,7 +1552,6 @@ class 谱面渲染器:
                 import numpy as _np  # type: ignore
 
                 _ = _np  # 避免静态检查误报未使用
-                黑阈值 = 12
                 rgb = pygame.surfarray.pixels3d(图2)
                 alpha = pygame.surfarray.pixels_alpha(图2)
                 近黑掩码 = (
@@ -6887,10 +6892,17 @@ class 谱面渲染器:
                     if abs(hit_ms - st毫秒) <= 命中窗毫秒:
                         if float(ed - st) > 1e-6:
                             队列.pop(0)
+                            命中触发秒 = float(hit_ms) / 1000.0
+                            if 命中触发秒 < float(st) - 0.20:
+                                命中触发秒 = float(st)
+                            if 命中触发秒 > float(ed):
+                                命中触发秒 = float(st)
                             self._命中hold开始谱面秒[轨道] = float(st)
                             self._命中hold结束谱面秒[轨道] = float(ed)
-                            self._击中特效开始谱面秒[轨道] = float(st)
+                            self._击中特效开始谱面秒[轨道] = float(命中触发秒)
                             self._击中特效循环到谱面秒[轨道] = float(ed)
+                            # 命中后切换到 hold 循环特效时，必须重置进度，避免偶发“只闪一下”。
+                            self._击中特效进行秒[轨道] = 0.0
                             是否命中hold = True
 
             是否绘制头 = True
@@ -7435,7 +7447,8 @@ class 谱面渲染器:
                         原图2 = pygame.transform.rotate(原图2, float(旋转角度)).convert_alpha()
                     except Exception:
                         pass
-                原图2 = self._取去黑底图(原图2) or 原图2
+                # key_effect 资源常带不透明黑底，阈值略提高可去掉弱暗圈残留。
+                原图2 = self._取去黑底图(原图2, 黑阈值=24) or 原图2
 
                 图2 = self._取缩放图(缓存键, 原图2, 当前目标宽)
 
