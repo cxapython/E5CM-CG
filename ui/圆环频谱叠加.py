@@ -814,6 +814,10 @@ class 圆环频谱舞台装饰:
     ) -> Optional[Dict[str, object]]:
         if not self.是否启用 or 目标矩形 is None:
             return None
+        if int(目标矩形.w) <= 0 or int(目标矩形.h) <= 0:
+            return None
+        if int(max(目标矩形.w, 目标矩形.h)) > 520:
+            return None
 
         当前播放秒 = float(max(0.0, 当前播放秒))
         self._按矩形重算样式(目标矩形)

@@ -35,6 +35,7 @@ class 渲染输入:
 
     箭头目标宽: int
     事件列表: List[Any]  # 只要求：轨道序号/开始秒/结束秒/类型
+    手键装饰事件列表: List[Any]  # 手键装饰专用事件，不参与判定/计分
 
     显示_判定: str
     显示_连击: int
@@ -805,14 +806,14 @@ class 谱面渲染器:
             4: [f"key:{int(pygame.K_3)}", f"key:{int(pygame.K_KP3)}"],
         }
 
-        # 击中特效
-        self._击中特效进行秒: List[float] = [-1.0] * 5
+        # 击中特效（统一9轨：0~4原轨，5~8手键 ll/tt/bb/rr）
+        self._击中特效进行秒: List[float] = [-1.0] * 9
         self._击中特效帧率: float = 60.0
         self._击中特效最大秒: float = 0.35
 
         # ✅ 用谱面秒驱动：便于 hold 循环
-        self._击中特效开始谱面秒: List[float] = [-999.0] * 5
-        self._击中特效循环到谱面秒: List[float] = [-999.0] * 5  # >0 表示循环到该结束秒
+        self._击中特效开始谱面秒: List[float] = [-999.0] * 9
+        self._击中特效循环到谱面秒: List[float] = [-999.0] * 9  # >0 表示循环到该结束秒
 
         # ✅ 最近一次渲染时的谱面秒
         self._最近渲染谱面秒: float = 0.0
@@ -862,6 +863,8 @@ class 谱面渲染器:
         self._notes静态层签名: Optional[Tuple[Any, ...]] = None
         self._判定区层缓存: Optional[pygame.Surface] = None
         self._判定区层签名: Optional[Tuple[Any, ...]] = None
+        self._notes布局快照缓存签名: Optional[Tuple[Any, ...]] = None
+        self._notes布局快照缓存值: Optional[Dict[str, Any]] = None
         self._判定区实际锚点缓存签名: Optional[Tuple[Any, ...]] = None
         self._判定区实际锚点缓存值: Optional[Dict[str, Any]] = None
         self._击中特效布局缓存签名: Optional[Tuple[Any, ...]] = None
@@ -881,9 +884,13 @@ class 谱面渲染器:
         self._准备动画顶部HUD组层签名: Optional[Tuple[Any, ...]] = None
         self._事件渲染缓存签名: Optional[Tuple[Any, ...]] = None
         self._事件渲染缓存值: Optional[Dict[str, Any]] = None
+        self._手键事件渲染缓存签名: Optional[Tuple[Any, ...]] = None
+        self._手键事件渲染缓存值: Optional[Dict[str, Any]] = None
         self._头像灰度缓存key: Optional[Tuple[int, int, int]] = None
         self._头像灰度缓存图: Optional[pygame.Surface] = None
         self._最近软件分项统计: Dict[str, float] = self._新建软件分项统计()
+        self._手键黑底透明缓存: Dict[Tuple[int, int, int], pygame.Surface] = {}
+        # 旧版 F8 手键锚点拖拽/偏移调试链路已下线；9轨播放统一使用布局判定区锚点。
 
     @staticmethod
     def _新建软件分项统计() -> Dict[str, float]:
@@ -897,6 +904,12 @@ class 谱面渲染器:
             "count_judge_ms": 0.0,
             "renderer_other_ms": 0.0,
         }
+
+    def _击中特效轨道总数(self) -> int:
+        try:
+            return int(max(5, len(list(getattr(self, "_击中特效进行秒", []) or []))))
+        except Exception:
+            return 5
 
     @staticmethod
     def _合并软件分项统计(目标: Dict[str, float], 来源: Optional[Dict[str, float]]):
@@ -1057,9 +1070,10 @@ class 谱面渲染器:
     def 重置瞬态表现状态(self):
         self._确保命中映射缓存()
         self._按下反馈剩余秒 = [0.0] * 5
-        self._击中特效进行秒 = [-1.0] * 5
-        self._击中特效开始谱面秒 = [-999.0] * 5
-        self._击中特效循环到谱面秒 = [-999.0] * 5
+        轨道总数 = int(max(5, self._击中特效轨道总数()))
+        self._击中特效进行秒 = [-1.0] * int(轨道总数)
+        self._击中特效开始谱面秒 = [-999.0] * int(轨道总数)
+        self._击中特效循环到谱面秒 = [-999.0] * int(轨道总数)
         self._最近击中谱面秒 = [-999.0] * 5
         self._命中hold开始谱面秒 = [-999.0] * 5
         self._命中hold结束谱面秒 = [-999.0] * 5
@@ -1108,6 +1122,455 @@ class 谱面渲染器:
             if isinstance(矩形, pygame.Rect):
                 结果[轨道] = 矩形.copy()
         return 结果
+
+    @staticmethod
+    def _默认手键锚点偏移() -> Dict[str, Dict[str, int]]:
+        return {
+            "ll": {"x": 0, "y": 0},
+            "tt": {"x": 0, "y": 0},
+            "bb": {"x": 0, "y": 0},
+            "rr": {"x": 0, "y": 0},
+        }
+
+    @staticmethod
+    def _默认手键锚点偏移比例() -> Dict[str, Dict[str, float]]:
+        return {
+            "ll": {"x": 0.0, "y": 0.0},
+            "tt": {"x": 0.0, "y": 0.0},
+            "bb": {"x": 0.0, "y": 0.0},
+            "rr": {"x": 0.0, "y": 0.0},
+        }
+
+    @staticmethod
+    def _默认手键锚点偏移参考宽() -> Dict[str, int]:
+        return {
+            "ll": 0,
+            "tt": 0,
+            "bb": 0,
+            "rr": 0,
+        }
+
+    @staticmethod
+    def _归一化手键方向(方向: Any) -> str:
+        方向文本 = str(方向 or "").strip().lower()
+        return 方向文本 if 方向文本 in ("ll", "tt", "bb", "rr") else ""
+
+    @staticmethod
+    def _限制手键偏移比例值(值: Any, 最大绝对值: float = 1.4) -> float:
+        try:
+            比例 = float(值 or 0.0)
+        except Exception:
+            比例 = 0.0
+        return float(max(-float(最大绝对值), min(float(最大绝对值), 比例)))
+
+    def _清洗手键偏移比例配置(
+        self, 原值: Any, *, 超限即归零: bool
+    ) -> Tuple[Dict[str, Dict[str, float]], bool]:
+        结果 = self._默认手键锚点偏移比例()
+        if not isinstance(原值, dict):
+            return 结果, False
+        已清洗 = False
+        for 方向 in ("ll", "tt", "bb", "rr"):
+            项 = 原值.get(方向)
+            if not isinstance(项, dict):
+                continue
+            try:
+                dx原值 = float(项.get("x", 0.0) or 0.0)
+            except Exception:
+                dx原值 = 0.0
+            try:
+                dy原值 = float(项.get("y", 0.0) or 0.0)
+            except Exception:
+                dy原值 = 0.0
+            if bool(超限即归零) and (
+                abs(float(dx原值)) > 1.4 or abs(float(dy原值)) > 1.4
+            ):
+                dx = 0.0
+                dy = 0.0
+                已清洗 = True
+            else:
+                dx = self._限制手键偏移比例值(dx原值)
+                dy = self._限制手键偏移比例值(dy原值)
+                if abs(float(dx) - float(dx原值)) > 1e-6 or abs(
+                    float(dy) - float(dy原值)
+                ) > 1e-6:
+                    已清洗 = True
+            结果[方向]["x"] = float(dx)
+            结果[方向]["y"] = float(dy)
+        return 结果, 已清洗
+
+    def _规范化手键偏移配置(self, 原值: Any) -> Dict[str, Dict[str, int]]:
+        结果 = self._默认手键锚点偏移()
+        if not isinstance(原值, dict):
+            return 结果
+        for 方向 in ("ll", "tt", "bb", "rr"):
+            项 = 原值.get(方向)
+            if not isinstance(项, dict):
+                continue
+            try:
+                dx = int(round(float(项.get("x", 0) or 0)))
+            except Exception:
+                dx = 0
+            try:
+                dy = int(round(float(项.get("y", 0) or 0)))
+            except Exception:
+                dy = 0
+            结果[方向]["x"] = int(max(-4096, min(4096, dx)))
+            结果[方向]["y"] = int(max(-4096, min(4096, dy)))
+        return 结果
+
+    def _规范化手键偏移比例配置(self, 原值: Any) -> Dict[str, Dict[str, float]]:
+        结果, _ = self._清洗手键偏移比例配置(原值, 超限即归零=False)
+        return 结果
+
+    def _规范化手键偏移参考宽配置(self, 原值: Any) -> Dict[str, int]:
+        结果 = self._默认手键锚点偏移参考宽()
+        if not isinstance(原值, dict):
+            return 结果
+        for 方向 in ("ll", "tt", "bb", "rr"):
+            try:
+                宽 = int(round(float(原值.get(方向, 0) or 0)))
+            except Exception:
+                宽 = 0
+            结果[方向] = int(max(0, min(4096, 宽)))
+        return 结果
+
+    def _记录手键校准配置警告一次(self, 文本: str):
+        if bool(getattr(self, "_手键校准配置读失败已提示", False)):
+            return
+        self._手键校准配置读失败已提示 = True
+        try:
+            print(f"[手键装饰校准] {str(文本 or '').strip()}")
+        except Exception:
+            pass
+
+    def _按参考宽重建手键像素偏移缓存(self):
+        比例映射 = getattr(self, "_手键锚点偏移比例", {})
+        参考宽映射 = getattr(self, "_手键锚点偏移参考宽", {})
+        结果 = self._默认手键锚点偏移()
+        if not isinstance(比例映射, dict) or not isinstance(参考宽映射, dict):
+            self._手键锚点偏移像素 = 结果
+            return
+        for 方向 in ("ll", "tt", "bb", "rr"):
+            比例项 = 比例映射.get(方向)
+            if not isinstance(比例项, dict):
+                continue
+            try:
+                参考宽 = int(round(float(参考宽映射.get(方向, 0) or 0)))
+            except Exception:
+                参考宽 = 0
+            if 参考宽 <= 0:
+                continue
+            try:
+                dx比例 = float(比例项.get("x", 0.0) or 0.0)
+            except Exception:
+                dx比例 = 0.0
+            try:
+                dy比例 = float(比例项.get("y", 0.0) or 0.0)
+            except Exception:
+                dy比例 = 0.0
+            结果[方向]["x"] = int(round(dx比例 * float(参考宽)))
+            结果[方向]["y"] = int(round(dy比例 * float(参考宽)))
+        self._手键锚点偏移像素 = self._规范化手键偏移配置(结果)
+
+    def _从旧手键像素偏移迁移出比例(
+        self,
+        偏移像素: Any,
+        参考宽映射: Any,
+        *,
+        严格判旧绝对偏移: bool,
+    ) -> Dict[str, Dict[str, float]]:
+        像素偏移 = self._规范化手键偏移配置(偏移像素)
+        参考宽 = self._规范化手键偏移参考宽配置(参考宽映射)
+        结果 = self._默认手键锚点偏移比例()
+        for 方向 in ("ll", "tt", "bb", "rr"):
+            当前参考宽 = int(参考宽.get(方向, 0) or 0)
+            if 当前参考宽 <= 0:
+                continue
+            当前偏移 = 像素偏移.get(方向, {})
+            try:
+                x比例 = float(float(当前偏移.get("x", 0) or 0) / float(当前参考宽))
+            except Exception:
+                x比例 = 0.0
+            try:
+                y比例 = float(float(当前偏移.get("y", 0) or 0) / float(当前参考宽))
+            except Exception:
+                y比例 = 0.0
+            if bool(严格判旧绝对偏移) and (
+                abs(float(x比例)) > 1.5 or abs(float(y比例)) > 1.5
+            ):
+                x比例 = 0.0
+                y比例 = 0.0
+            结果[方向]["x"] = float(self._限制手键偏移比例值(x比例))
+            结果[方向]["y"] = float(self._限制手键偏移比例值(y比例))
+        return 结果
+
+    def _加载手键装饰校准配置(self):
+        self._手键锚点偏移比例 = self._默认手键锚点偏移比例()
+        self._手键锚点偏移像素 = self._默认手键锚点偏移()
+        self._手键锚点偏移参考宽 = self._默认手键锚点偏移参考宽()
+        self._手键装饰校准原始配置 = {}
+        路径 = str(getattr(self, "_手键装饰校准配置路径", "") or "").strip()
+        if not 路径 or (not os.path.isfile(路径)):
+            return
+        try:
+            with open(路径, "r", encoding="utf-8") as f:
+                数据 = json.load(f)
+            if not isinstance(数据, dict):
+                raise ValueError("根节点不是对象")
+            self._手键装饰校准原始配置 = dict(数据)
+            偏移 = self._规范化手键偏移配置(
+                (数据 or {}).get("hand_anchor_offset_px", {})
+            )
+            参考宽 = self._规范化手键偏移参考宽配置(
+                (数据 or {}).get("hand_anchor_offset_ref_width", {})
+            )
+            模式 = str((数据 or {}).get("hand_anchor_offset_mode", "") or "").strip().lower()
+            比例配置 = (数据 or {}).get("hand_anchor_offset_ratio", None)
+            self._手键锚点偏移参考宽 = 参考宽
+            if isinstance(比例配置, dict):
+                比例结果, 已清洗 = self._清洗手键偏移比例配置(
+                    比例配置, 超限即归零=True
+                )
+                self._手键锚点偏移比例 = 比例结果
+                if bool(已清洗):
+                    self._记录手键校准配置警告一次(
+                        "检测到超限手键偏移，已回退为基于判定区的安全值"
+                    )
+            else:
+                self._手键锚点偏移比例 = self._从旧手键像素偏移迁移出比例(
+                    偏移,
+                    参考宽,
+                    严格判旧绝对偏移=模式 != "receptor_local_v2",
+                )
+            self._按参考宽重建手键像素偏移缓存()
+            self._手键校准配置读失败已提示 = False
+        except Exception as 异常:
+            self._手键锚点偏移比例 = self._默认手键锚点偏移比例()
+            self._手键锚点偏移像素 = self._默认手键锚点偏移()
+            self._手键锚点偏移参考宽 = self._默认手键锚点偏移参考宽()
+            self._手键装饰校准原始配置 = {}
+            self._记录手键校准配置警告一次(
+                f"读取失败，已回退默认偏移：{type(异常).__name__}"
+            )
+
+    def _保存手键装饰校准配置(self):
+        路径 = str(getattr(self, "_手键装饰校准配置路径", "") or "").strip()
+        if not 路径:
+            return
+        try:
+            目录 = os.path.dirname(路径)
+            if 目录:
+                os.makedirs(目录, exist_ok=True)
+            现有: Dict[str, Any] = {}
+            缓存配置 = getattr(self, "_手键装饰校准原始配置", {})
+            if isinstance(缓存配置, dict):
+                现有 = dict(缓存配置)
+            if os.path.isfile(路径):
+                try:
+                    with open(路径, "r", encoding="utf-8") as f:
+                        读值 = json.load(f)
+                    if isinstance(读值, dict):
+                        现有 = dict(读值)
+                        self._手键装饰校准原始配置 = dict(现有)
+                        self._手键校准配置读失败已提示 = False
+                except Exception as 异常:
+                    self._记录手键校准配置警告一次(
+                        f"保存前读取失败，仅更新 hand_anchor_offset_px：{type(异常).__name__}"
+                    )
+            self._按参考宽重建手键像素偏移缓存()
+            现有["hand_anchor_offset_mode"] = "receptor_local_v2"
+            现有["hand_anchor_offset_ratio"] = self._规范化手键偏移比例配置(
+                getattr(self, "_手键锚点偏移比例", {})
+            )
+            现有["hand_anchor_offset_px"] = self._规范化手键偏移配置(
+                getattr(self, "_手键锚点偏移像素", {})
+            )
+            现有["hand_anchor_offset_ref_width"] = self._规范化手键偏移参考宽配置(
+                getattr(self, "_手键锚点偏移参考宽", {})
+            )
+            现有["saved_at"] = int(time.time())
+            with open(路径, "w", encoding="utf-8") as f:
+                json.dump(现有, f, ensure_ascii=False, indent=2)
+            self._手键装饰校准原始配置 = dict(现有)
+            self._手键锚点配置脏标记 = False
+        except Exception:
+            pass
+
+    def _取手键方向偏移(
+        self, 方向: Any, 锚点宽: Optional[int] = None
+    ) -> Tuple[int, int]:
+        键 = self._归一化手键方向(方向)
+        if not 键:
+            return 0, 0
+        try:
+            当前宽 = int(round(float(锚点宽 or 0)))
+        except Exception:
+            当前宽 = 0
+        if 当前宽 <= 0:
+            参考宽映射 = getattr(self, "_手键锚点偏移参考宽", {})
+            if isinstance(参考宽映射, dict):
+                try:
+                    当前宽 = int(round(float(参考宽映射.get(键, 0) or 0)))
+                except Exception:
+                    当前宽 = 0
+        if 当前宽 <= 0:
+            return 0, 0
+        比例映射 = getattr(self, "_手键锚点偏移比例", {})
+        if isinstance(比例映射, dict):
+            项 = 比例映射.get(键)
+            if isinstance(项, dict):
+                try:
+                    dx = int(round(float(项.get("x", 0.0) or 0.0) * float(当前宽)))
+                except Exception:
+                    dx = 0
+                try:
+                    dy = int(round(float(项.get("y", 0.0) or 0.0) * float(当前宽)))
+                except Exception:
+                    dy = 0
+                return int(dx), int(dy)
+        映射 = getattr(self, "_手键锚点偏移像素", {})
+        if not isinstance(映射, dict):
+            return 0, 0
+        项 = 映射.get(键)
+        if not isinstance(项, dict):
+            return 0, 0
+        参考宽映射 = getattr(self, "_手键锚点偏移参考宽", {})
+        try:
+            参考宽 = int(round(float((参考宽映射 or {}).get(键, 0) or 0)))
+        except Exception:
+            参考宽 = 0
+        比例 = float(当前宽) / float(max(1, 参考宽)) if 参考宽 > 0 else 1.0
+        try:
+            dx = int(round(float(项.get("x", 0) or 0) * float(比例)))
+        except Exception:
+            dx = 0
+        try:
+            dy = int(round(float(项.get("y", 0) or 0) * float(比例)))
+        except Exception:
+            dy = 0
+        return int(dx), int(dy)
+
+    def _设置手键方向偏移(
+        self, 方向: Any, 偏移x: int, 偏移y: int, 参考宽: Optional[int] = None
+    ):
+        键 = self._归一化手键方向(方向)
+        if not 键:
+            return
+        if not isinstance(getattr(self, "_手键锚点偏移比例", None), dict):
+            self._手键锚点偏移比例 = self._默认手键锚点偏移比例()
+        if not isinstance(getattr(self, "_手键锚点偏移像素", None), dict):
+            self._手键锚点偏移像素 = self._默认手键锚点偏移()
+        if not isinstance(getattr(self, "_手键锚点偏移参考宽", None), dict):
+            self._手键锚点偏移参考宽 = self._默认手键锚点偏移参考宽()
+        try:
+            dx = int(round(float(偏移x)))
+        except Exception:
+            dx = 0
+        try:
+            dy = int(round(float(偏移y)))
+        except Exception:
+            dy = 0
+        try:
+            rw = int(round(float(参考宽 or 0)))
+        except Exception:
+            rw = 0
+        dx = int(max(-4096, min(4096, dx)))
+        dy = int(max(-4096, min(4096, dy)))
+        rw = int(max(0, min(4096, rw)))
+        比例项 = self._手键锚点偏移比例.get(键)
+        if not isinstance(比例项, dict):
+            比例项 = {"x": 0.0, "y": 0.0}
+            self._手键锚点偏移比例[键] = 比例项
+        项 = self._手键锚点偏移像素.get(键)
+        if not isinstance(项, dict):
+            项 = {"x": 0, "y": 0}
+            self._手键锚点偏移像素[键] = 项
+        有效参考宽 = int(max(1, rw if rw > 0 else int(self._手键锚点偏移参考宽.get(键, 0) or 0)))
+        新x比例 = self._限制手键偏移比例值(float(dx) / float(有效参考宽))
+        新y比例 = self._限制手键偏移比例值(float(dy) / float(有效参考宽))
+        旧x = int(项.get("x", 0) or 0)
+        旧y = int(项.get("y", 0) or 0)
+        参考宽映射 = (
+            self._手键锚点偏移参考宽
+            if isinstance(getattr(self, "_手键锚点偏移参考宽", None), dict)
+            else {}
+        )
+        try:
+            旧rw = int(round(float(参考宽映射.get(键, 0) or 0)))
+        except Exception:
+            旧rw = 0
+        try:
+            旧x比例 = float(比例项.get("x", 0.0) or 0.0)
+        except Exception:
+            旧x比例 = 0.0
+        try:
+            旧y比例 = float(比例项.get("y", 0.0) or 0.0)
+        except Exception:
+            旧y比例 = 0.0
+        if (
+            abs(float(旧x比例) - float(新x比例)) <= 1e-6
+            and abs(float(旧y比例) - float(新y比例)) <= 1e-6
+            and abs(int(旧x) - int(dx)) <= 0
+            and abs(int(旧y) - int(dy)) <= 0
+            and (rw <= 0 or 旧rw == rw)
+        ):
+            return
+        比例项["x"] = float(新x比例)
+        比例项["y"] = float(新y比例)
+        项["x"] = int(dx)
+        项["y"] = int(dy)
+        if rw > 0:
+            self._手键锚点偏移参考宽[键] = int(rw)
+        elif 旧rw <= 0:
+            self._手键锚点偏移参考宽[键] = int(有效参考宽)
+        self._按参考宽重建手键像素偏移缓存()
+        self._手键锚点配置脏标记 = True
+
+    def _取去黑底图(self, 图: Optional[pygame.Surface]) -> Optional[pygame.Surface]:
+        if 图 is None:
+            return None
+        try:
+            键 = (int(id(图)), int(图.get_width()), int(图.get_height()))
+        except Exception:
+            return 图
+        缓存 = getattr(self, "_手键黑底透明缓存", {})
+        if isinstance(缓存, dict):
+            命中 = 缓存.get(键)
+            if isinstance(命中, pygame.Surface):
+                return 命中
+        try:
+            图2 = 图.copy().convert_alpha()
+            try:
+                # 兼容“黑底实心序列帧”：将近黑像素直接置透明。
+                import numpy as _np  # type: ignore
+
+                _ = _np  # 避免静态检查误报未使用
+                黑阈值 = 12
+                rgb = pygame.surfarray.pixels3d(图2)
+                alpha = pygame.surfarray.pixels_alpha(图2)
+                近黑掩码 = (
+                    (rgb[:, :, 0] <= 黑阈值)
+                    & (rgb[:, :, 1] <= 黑阈值)
+                    & (rgb[:, :, 2] <= 黑阈值)
+                )
+                alpha[近黑掩码] = 0
+                del rgb
+                del alpha
+            except Exception:
+                # 兜底：保留旧 colorkey 行为
+                try:
+                    图2.set_colorkey((0, 0, 0))
+                except Exception:
+                    pass
+        except Exception:
+            图2 = 图
+        if not isinstance(getattr(self, "_手键黑底透明缓存", None), dict):
+            self._手键黑底透明缓存 = {}
+        if len(self._手键黑底透明缓存) > 1024:
+            self._手键黑底透明缓存.clear()
+        self._手键黑底透明缓存[键] = 图2
+        return 图2
 
     def _布局版本值(self) -> float:
         布局 = self._确保布局管理器()
@@ -1214,6 +1677,71 @@ class 谱面渲染器:
         self._事件渲染缓存值 = dict(缓存)
         return dict(缓存)
 
+    def _取手键装饰事件渲染缓存(self, 事件列表: List[Any]) -> Dict[str, Any]:
+        if not isinstance(事件列表, list) or (not 事件列表):
+            return {
+                "事件": [],
+                "开始秒列表": [],
+                "开始beat列表": [],
+                "最大持续秒": 0.0,
+                "最大持续beat": 0.0,
+            }
+
+        签名 = self._事件列表缓存签名(事件列表)
+        if (
+            self._手键事件渲染缓存值 is not None
+            and self._手键事件渲染缓存签名 == 签名
+        ):
+            return dict(self._手键事件渲染缓存值)
+
+        条目列表: List[Tuple[float, float, float, float, str, str]] = []
+        最大持续秒 = 0.0
+        最大持续beat = 0.0
+        for 事件 in 事件列表:
+            try:
+                st = float(getattr(事件, "开始秒"))
+                ed = float(getattr(事件, "结束秒"))
+                st_beat = float(getattr(事件, "开始beat"))
+                ed_beat = float(getattr(事件, "结束beat"))
+                方向 = str(getattr(事件, "方向") or "").strip().lower()
+                类型 = str(getattr(事件, "类型") or "tap").strip().lower()
+            except Exception:
+                continue
+            if 方向 not in ("ll", "tt", "bb", "rr"):
+                continue
+            if ed < st:
+                st, ed = ed, st
+                st_beat, ed_beat = ed_beat, st_beat
+            if abs(float(ed - st)) > 1e-6:
+                类型 = "hold"
+            else:
+                类型 = "tap"
+                ed = float(st)
+                ed_beat = float(st_beat)
+            条目列表.append((st, ed, st_beat, ed_beat, 方向, 类型))
+            try:
+                最大持续秒 = max(最大持续秒, float(max(0.0, ed - st)))
+            except Exception:
+                pass
+            try:
+                最大持续beat = max(
+                    最大持续beat, float(max(0.0, ed_beat - st_beat))
+                )
+            except Exception:
+                pass
+
+        条目列表.sort(key=lambda 项: (float(项[0]), str(项[4]), float(项[1])))
+        缓存 = {
+            "事件": 条目列表,
+            "开始秒列表": [float(项[0]) for 项 in 条目列表],
+            "开始beat列表": [float(项[2]) for 项 in 条目列表],
+            "最大持续秒": float(最大持续秒),
+            "最大持续beat": float(最大持续beat),
+        }
+        self._手键事件渲染缓存签名 = 签名
+        self._手键事件渲染缓存值 = dict(缓存)
+        return dict(缓存)
+
     def 设置皮肤(self, 皮肤根路径: str):
         皮肤根路径 = str(皮肤根路径 or "").strip()
         if not 皮肤根路径:
@@ -1225,6 +1753,7 @@ class 谱面渲染器:
         self._皮肤包.加载(皮肤根路径)
         self._当前皮肤路径 = 皮肤根路径
         self._缩放缓存.clear()
+        self._手键黑底透明缓存.clear()
         self._顶部HUD静态层缓存 = None
         self._顶部HUD静态层签名 = None
         self._顶部HUD静态层矩形 = None
@@ -1235,6 +1764,8 @@ class 谱面渲染器:
         self._notes静态层签名 = None
         self._判定区层缓存 = None
         self._判定区层签名 = None
+        self._notes布局快照缓存签名 = None
+        self._notes布局快照缓存值 = None
         self._判定区实际锚点缓存签名 = None
         self._判定区实际锚点缓存值 = None
         self._击中特效布局缓存签名 = None
@@ -1255,6 +1786,7 @@ class 谱面渲染器:
 
     def 绑定布局管理器(self, 布局管理器: Any):
         self._布局管理器_谱面渲染器 = 布局管理器
+        self._手键黑底透明缓存.clear()
         self._顶部HUD静态层缓存 = None
         self._顶部HUD静态层签名 = None
         self._顶部HUD静态层矩形 = None
@@ -1266,6 +1798,8 @@ class 谱面渲染器:
         self._notes静态层签名 = None
         self._判定区层缓存 = None
         self._判定区层签名 = None
+        self._notes布局快照缓存签名 = None
+        self._notes布局快照缓存值 = None
         self._判定区实际锚点缓存签名 = None
         self._判定区实际锚点缓存值 = None
         self._击中特效布局缓存签名 = None
@@ -1282,10 +1816,11 @@ class 谱面渲染器:
             轨道序号 = int(轨道序号)
         except Exception:
             轨道序号 = 2
-        if not (0 <= 轨道序号 < 5):
+        轨道总数 = int(max(5, self._击中特效轨道总数()))
+        if not (0 <= 轨道序号 < int(轨道总数)):
             轨道序号 = 2
 
-        for i in range(5):
+        for i in range(int(轨道总数)):
             if (not 启用) or i != 轨道序号:
                 if float(self._击中特效循环到谱面秒[i]) > 0.0:
                     self._击中特效循环到谱面秒[i] = -999.0
@@ -1348,7 +1883,8 @@ class 谱面渲染器:
         判定 = str(判定 or "").strip().lower()
 
         轨道序号 = int(轨道序号)
-        if not (0 <= 轨道序号 < 5):
+        轨道总数 = int(max(5, self._击中特效轨道总数()))
+        if not (0 <= 轨道序号 < int(轨道总数)):
             return
         if 判定 == "miss":
             return
@@ -1380,6 +1916,41 @@ class 谱面渲染器:
         self._击中特效开始谱面秒[轨道序号] = float(发生谱面秒)
         self._击中特效循环到谱面秒[轨道序号] = -999.0
         self._击中特效进行秒[轨道序号] = 0.0
+
+    def 触发手键装饰击中特效(
+        self,
+        方向: str,
+        发生谱面秒: Optional[float] = None,
+        结束谱面秒: Optional[float] = None,
+    ):
+        方向 = str(方向 or "").strip().lower()
+        if 方向 not in ("ll", "tt", "bb", "rr"):
+            return
+
+        if 发生谱面秒 is None:
+            发生谱面秒 = float(self._最近渲染谱面秒)
+        if 结束谱面秒 is None:
+            结束谱面秒 = float(发生谱面秒)
+        try:
+            开始秒 = float(发生谱面秒)
+        except Exception:
+            开始秒 = float(self._最近渲染谱面秒)
+        try:
+            结束秒 = float(结束谱面秒)
+        except Exception:
+            结束秒 = float(开始秒)
+        if 结束秒 < 开始秒:
+            开始秒, 结束秒 = 结束秒, 开始秒
+        轨道 = int(self._手键方向到播放轨道索引(str(方向)))
+        轨道总数 = int(max(5, self._击中特效轨道总数()))
+        if not (0 <= int(轨道) < int(轨道总数)):
+            return
+        self._击中特效开始谱面秒[int(轨道)] = float(开始秒)
+        if float(结束秒 - 开始秒) > 1e-6:
+            self._击中特效循环到谱面秒[int(轨道)] = float(结束秒)
+        else:
+            self._击中特效循环到谱面秒[int(轨道)] = -999.0
+        self._击中特效进行秒[int(轨道)] = 0.0
 
     def 触发combo轻闪(self, combo: int):
         # 懒初始化：不依赖 __init__
@@ -1542,7 +2113,7 @@ class 谱面渲染器:
         self._更新按键反馈缩放(时间差秒)
 
         周期秒 = float(18.0 / max(1.0, float(self._击中特效帧率)))
-        for i in range(5):
+        for i in range(int(max(5, self._击中特效轨道总数()))):
             if self._击中特效进行秒[i] < 0.0:
                 continue
 
@@ -1906,6 +2477,8 @@ class 谱面渲染器:
                 time.perf_counter() - 音符开始秒
             ) * 1000.0
 
+        # 2.5) 手键装饰已并入 _绘制音符（9轨播放：5原轨 + ll/tt/bb/rr）
+
         # 3) 判定区（独立缓存：按反馈缩放/几何变化失效）
         判定区开始秒 = time.perf_counter()
         判定区签名 = (
@@ -2007,17 +2580,6 @@ class 谱面渲染器:
         ) / 比例
         判定区_receptor宽_布局 = float(max(12.0, 判定区_receptor宽_布局))
 
-        左手x_布局 = 0.0
-        右手x_布局 = 0.0
-        if len(轨道中心列表_布局) >= 5:
-            间距 = float(
-                轨道中心间距_布局
-                if 轨道中心间距_布局 != 0.0
-                else 判定区_receptor宽_布局
-            )
-            左手x_布局 = float(轨道中心列表_布局[0] - 间距)
-            右手x_布局 = float(轨道中心列表_布局[4] + 间距)
-
         判定线y_特效_布局 = (
             float(getattr(输入, "判定线y", 0)) + y偏移 + 特效偏移y
         ) / 比例
@@ -2047,8 +2609,6 @@ class 谱面渲染器:
             "音符区中心y_布局": float(音符区中心y_布局),
             "轨道中心间距_布局": float(轨道中心间距_布局),
             "判定区_receptor宽_布局": float(判定区_receptor宽_布局),
-            "左手x_布局": float(左手x_布局),
-            "右手x_布局": float(右手x_布局),
             "判定线y_特效_布局": float(判定线y_特效_布局),
             "特效目标宽_布局": float(特效目标宽_布局),
             "击中特效偏移x_布局": float(击中特效偏移x_布局),
@@ -2060,6 +2620,346 @@ class 谱面渲染器:
         }
 
         return 上下文
+
+    def _取notes布局渲染项列表(
+        self,
+        屏幕: pygame.Surface,
+        输入: 渲染输入,
+        根id: str,
+    ) -> List[Dict[str, Any]]:
+        布局 = self._确保布局管理器()
+        if 布局 is None:
+            return []
+        根id = str(根id or "").strip()
+        if not 根id:
+            return []
+        try:
+            if not 布局.是否存在控件(根id):
+                return []
+        except Exception:
+            return []
+
+        上下文 = self._构建notes装饰上下文(屏幕, 输入)
+        if not isinstance(上下文, dict) or (not 上下文):
+            return []
+
+        构建清单 = getattr(布局, "_构建渲染清单", None)
+        if not callable(构建清单):
+            return []
+        try:
+            项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id=根id)
+        except Exception:
+            return []
+        return list(项列表) if isinstance(项列表, list) else []
+
+    def _取notes布局状态表(
+        self,
+        屏幕: pygame.Surface,
+        输入: 渲染输入,
+        根id: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        状态表: Dict[str, Dict[str, Any]] = {}
+        for 项 in self._取notes布局渲染项列表(屏幕, 输入, 根id):
+            if not isinstance(项, dict):
+                continue
+            项id = str(项.get("id") or "").strip()
+            if not 项id:
+                continue
+            状态表[项id] = 项
+        return 状态表
+
+    def _取notes布局快照(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Dict[str, Any]:
+        缓存签名 = self._布局锚点缓存签名(屏幕, 输入)
+        缓存值 = getattr(self, "_notes布局快照缓存值", None)
+        if self._notes布局快照缓存签名 == 缓存签名 and isinstance(缓存值, dict):
+            return 缓存值
+
+        参数 = self._取游戏区参数()
+        游戏缩放 = float(参数.get("缩放", 1.0) or 1.0)
+        y偏移 = float(参数.get("y偏移", 0.0) or 0.0)
+        判定区宽度系数 = float(参数.get("判定区宽度系数", 1.08) or 1.08)
+        特效宽度系数 = float(参数.get("击中特效宽度系数", 2.6) or 2.6)
+        特效偏移x = float(参数.get("击中特效偏移x", 0.0) or 0.0)
+        特效偏移y = float(参数.get("击中特效偏移y", 0.0) or 0.0)
+
+        try:
+            轨道中心列表 = [
+                int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]
+            ]
+        except Exception:
+            轨道中心列表 = []
+        while len(轨道中心列表) < 5:
+            轨道中心列表.append(0)
+
+        try:
+            统一判定线y = int(
+                round(float(getattr(输入, "判定线y", 0) or 0) + float(y偏移))
+            )
+        except Exception:
+            统一判定线y = 0
+        try:
+            基础箭头宽 = int(
+                max(24, round(float(getattr(输入, "箭头目标宽", 64) or 64)))
+            )
+        except Exception:
+            基础箭头宽 = 64
+        判定区基准宽 = int(
+            max(
+                24,
+                round(
+                    float(基础箭头宽)
+                    * float(判定区宽度系数)
+                    * float(游戏缩放)
+                ),
+            )
+        )
+
+        判定线y列表: List[int] = [int(统一判定线y)] * 5
+        判定区宽度列表: List[int] = [int(判定区基准宽)] * 5
+        判定区高度列表: List[int] = [int(判定区基准宽)] * 5
+        判定区矩形表: Dict[int, pygame.Rect] = {}
+        for 轨道 in range(5):
+            中心x = int(轨道中心列表[轨道])
+            中心y = int(判定线y列表[轨道])
+            宽 = int(判定区宽度列表[轨道])
+            高 = int(判定区高度列表[轨道])
+            判定区矩形表[int(轨道)] = pygame.Rect(
+                int(中心x - 宽 // 2),
+                int(中心y - 高 // 2),
+                int(宽),
+                int(高),
+            )
+
+        判定区项列表 = self._取notes布局渲染项列表(屏幕, 输入, "判定区组")
+        特效项列表 = self._取notes布局渲染项列表(屏幕, 输入, "特效层组")
+        判定区状态表: Dict[str, Dict[str, Any]] = {}
+        特效状态表: Dict[str, Dict[str, Any]] = {}
+        for 项 in 判定区项列表:
+            if not isinstance(项, dict):
+                continue
+            项id = str(项.get("id") or "").strip()
+            if 项id:
+                判定区状态表[项id] = 项
+        for 项 in 特效项列表:
+            if not isinstance(项, dict):
+                continue
+            项id = str(项.get("id") or "").strip()
+            if 项id:
+                特效状态表[项id] = 项
+
+        布局判定区有效 = True
+        for 轨道 in range(5):
+            项 = 判定区状态表.get(f"判定区_{int(轨道)}")
+            矩形 = 项.get("rect") if isinstance(项, dict) else None
+            if not isinstance(矩形, pygame.Rect):
+                布局判定区有效 = False
+                break
+            判定区矩形表[int(轨道)] = 矩形.copy()
+        if 布局判定区有效:
+            轨道中心列表 = []
+            判定线y列表 = []
+            判定区宽度列表 = []
+            判定区高度列表 = []
+            for 轨道 in range(5):
+                矩形 = 判定区矩形表[int(轨道)]
+                轨道中心列表.append(int(矩形.centerx))
+                判定线y列表.append(int(矩形.centery))
+                判定区宽度列表.append(int(max(8, 矩形.w)))
+                判定区高度列表.append(int(max(8, 矩形.h)))
+
+        手键锚点 = self._构建手键基准锚点(
+            轨道中心列表,
+            判定线y列表,
+            判定区宽度列表,
+            判定区高度列表,
+            int(基础箭头宽),
+        )
+        if bool(布局判定区有效):
+
+            def _取判定区项矩形(项id: str) -> Optional[pygame.Rect]:
+                项 = 判定区状态表.get(str(项id))
+                矩形 = 项.get("rect") if isinstance(项, dict) else None
+                return 矩形.copy() if isinstance(矩形, pygame.Rect) else None
+
+            左手矩形 = _取判定区项矩形("判定手左")
+            if isinstance(左手矩形, pygame.Rect):
+                手键锚点["手左x"] = int(左手矩形.centerx)
+                手键锚点["手左y"] = int(左手矩形.centery)
+                手键锚点["手左宽"] = int(max(16, 左手矩形.w))
+
+            右手矩形 = _取判定区项矩形("判定手右")
+            if isinstance(右手矩形, pygame.Rect):
+                手键锚点["手右x"] = int(右手矩形.centerx)
+                手键锚点["手右y"] = int(右手矩形.centery)
+                手键锚点["手右宽"] = int(max(16, 右手矩形.w))
+
+            中轨矩形 = _取判定区项矩形("判定区_2")
+            if isinstance(中轨矩形, pygame.Rect):
+                手键锚点["手中x"] = int(中轨矩形.centerx)
+                手键锚点["手中y"] = int(中轨矩形.centery)
+                手键锚点["手中宽"] = int(max(16, 中轨矩形.w))
+
+        击中特效矩形表: Dict[int, pygame.Rect] = {}
+        轨道总数 = int(max(9, self._击中特效轨道总数()))
+        for 轨道 in range(int(min(5, 轨道总数))):
+            项 = 特效状态表.get(f"击中特效_{int(轨道)}")
+            矩形 = 项.get("rect") if isinstance(项, dict) else None
+            if isinstance(矩形, pygame.Rect):
+                击中特效矩形表[int(轨道)] = 矩形.copy()
+
+        手键轨道映射 = {
+            "ll": 5,
+            "tt": 6,
+            "bb": 7,
+            "rr": 8,
+        }
+        for 方向, 轨道 in 手键轨道映射.items():
+            候选项 = 特效状态表.get(f"击中特效_{int(轨道)}")
+            if not isinstance(候选项, dict):
+                候选项 = 特效状态表.get(f"击中特效_{str(方向)}")
+            矩形 = 候选项.get("rect") if isinstance(候选项, dict) else None
+            if isinstance(矩形, pygame.Rect):
+                击中特效矩形表[int(轨道)] = 矩形.copy()
+
+        基础目标宽 = int(
+            max(
+                48,
+                round(
+                    float(基础箭头宽)
+                    * float(特效宽度系数)
+                    * float(游戏缩放)
+                    * 1.25
+                ),
+            )
+        )
+        组偏移x = 0.0
+        组偏移y = 0.0
+        判定组项 = 判定区状态表.get("判定区组")
+        特效组项 = 特效状态表.get("特效层组")
+        if isinstance(判定组项, dict) and isinstance(特效组项, dict):
+            try:
+                组偏移x = float(特效组项.get("中心x", 0.0) or 0.0) - float(
+                    判定组项.get("中心x", 0.0) or 0.0
+                )
+                组偏移y = float(特效组项.get("中心y", 0.0) or 0.0) - float(
+                    判定组项.get("中心y", 0.0) or 0.0
+                )
+            except Exception:
+                组偏移x = 0.0
+                组偏移y = 0.0
+
+        for 轨道 in range(int(min(5, 轨道总数))):
+            if int(轨道) in 击中特效矩形表:
+                continue
+            判定矩形 = 判定区矩形表.get(int(轨道))
+            if not isinstance(判定矩形, pygame.Rect):
+                continue
+            中心x = int(
+                round(
+                    float(判定矩形.centerx)
+                    + float(组偏移x)
+                    + float(特效偏移x)
+                )
+            )
+            中心y = int(
+                round(
+                    float(判定矩形.centery)
+                    + float(组偏移y)
+                    + float(特效偏移y)
+                )
+            )
+            击中特效矩形表[int(轨道)] = pygame.Rect(
+                int(中心x - 基础目标宽 // 2),
+                int(中心y - 基础目标宽 // 2),
+                int(基础目标宽),
+                int(基础目标宽),
+            )
+
+        手中y = int(
+            手键锚点.get(
+                "手中y",
+                判定线y列表[2] if len(判定线y列表) >= 3 else int(统一判定线y),
+            )
+            or (判定线y列表[2] if len(判定线y列表) >= 3 else int(统一判定线y))
+        )
+        手键特效锚点表 = {
+            5: {
+                "x": int(手键锚点.get("手左x", 轨道中心列表[0] if len(轨道中心列表) >= 1 else 0) or 0),
+                "w": int(max(16, int(手键锚点.get("手左宽", 判定区宽度列表[0] if len(判定区宽度列表) >= 1 else 基础箭头宽) or 基础箭头宽))),
+            },
+            6: {
+                "x": int(手键锚点.get("手中x", 轨道中心列表[2] if len(轨道中心列表) >= 3 else 0) or 0),
+                "w": int(max(16, int(手键锚点.get("手中宽", 判定区宽度列表[2] if len(判定区宽度列表) >= 3 else 基础箭头宽) or 基础箭头宽))),
+            },
+            7: {
+                "x": int(手键锚点.get("手中x", 轨道中心列表[2] if len(轨道中心列表) >= 3 else 0) or 0),
+                "w": int(max(16, int(手键锚点.get("手中宽", 判定区宽度列表[2] if len(判定区宽度列表) >= 3 else 基础箭头宽) or 基础箭头宽))),
+            },
+            8: {
+                "x": int(手键锚点.get("手右x", 轨道中心列表[4] if len(轨道中心列表) >= 5 else 0) or 0),
+                "w": int(max(16, int(手键锚点.get("手右宽", 判定区宽度列表[4] if len(判定区宽度列表) >= 5 else 基础箭头宽) or 基础箭头宽))),
+            },
+        }
+        for 轨道, 锚点 in 手键特效锚点表.items():
+            if int(轨道) >= int(轨道总数):
+                continue
+            if int(轨道) in 击中特效矩形表:
+                continue
+            锚点宽 = int(max(16, int(锚点.get("w", 基础箭头宽) or 基础箭头宽)))
+            目标宽 = int(
+                max(
+                    48,
+                    round(
+                        float(锚点宽)
+                        * float(特效宽度系数)
+                        * float(游戏缩放)
+                        * 1.25
+                    ),
+                )
+            )
+            中心x = int(
+                round(float(锚点.get("x", 0) or 0) + float(组偏移x) + float(特效偏移x))
+            )
+            中心y = int(
+                round(float(手中y) + float(组偏移y) + float(特效偏移y))
+            )
+            击中特效矩形表[int(轨道)] = pygame.Rect(
+                int(中心x - 目标宽 // 2),
+                int(中心y - 目标宽 // 2),
+                int(目标宽),
+                int(目标宽),
+            )
+
+        判定区锚点 = {
+            "轨道中心列表": list(轨道中心列表),
+            "判定线y列表": list(判定线y列表),
+            "判定线y": int(
+                判定线y列表[2]
+                if len(判定线y列表) >= 3
+                else sum(判定线y列表) / float(max(1, len(判定线y列表)))
+            ),
+            "判定区宽度列表": list(判定区宽度列表),
+            "判定区高度列表": list(判定区高度列表),
+        }
+        快照 = {
+            "判定区项列表": list(判定区项列表),
+            "判定区状态表": dict(判定区状态表),
+            "布局判定区有效": bool(布局判定区有效),
+            "特效项列表": list(特效项列表),
+            "特效状态表": dict(特效状态表),
+            "判定区锚点": dict(判定区锚点),
+            "手键锚点": dict(手键锚点),
+            "击中特效矩形表": self._复制矩形字典(击中特效矩形表),
+        }
+        self._notes布局快照缓存签名 = 缓存签名
+        self._notes布局快照缓存值 = 快照
+        self._判定区实际锚点缓存签名 = 缓存签名
+        self._判定区实际锚点缓存值 = self._复制锚点字典(判定区锚点)
+        self._击中特效布局缓存签名 = 缓存签名
+        self._击中特效布局缓存值 = self._复制矩形字典(击中特效矩形表)
+        return 快照
 
     def _绘制轨道背景(self, 屏幕: pygame.Surface, 输入: 渲染输入):
         try:
@@ -2091,257 +2991,14 @@ class 谱面渲染器:
     def _取判定区实际锚点(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
     ) -> Optional[Dict[str, Any]]:
-        缓存签名 = self._布局锚点缓存签名(屏幕, 输入)
-        if self._判定区实际锚点缓存签名 == 缓存签名:
-            return self._复制锚点字典(self._判定区实际锚点缓存值)
-
-        布局 = self._确保布局管理器()
-        if 布局 is None:
-            self._判定区实际锚点缓存签名 = 缓存签名
-            self._判定区实际锚点缓存值 = None
-            return None
-
-        try:
-            if not 布局.是否存在控件("判定区组"):
-                self._判定区实际锚点缓存签名 = 缓存签名
-                self._判定区实际锚点缓存值 = None
-                return None
-        except Exception:
-            self._判定区实际锚点缓存签名 = 缓存签名
-            self._判定区实际锚点缓存值 = None
-            return None
-
-        上下文 = self._构建notes装饰上下文(屏幕, 输入)
-        if not 上下文:
-            self._判定区实际锚点缓存签名 = 缓存签名
-            self._判定区实际锚点缓存值 = None
-            return None
-
-        try:
-            构建清单 = getattr(布局, "_构建渲染清单", None)
-            if not callable(构建清单):
-                self._判定区实际锚点缓存签名 = 缓存签名
-                self._判定区实际锚点缓存值 = None
-                return None
-            项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id="判定区组")
-        except Exception:
-            self._判定区实际锚点缓存签名 = 缓存签名
-            self._判定区实际锚点缓存值 = None
-            return None
-
-        if not isinstance(项列表, list):
-            self._判定区实际锚点缓存签名 = 缓存签名
-            self._判定区实际锚点缓存值 = None
-            return None
-
-        轨道中心列表: List[int] = []
-        判定线y列表: List[int] = []
-        宽度列表: List[int] = []
-        高度列表: List[int] = []
-        状态表: Dict[str, Dict[str, Any]] = {}
-        for 项 in 项列表:
-            if isinstance(项, dict):
-                状态表[str(项.get("id") or "")] = 项
-
-        for 轨道 in range(5):
-            项 = 状态表.get(f"判定区_{轨道}")
-            if not isinstance(项, dict):
-                self._判定区实际锚点缓存签名 = 缓存签名
-                self._判定区实际锚点缓存值 = None
-                return None
-            矩形 = 项.get("rect")
-            if not isinstance(矩形, pygame.Rect):
-                self._判定区实际锚点缓存签名 = 缓存签名
-                self._判定区实际锚点缓存值 = None
-                return None
-            轨道中心列表.append(int(矩形.centerx))
-            判定线y列表.append(int(矩形.centery))
-            宽度列表.append(int(max(8, 矩形.w)))
-            高度列表.append(int(max(8, 矩形.h)))
-
-        判定线y = int(
-            判定线y列表[2]
-            if len(判定线y列表) >= 3
-            else sum(判定线y列表) / float(max(1, len(判定线y列表)))
-        )
-        结果 = {
-            "轨道中心列表": 轨道中心列表,
-            "判定线y列表": 判定线y列表,
-            "判定线y": 判定线y,
-            "判定区宽度列表": 宽度列表,
-            "判定区高度列表": 高度列表,
-        }
-        self._判定区实际锚点缓存签名 = 缓存签名
-        self._判定区实际锚点缓存值 = self._复制锚点字典(结果)
-        return self._复制锚点字典(结果)
+        快照 = self._取notes布局快照(屏幕, 输入)
+        return self._复制锚点字典(快照.get("判定区锚点"))
 
     def _取击中特效布局矩形表(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
     ) -> Dict[int, pygame.Rect]:
-        缓存签名 = self._布局锚点缓存签名(屏幕, 输入)
-        if self._击中特效布局缓存签名 == 缓存签名:
-            return self._复制矩形字典(self._击中特效布局缓存值)
-
-        布局 = self._确保布局管理器()
-        if 布局 is None:
-            self._击中特效布局缓存签名 = 缓存签名
-            self._击中特效布局缓存值 = {}
-            return {}
-
-        try:
-            if not 布局.是否存在控件("特效层组"):
-                self._击中特效布局缓存签名 = 缓存签名
-                self._击中特效布局缓存值 = {}
-                return {}
-        except Exception:
-            self._击中特效布局缓存签名 = 缓存签名
-            self._击中特效布局缓存值 = {}
-            return {}
-
-        上下文 = self._构建notes装饰上下文(屏幕, 输入)
-        if not isinstance(上下文, dict):
-            self._击中特效布局缓存签名 = 缓存签名
-            self._击中特效布局缓存值 = {}
-            return {}
-
-        结果: Dict[int, pygame.Rect] = {}
-        try:
-            构建清单 = getattr(布局, "_构建渲染清单", None)
-            if callable(构建清单):
-                判定项列表 = 构建清单(
-                    屏幕.get_size(), 上下文, 仅绘制根id="判定区组"
-                )
-                特效项列表 = 构建清单(
-                    屏幕.get_size(), 上下文, 仅绘制根id="特效层组"
-                )
-
-                判定组原点: Optional[Tuple[float, float]] = None
-                特效组原点: Optional[Tuple[float, float]] = None
-                判定区矩形表: Dict[int, pygame.Rect] = {}
-
-                if isinstance(判定项列表, list):
-                    for 项 in 判定项列表:
-                        if not isinstance(项, dict):
-                            continue
-                        项id = str(项.get("id") or "")
-                        if 项id == "判定区组":
-                            try:
-                                判定组原点 = (
-                                    float(项.get("中心x", 0.0) or 0.0),
-                                    float(项.get("中心y", 0.0) or 0.0),
-                                )
-                            except Exception:
-                                判定组原点 = None
-                            continue
-                        if not 项id.startswith("判定区_"):
-                            continue
-                        try:
-                            轨道 = int(项id.rsplit("_", 1)[1])
-                        except Exception:
-                            continue
-                        矩形 = 项.get("rect")
-                        if isinstance(矩形, pygame.Rect):
-                            判定区矩形表[int(轨道)] = 矩形.copy()
-
-                if isinstance(特效项列表, list):
-                    for 项 in 特效项列表:
-                        if not isinstance(项, dict):
-                            continue
-                        项id = str(项.get("id") or "")
-                        if 项id == "特效层组":
-                            try:
-                                特效组原点 = (
-                                    float(项.get("中心x", 0.0) or 0.0),
-                                    float(项.get("中心y", 0.0) or 0.0),
-                                )
-                            except Exception:
-                                特效组原点 = None
-                            continue
-                        if not 项id.startswith("击中特效_"):
-                            continue
-                        try:
-                            轨道 = int(项id.rsplit("_", 1)[1])
-                        except Exception:
-                            continue
-                        矩形 = 项.get("rect")
-                        if isinstance(矩形, pygame.Rect):
-                            结果[int(轨道)] = 矩形.copy()
-
-                if 判定区矩形表:
-                    try:
-                        比例 = float(布局.取全局缩放(屏幕.get_size()))
-                    except Exception:
-                        比例 = 1.0
-                    if 比例 <= 0.0:
-                        比例 = 1.0
-
-                    try:
-                        特效目标宽_布局 = float(
-                            上下文.get("特效目标宽_布局", 40.0) or 40.0
-                        )
-                    except Exception:
-                        特效目标宽_布局 = 40.0
-                    目标宽 = int(max(48, round(float(特效目标宽_布局) * float(比例))))
-
-                    try:
-                        特效显式x偏移 = float(
-                            上下文.get("击中特效偏移x_布局", 0.0) or 0.0
-                        ) * float(比例)
-                    except Exception:
-                        特效显式x偏移 = 0.0
-                    try:
-                        判定线y_游戏_布局 = float(
-                            上下文.get("判定线y_游戏_布局", 0.0) or 0.0
-                        )
-                    except Exception:
-                        判定线y_游戏_布局 = 0.0
-                    try:
-                        判定线y_特效_布局 = float(
-                            上下文.get("判定线y_特效_布局", 判定线y_游戏_布局)
-                            or 判定线y_游戏_布局
-                        )
-                    except Exception:
-                        判定线y_特效_布局 = 判定线y_游戏_布局
-                    特效显式y偏移 = float(
-                        (判定线y_特效_布局 - 判定线y_游戏_布局) * float(比例)
-                    )
-
-                    组偏移x = 0.0
-                    组偏移y = 0.0
-                    if 特效组原点 is not None and 判定组原点 is not None:
-                        组偏移x = float(特效组原点[0]) - float(判定组原点[0])
-                        组偏移y = float(特效组原点[1]) - float(判定组原点[1])
-
-                    for 轨道, 判定矩形 in 判定区矩形表.items():
-                        try:
-                            中心x = int(
-                                round(
-                                    float(判定矩形.centerx)
-                                    + float(组偏移x)
-                                    + float(特效显式x偏移)
-                                )
-                            )
-                            中心y = int(
-                                round(
-                                    float(判定矩形.centery)
-                                    + float(组偏移y)
-                                    + float(特效显式y偏移)
-                                )
-                            )
-                            结果[int(轨道)] = pygame.Rect(
-                                int(中心x - 目标宽 // 2),
-                                int(中心y - 目标宽 // 2),
-                                int(目标宽),
-                                int(目标宽),
-                            )
-                        except Exception:
-                            continue
-        except Exception:
-            结果 = {}
-
-        self._击中特效布局缓存签名 = 缓存签名
-        self._击中特效布局缓存值 = self._复制矩形字典(结果)
-        return self._复制矩形字典(结果)
+        快照 = self._取notes布局快照(屏幕, 输入)
+        return self._复制矩形字典(快照.get("击中特效矩形表"))
 
     def _取GPU图片控件数据(
         self,
@@ -2426,6 +3083,18 @@ class 谱面渲染器:
         目标矩形 = 项.get("rect")
         if not isinstance(控件定义, dict) or not isinstance(目标矩形, pygame.Rect):
             return None
+        try:
+            屏幕宽 = int(max(1, int(上下文.get("_屏幕宽", 0) or 0)))
+            屏幕高 = int(max(1, int(上下文.get("_屏幕高", 0) or 0)))
+        except Exception:
+            屏幕宽, 屏幕高 = 0, 0
+        if 屏幕宽 > 0 and 屏幕高 > 0:
+            最大宽 = int(max(120, round(float(屏幕宽) * 0.36)))
+            最大高 = int(max(120, round(float(屏幕高) * 0.36)))
+            if int(目标矩形.w) > int(最大宽) or int(目标矩形.h) > int(最大高):
+                return None
+        if int(目标矩形.w) <= 0 or int(目标矩形.h) <= 0:
+            return None
 
         时间键 = str(控件定义.get("时间键") or "当前谱面秒")
         try:
@@ -2503,77 +3172,69 @@ class 谱面渲染器:
     def 取GPU判定区数据(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
     ) -> List[Dict[str, Any]]:
-        布局 = self._确保布局管理器()
-        if 布局 is not None:
-            try:
-                if 布局.是否存在控件("判定区组"):
-                    上下文 = self._构建notes装饰上下文(屏幕, 输入)
-                    构建清单 = getattr(布局, "_构建渲染清单", None)
-                    if isinstance(上下文, dict) and callable(构建清单):
-                        项列表 = 构建清单(
-                            屏幕.get_size(), 上下文, 仅绘制根id="判定区组"
-                        )
-                        if isinstance(项列表, list):
-                            结果: List[Dict[str, Any]] = []
-                            for 序号, 项 in enumerate(项列表):
-                                if not isinstance(项, dict):
-                                    continue
-                                项id = str(项.get("id") or "").strip()
-                                矩形 = 项.get("rect")
-                                if not isinstance(矩形, pygame.Rect):
-                                    continue
+        快照 = self._取notes布局快照(屏幕, 输入)
+        布局判定区有效 = bool(快照.get("布局判定区有效", False))
+        判定区项列表 = list(快照.get("判定区项列表", []) or [])
+        if bool(布局判定区有效) and 判定区项列表:
+            结果: List[Dict[str, Any]] = []
+            判定区数量 = 0
+            for 序号, 项 in enumerate(判定区项列表):
+                if not isinstance(项, dict):
+                    continue
+                项id = str(项.get("id") or "").strip()
+                矩形 = 项.get("rect")
+                if not isinstance(矩形, pygame.Rect):
+                    continue
 
-                                文件名 = ""
-                                轨道 = -1
-                                按高缩放 = False
-                                if 项id == "判定手左":
-                                    文件名 = "key_ll.png"
-                                    轨道 = 0
-                                    按高缩放 = True
-                                elif 项id == "判定手右":
-                                    文件名 = "key_rr.png"
-                                    轨道 = 4
-                                    按高缩放 = True
-                                elif 项id.startswith("判定区_"):
-                                    try:
-                                        轨道 = int(项id.rsplit("_", 1)[1])
-                                    except Exception:
-                                        轨道 = -1
-                                    if 0 <= int(轨道) < 5:
-                                        文件名 = (
-                                            f"key_{self._轨道到key方位码(int(轨道))}.png"
-                                        )
-                                if not 文件名:
-                                    continue
+                文件名 = ""
+                轨道 = -1
+                按高缩放 = False
+                if 项id == "判定手左":
+                    文件名 = "key_ll.png"
+                    轨道 = 0
+                    按高缩放 = True
+                elif 项id == "判定手右":
+                    文件名 = "key_rr.png"
+                    轨道 = 4
+                    按高缩放 = True
+                elif 项id.startswith("判定区_"):
+                    try:
+                        轨道 = int(项id.rsplit("_", 1)[1])
+                    except Exception:
+                        轨道 = -1
+                    if 0 <= int(轨道) < 5:
+                        判定区数量 += 1
+                        文件名 = f"key_{self._轨道到key方位码(int(轨道))}.png"
+                if not 文件名:
+                    continue
 
-                                结果.append(
-                                    {
-                                        "id": str(项id),
-                                        "轨道": int(轨道),
-                                        "rect": 矩形.copy(),
-                                        "x": int(矩形.centerx),
-                                        "y": int(矩形.centery),
-                                        "w": int(max(2, 矩形.w)),
-                                        "h": int(max(2, 矩形.h)),
-                                        "基础宽": int(max(2, 矩形.w)),
-                                        "基础高": int(max(2, 矩形.h)),
-                                        "文件名": str(文件名),
-                                        "按高缩放": bool(按高缩放),
-                                        "z": int(_取数(项.get("z"), 0)),
-                                        "_序号": int(序号),
-                                    }
-                                )
-                            if 结果:
-                                return 结果
-            except Exception:
-                pass
+                结果.append(
+                    {
+                        "id": str(项id),
+                        "轨道": int(轨道),
+                        "rect": 矩形.copy(),
+                        "x": int(矩形.centerx),
+                        "y": int(矩形.centery),
+                        "w": int(max(2, 矩形.w)),
+                        "h": int(max(2, 矩形.h)),
+                        "基础宽": int(max(2, 矩形.w)),
+                        "基础高": int(max(2, 矩形.h)),
+                        "文件名": str(文件名),
+                        "按高缩放": bool(按高缩放),
+                        "z": int(_取数(项.get("z"), 0)),
+                        "_序号": int(序号),
+                    }
+                )
+            if 判定区数量 >= 5 and 结果:
+                return 结果
 
         参数 = self._取游戏区参数()
         游戏缩放 = float(参数.get("缩放", 1.0))
         y偏移 = float(参数.get("y偏移", -12.0))
         判定区宽度系数 = float(参数.get("判定区宽度系数", 1.08))
 
-        布局锚点 = self._取判定区实际锚点(屏幕, 输入)
+        布局锚点 = self._复制锚点字典(快照.get("判定区锚点"))
+        手键锚点 = self._复制锚点字典(快照.get("手键锚点"))
         try:
             轨道中心列表 = [int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]]
         except Exception:
@@ -2633,17 +3294,33 @@ class 谱面渲染器:
             右x = int(轨道中心列表[4])
             参考x = int(轨道中心列表[1] if len(轨道中心列表) >= 2 else 左x)
             间距 = int(max(8, abs(int(参考x) - int(左x))))
+            左手x = int(
+                (手键锚点 or {}).get("手左x", int(左x - 间距)) or int(左x - 间距)
+            )
+            左手y = int(
+                (手键锚点 or {}).get("手左y", int(判定线y列表[0]))
+                or int(判定线y列表[0])
+            )
+            右手x = int(
+                (手键锚点 or {}).get("手右x", int(右x + 间距)) or int(右x + 间距)
+            )
+            右手y = int(
+                (手键锚点 or {}).get("手右y", int(判定线y列表[4]))
+                or int(判定线y列表[4])
+            )
             手宽 = int(
                 max(
                     16,
                     int(判定区宽度列表[0]),
                     int(判定区宽度列表[4]),
+                    int((手键锚点 or {}).get("手左宽", 0) or 0),
+                    int((手键锚点 or {}).get("手右宽", 0) or 0),
                 )
             )
             for 序号, (项id, 文件名, x中心, y中心, 轨道, z值) in enumerate(
                 (
-                    ("判定手左", "key_ll.png", 左x - 间距, 判定线y列表[0], 0, 9),
-                    ("判定手右", "key_rr.png", 右x + 间距, 判定线y列表[4], 4, 9),
+                    ("判定手左", "key_ll.png", 左手x, 左手y, 0, 9),
+                    ("判定手右", "key_rr.png", 右手x, 右手y, 4, 9),
                 )
             ):
                 结果.append(
@@ -2706,7 +3383,7 @@ class 谱面渲染器:
         布局矩形表 = self._取击中特效布局矩形表(屏幕, 输入)
 
         结果: List[Dict[str, Any]] = []
-        for i in range(5):
+        for i in range(int(max(5, self._击中特效轨道总数()))):
             循环到 = float(self._击中特效循环到谱面秒[i])
             进行秒 = float(self._击中特效进行秒[i])
             if 循环到 <= 0.0 and 进行秒 < 0.0:
@@ -2735,7 +3412,15 @@ class 谱面渲染器:
             if isinstance(布局矩形, pygame.Rect):
                 矩形 = 布局矩形.copy()
             else:
-                中心x = int(float(getattr(输入, "轨道中心列表", [0] * 5)[i]) + 偏移x)
+                try:
+                    轨道中心 = list(getattr(输入, "轨道中心列表", []) or [])
+                except Exception:
+                    轨道中心 = []
+                if 0 <= int(i) < len(轨道中心):
+                    中心x基础 = int(轨道中心[i])
+                else:
+                    中心x基础 = int(轨道中心[2] if len(轨道中心) >= 3 else 0)
+                中心x = int(float(中心x基础) + 偏移x)
                 宽 = int(max(48, 目标宽))
                 高 = int(max(28, round(float(宽) * 0.72)))
                 矩形 = pygame.Rect(
@@ -3213,6 +3898,59 @@ class 谱面渲染器:
     def _轨道到arrow方位码(轨道序号: int) -> str:
         # arrow：03包是 lb/lt/cc/rt/rb（注意不是 bl/tl/tr/br）
         return {0: "lb", 1: "lt", 2: "cc", 3: "rt", 4: "rb"}.get(int(轨道序号), "cc")
+
+    @staticmethod
+    def _手键方向到播放轨道索引(方向: str) -> int:
+        return {"ll": 5, "tt": 6, "bb": 7, "rr": 8}.get(
+            str(方向 or "").strip().lower(), 6
+        )
+
+    @staticmethod
+    def _手键方向到判定轨道索引(方向: str) -> int:
+        # 9轨播放体系下，手键统一采用中键判定区（轨2）的判定线/判定区尺度。
+        return {"ll": 2, "tt": 2, "bb": 2, "rr": 2}.get(
+            str(方向 or "").strip().lower(), 2
+        )
+
+    @staticmethod
+    def _方向到arrow方位码(方向: str) -> str:
+        映射 = {
+            "ll": "ll",
+            "tt": "tt",
+            "bb": "bb",
+            "rr": "rr",
+            "cc": "cc",
+            "lb": "lb",
+            "lt": "lt",
+            "rt": "rt",
+            "rb": "rb",
+            "bl": "bl",
+            "tl": "tl",
+            "tr": "tr",
+            "br": "br",
+        }
+        return str(映射.get(str(方向 or "").strip().lower(), "cc"))
+
+    @staticmethod
+    def _方向到arrow候选方位列表(方向: str) -> List[str]:
+        方向 = str(方向 or "").strip().lower()
+        if 方向 in ("ll",):
+            return ["ll", "cc"]
+        if 方向 in ("rr",):
+            return ["rr", "cc"]
+        if 方向 in ("tt",):
+            return ["tt", "cc"]
+        if 方向 in ("bb",):
+            return ["bb", "cc"]
+        if 方向 in ("lb", "bl"):
+            return ["lb", "bl", "ll", "cc"]
+        if 方向 in ("rb", "br"):
+            return ["rb", "br", "rr", "cc"]
+        if 方向 in ("lt", "tl"):
+            return ["lt", "tl", "cc"]
+        if 方向 in ("rt", "tr"):
+            return ["rt", "tr", "cc"]
+        return [str(方向 or "cc"), "cc"]
 
     def _取缩放图(
         self, 分组键: str, 原图: pygame.Surface, 目标宽: int
@@ -4214,6 +4952,8 @@ class 谱面渲染器:
 
         上下文.update(
             {
+                "_屏幕宽": int(max(1, int(屏幕.get_width()))),
+                "_屏幕高": int(max(1, int(屏幕.get_height()))),
                 "玩家序号": int(getattr(输入, "玩家序号", 1) or 1),
                 "玩家昵称": str(getattr(输入, "玩家昵称", "") or ""),
                 "当前关卡": int(getattr(输入, "当前关卡", 1) or 1),
@@ -4998,318 +5738,822 @@ class 谱面渲染器:
             y = int(y判定 - 图2.get_height() // 2)
             屏幕.blit(图2, (x, y))
 
-    # def _绘制音符(self, 屏幕: pygame.Surface, 输入: 渲染输入):
-    #     图集 = self._皮肤包.arrow
-    #     if 图集 is None:
-    #         for i in range(5):
-    #             self._hold当前按下中[i] = False
-    #             self._hold松手系统秒[i] = None
-    #         return
+    def _取手键方向x中心(
+        self, 方向: str, 轨道中心列表: List[int], 箭头目标宽: int
+    ) -> int:
+        方向 = str(方向 or "").strip().lower()
+        中心列表 = list(轨道中心列表 or [])
+        while len(中心列表) < 5:
+            if 中心列表:
+                中心列表.append(int(中心列表[-1]))
+            else:
+                中心列表.append(0)
+        try:
+            间距 = int(中心列表[1] - 中心列表[0])
+        except Exception:
+            间距 = int(max(48, 箭头目标宽))
+        if abs(int(间距)) <= 1:
+            间距 = int(max(48, 箭头目标宽))
+        if 方向 == "ll":
+            return int(中心列表[0] - 间距)
+        if 方向 == "rr":
+            return int(中心列表[4] + 间距)
+        return int(中心列表[2])
 
-    #     参数 = self._取游戏区参数()
-    #     游戏缩放 = float(参数.get("缩放", 1.0))
-    #     y偏移 = float(参数.get("y偏移", 0.0))
-    #     hold宽度系数 = float(参数.get("hold宽度系数", 0.96))
-    #     布局锚点 = self._取判定区实际锚点(屏幕, 输入)
+    def _构建手键基准锚点(
+        self,
+        轨道中心列表: List[int],
+        判定线y列表: List[int],
+        判定区宽度列表: List[int],
+        判定区高度列表: List[int],
+        基础箭头宽: int,
+    ) -> Dict[str, Any]:
+        轨道中心 = [int(v) for v in list(轨道中心列表 or [])[:5]]
+        判定线y = [int(v) for v in list(判定线y列表 or [])[:5]]
+        判定区宽度 = [int(max(8, int(v))) for v in list(判定区宽度列表 or [])[:5]]
+        判定区高度 = [int(max(8, int(v))) for v in list(判定区高度列表 or [])[:5]]
+        while len(轨道中心) < 5:
+            轨道中心.append(0)
+        while len(判定线y) < 5:
+            判定线y.append(0)
+        while len(判定区宽度) < 5:
+            判定区宽度.append(int(max(16, 基础箭头宽)))
+        while len(判定区高度) < 5:
+            判定区高度.append(int(max(16, 判定区宽度[len(判定区高度)])))
 
-    #     当前秒 = float(输入.当前谱面秒)
-    #     轨迹模式 = str(getattr(输入, "轨迹模式", "正常") or "正常")
-    #     隐藏模式 = str(getattr(输入, "隐藏模式", "关闭") or "关闭")
-    #     全隐模式 = bool("全隐" in 隐藏模式)
-    #     半隐模式 = (not 全隐模式) and bool("半隐" in 隐藏模式)
-    #     半隐y阈值 = int(屏幕.get_height() * 0.5)
-    #     try:
-    #         当前毫秒 = int(round(当前秒 * 1000.0))
-    #     except Exception:
-    #         当前毫秒 = 0
+        左手宽 = int(max(16, 判定区宽度[0]))
+        右手宽 = int(max(16, 判定区宽度[4]))
+        中手宽 = int(max(16, 判定区宽度[2]))
+        return {
+            "轨道中心列表": list(轨道中心),
+            "判定线y列表": list(判定线y),
+            "判定区宽度列表": list(判定区宽度),
+            "判定区高度列表": list(判定区高度),
+            "手左x": int(self._取手键方向x中心("ll", 轨道中心, int(基础箭头宽))),
+            "手左y": int(判定线y[0]),
+            "手左宽": int(左手宽),
+            "手右x": int(self._取手键方向x中心("rr", 轨道中心, int(基础箭头宽))),
+            "手右y": int(判定线y[4]),
+            "手右宽": int(右手宽),
+            "手中x": int(轨道中心[2]),
+            "手中y": int(判定线y[2]),
+            "手中宽": int(中手宽),
+        }
 
-    #     轨道中心列表 = list(getattr(输入, "轨道中心列表", []) or [])
-    #     判定线y列表: List[int] = []
-    #     if isinstance(布局锚点, dict):
-    #         try:
-    #             轨道中心列表 = list(
-    #                 布局锚点.get("轨道中心列表", 轨道中心列表) or 轨道中心列表
-    #             )
-    #         except Exception:
-    #             pass
-    #         try:
-    #             判定线y列表 = [
-    #                 int(v) for v in list(布局锚点.get("判定线y列表", []) or [])[:5]
-    #             ]
-    #         except Exception:
-    #             判定线y列表 = []
-    #         try:
-    #             y判定 = int(布局锚点.get("判定线y", 0) or 0)
-    #         except Exception:
-    #             y判定 = int(float(输入.判定线y) + y偏移)
-    #     else:
-    #         y判定 = int(float(输入.判定线y) + y偏移)
-    #     y底 = int(float(输入.底部y) + y偏移)
+    def _取手键锚点数据(self, 屏幕: pygame.Surface, 输入: 渲染输入) -> Dict[str, Any]:
+        快照 = self._取notes布局快照(屏幕, 输入)
+        结果 = self._复制锚点字典(快照.get("手键锚点"))
+        return 结果 if isinstance(结果, dict) else {}
 
-    #     有效速度 = float(输入.滚动速度px每秒) * 游戏缩放
-    #     箭头宽_tap = int(max(18, int(float(输入.箭头目标宽) * 游戏缩放)))
-    #     箭头宽_hold = int(max(16, int(float(箭头宽_tap) * hold宽度系数)))
+    def _取手键方向基准锚点(
+        self,
+        方向: str,
+        锚点数据: Dict[str, Any],
+        输入: 渲染输入,
+        屏宽: int,
+    ) -> Tuple[int, int, int]:
+        方向 = str(方向 or "").strip().lower()
+        轨道中心列表 = list(锚点数据.get("轨道中心列表", []) or [])
+        判定线y列表 = list(锚点数据.get("判定线y列表", []) or [])
+        判定区宽度列表 = list(锚点数据.get("判定区宽度列表", []) or [])
+        while len(轨道中心列表) < 5:
+            轨道中心列表.append(0)
+        while len(判定线y列表) < 5:
+            判定线y列表.append(int(getattr(输入, "判定线y", 0) or 0))
+        while len(判定区宽度列表) < 5:
+            判定区宽度列表.append(
+                int(max(24, int(getattr(输入, "箭头目标宽", 64) or 64)))
+            )
 
-    #     while len(轨道中心列表) < 5:
-    #         轨道中心列表.append(0)
-    #     while len(判定线y列表) < 5:
-    #         判定线y列表.append(int(y判定))
+        if 方向 == "ll":
+            x = int(
+                锚点数据.get(
+                    "手左x",
+                    self._取手键方向x中心(
+                        "ll",
+                        轨道中心列表,
+                        int(getattr(输入, "箭头目标宽", 64) or 64),
+                    ),
+                )
+                or 0
+            )
+            y = int(锚点数据.get("手左y", 判定线y列表[0]) or 判定线y列表[0])
+            w = int(
+                max(
+                    16,
+                    int(
+                        锚点数据.get("手左宽", 判定区宽度列表[0])
+                        or 判定区宽度列表[0]
+                    ),
+                )
+            )
+        elif 方向 == "rr":
+            x = int(
+                锚点数据.get(
+                    "手右x",
+                    self._取手键方向x中心(
+                        "rr",
+                        轨道中心列表,
+                        int(getattr(输入, "箭头目标宽", 64) or 64),
+                    ),
+                )
+                or 0
+            )
+            y = int(锚点数据.get("手右y", 判定线y列表[4]) or 判定线y列表[4])
+            w = int(
+                max(
+                    16,
+                    int(
+                        锚点数据.get("手右宽", 判定区宽度列表[4])
+                        or 判定区宽度列表[4]
+                    ),
+                )
+            )
+        else:
+            x = int(锚点数据.get("手中x", 轨道中心列表[2]) or 轨道中心列表[2])
+            y = int(锚点数据.get("手中y", 判定线y列表[2]) or 判定线y列表[2])
+            w = int(
+                max(
+                    16,
+                    int(锚点数据.get("手中宽", 判定区宽度列表[2]) or 判定区宽度列表[2]),
+                )
+            )
 
-    #     # ✅ 上边界在屏幕外：允许未击中跑出屏幕
-    #     上边界 = -int(max(40, 箭头宽_tap * 2))
-    #     下边界 = int(y底 + max(40, 箭头宽_tap * 2))
+        半宽 = int(max(4, w // 2))
+        x = int(max(半宽, min(int(max(半宽, 屏宽 - 半宽)), int(x))))
+        return int(x), int(y), int(w)
 
-    #     可视秒 = float(max(1, (y底 - y判定))) / float(max(60.0, float(有效速度)))
-    #     提前秒 = 可视秒 + 1.0
+    def _取手键方向锚点(
+        self,
+        方向: str,
+        锚点数据: Dict[str, Any],
+        输入: 渲染输入,
+        屏宽: int,
+    ) -> Tuple[int, int, int]:
+        # 兼容保留：直接返回基准锚点，不再叠加历史 F8 调试偏移。
+        方向 = str(方向 or "").strip().lower()
+        return self._取手键方向基准锚点(方向, 锚点数据, 输入, 屏宽)
 
-    #     try:
-    #         按下数组 = pygame.key.get_pressed()
-    #     except Exception:
-    #         按下数组 = None
+    def _取手键方向9轨信息(
+        self,
+        方向: str,
+        屏幕: pygame.Surface,
+        输入: 渲染输入,
+        轨道中心列表: Optional[List[int]] = None,
+        判定线y列表: Optional[List[int]] = None,
+        锚点数据: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        方向 = self._归一化手键方向(方向)
+        if not 方向:
+            方向 = "tt"
 
-    #     轨道到按键列表 = (
-    #         dict(getattr(self, "_按键反馈轨道到按键列表", {}) or {})
-    #         if isinstance(getattr(self, "_按键反馈轨道到按键列表", None), dict)
-    #         else {}
-    #     )
-    #     if not 轨道到按键列表:
-    #         轨道到按键列表 = {
-    #             0: [pygame.K_1, pygame.K_KP1],
-    #             1: [pygame.K_7, pygame.K_KP7],
-    #             2: [pygame.K_5, pygame.K_KP5],
-    #             3: [pygame.K_9, pygame.K_KP9],
-    #             4: [pygame.K_3, pygame.K_KP3],
-    #         }
+        中心列表 = list(轨道中心列表 or [])
+        y列表 = [int(v) for v in list(判定线y列表 or [])]
+        布局锚点: Optional[Dict[str, Any]] = None
+        if len(中心列表) < 5 or len(y列表) < 5:
+            布局锚点 = self._取判定区实际锚点(屏幕, 输入)
+        if len(中心列表) < 5 and isinstance(布局锚点, dict):
+            try:
+                中心列表 = [
+                    int(v)
+                    for v in list(布局锚点.get("轨道中心列表", 中心列表) or 中心列表)[:5]
+                ]
+            except Exception:
+                pass
+        if len(y列表) < 5 and isinstance(布局锚点, dict):
+            try:
+                y列表 = [int(v) for v in list(布局锚点.get("判定线y列表", y列表) or y列表)[:5]]
+            except Exception:
+                pass
+        if len(中心列表) < 5:
+            try:
+                中心列表 = [int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]]
+            except Exception:
+                中心列表 = []
+        while len(中心列表) < 5:
+            中心列表.append(0 if not 中心列表 else int(中心列表[-1]))
 
-    #     def _轨道是否按下(轨道: int) -> bool:
-    #         if 按下数组 is None:
-    #             return False
-    #         for k in 轨道到按键列表.get(int(轨道), []):
-    #             try:
-    #                 if 按下数组[k]:
-    #                     return True
-    #             except Exception:
-    #                 continue
-    #         return False
+        if len(y列表) < 5:
+            基准y = int(getattr(输入, "判定线y", 0) or 0)
+            if isinstance(布局锚点, dict):
+                try:
+                    基准y = int(布局锚点.get("判定线y", 基准y) or 基准y)
+                except Exception:
+                    pass
+            y列表 = [int(基准y)] * 5
+        while len(y列表) < 5:
+            y列表.append(int(y列表[-1] if y列表 else 0))
 
-    #     # ✅ 新：队列+已命中表
-    #     self._确保命中映射缓存()
-    #     命中窗毫秒 = int(round(float(self._命中匹配窗秒) * 1000.0))
-    #     if 命中窗毫秒 < 40:
-    #         命中窗毫秒 = 40
-    #     if 命中窗毫秒 > 260:
-    #         命中窗毫秒 = 260
+        中键x = int(中心列表[2])
+        中键y = int(y列表[2])
+        屏宽 = int(屏幕.get_width())
 
-    #     # ✅ 清理已命中tap过期表 + 清理过老的命中队列
-    #     for 轨 in range(5):
-    #         表 = self._已命中tap过期表毫秒[轨]
-    #         if isinstance(表, dict) and 表:
-    #             for k in list(表.keys()):
-    #                 try:
-    #                     if 当前毫秒 > int(表.get(k, -1)):
-    #                         del 表[k]
-    #                 except Exception:
-    #                     try:
-    #                         del 表[k]
-    #                     except Exception:
-    #                         pass
+        手键锚点 = dict(锚点数据 or {})
+        if not 手键锚点:
+            try:
+                手键锚点 = dict(self._取手键锚点数据(屏幕, 输入) or {})
+            except Exception:
+                手键锚点 = {}
 
-    #         队列 = self._待命中队列毫秒[轨]
-    #         if isinstance(队列, list) and 队列:
-    #             # 超过 2 秒的输入基本不可能再匹配任何 note，直接丢掉
-    #             丢弃阈值 = int(当前毫秒 - 2000)
-    #             while 队列 and int(队列[0]) < 丢弃阈值:
-    #                 队列.pop(0)
+        手左x = int(手键锚点.get("手左x", 中键x) or 中键x)
+        手右x = int(手键锚点.get("手右x", 中键x) or 中键x)
+        手左宽 = int(max(16, int(手键锚点.get("手左宽", getattr(输入, "箭头目标宽", 64) or 64) or 64)))
+        手右宽 = int(max(16, int(手键锚点.get("手右宽", getattr(输入, "箭头目标宽", 64) or 64) or 64)))
+        中键宽 = int(max(16, int(手键锚点.get("手中宽", getattr(输入, "箭头目标宽", 64) or 64) or 64)))
 
-    #     活跃hold轨道: set[int] = set()
-    #     for i in range(5):
-    #         self._hold当前按下中[i] = False
+        # 9轨播放只采用“基准锚点”（判定区 key 实际位置），不吃手键调试偏移。
+        try:
+            手左x2, _手左y2, 手左宽2 = self._取手键方向基准锚点("ll", 手键锚点, 输入, 屏宽)
+            手左x = int(手左x2)
+            手左宽 = int(max(16, int(手左宽2)))
+        except Exception:
+            pass
+        try:
+            手右x2, _手右y2, 手右宽2 = self._取手键方向基准锚点("rr", 手键锚点, 输入, 屏宽)
+            手右x = int(手右x2)
+            手右宽 = int(max(16, int(手右宽2)))
+        except Exception:
+            pass
+        try:
+            _中键x2, _中键y2, 中键宽2 = self._取手键方向基准锚点("tt", 手键锚点, 输入, 屏宽)
+            中键宽 = int(max(16, int(中键宽2)))
+        except Exception:
+            pass
 
-    #     for 事件 in 输入.事件列表 or []:
-    #         try:
-    #             st = float(getattr(事件, "开始秒"))
-    #             ed = float(getattr(事件, "结束秒"))
-    #             轨道 = int(getattr(事件, "轨道序号"))
-    #             类型 = str(getattr(事件, "类型"))
-    #         except Exception:
-    #             continue
+        if 方向 == "ll":
+            x = int(手左x)
+            宽 = int(手左宽)
+        elif 方向 == "rr":
+            x = int(手右x)
+            宽 = int(手右宽)
+        else:
+            x = int(中键x)
+            宽 = int(中键宽)
 
-    #         if st < 当前秒 - 2.5 and ed < 当前秒 - 2.5:
-    #             continue
-    #         if st > 当前秒 + 提前秒:
-    #             break
-    #         if not (0 <= 轨道 < 5):
-    #             continue
+        半宽 = int(max(4, int(宽) // 2))
+        x = int(max(半宽, min(int(max(半宽, 屏宽 - 半宽)), int(x))))
 
-    #         x中心 = int(轨道中心列表[轨道])
-    #         当前轨判定y = int(判定线y列表[轨道])
+        return {
+            "方向": str(方向),
+            "播放轨道": int(self._手键方向到播放轨道索引(方向)),
+            "判定轨道": int(self._手键方向到判定轨道索引(方向)),
+            "x": int(x),
+            "y": int(中键y),
+            "宽": int(max(16, 宽)),
+        }
 
-    #         dy开始 = (st - 当前秒) * float(有效速度)
-    #         y开始 = float(当前轨判定y) + float(dy开始)
+    @staticmethod
+    def _钳制整数值(值: int, 最小值: int, 最大值: int) -> int:
+        if int(最大值) < int(最小值):
+            最大值 = int(最小值)
+        return int(max(int(最小值), min(int(最大值), int(值))))
 
-    #         st毫秒 = int(round(st * 1000.0))
+    def _取手键方向调试可视锚点(
+        self,
+        方向: str,
+        锚点数据: Dict[str, Any],
+        输入: 渲染输入,
+        屏宽: int,
+        屏高: int,
+    ) -> Tuple[int, int, int, int, int]:
+        原x, 原y, w = self._取手键方向锚点(方向, 锚点数据, 输入, int(屏宽))
+        半径 = int(max(10, min(26, int(w * 0.30))))
+        边距x = int(max(8, 半径 + 2))
+        边距y = int(max(8, 半径 + 2))
+        可视x = self._钳制整数值(
+            int(原x),
+            int(边距x),
+            int(max(int(边距x), int(屏宽) - int(边距x))),
+        )
+        可视y = self._钳制整数值(
+            int(原y),
+            int(边距y),
+            int(max(int(边距y), int(屏高) - int(边距y))),
+        )
+        return int(原x), int(原y), int(可视x), int(可视y), int(w)
 
-    #         # ---------- tap ----------
-    #         if abs(ed - st) < 1e-6 or 类型 == "tap":
-    #             if y开始 < float(上边界) or y开始 > float(下边界):
-    #                 continue
+    def _取手键方向调试命中矩形(
+        self,
+        方向: str,
+        锚点数据: Dict[str, Any],
+        输入: 渲染输入,
+        屏宽: int,
+        屏高: int,
+        字体: Optional[pygame.font.Font] = None,
+    ) -> pygame.Rect:
+        _原x, _原y, x, y, w = self._取手键方向调试可视锚点(
+            方向, 锚点数据, 输入, int(屏宽), int(屏高)
+        )
+        半径 = int(max(10, min(26, int(w * 0.30))))
+        命中半宽 = int(max(28, round(float(max(16, w)) * 0.52)))
+        命中矩形 = pygame.Rect(
+            int(x - 命中半宽 - 12),
+            int(y - 命中半宽 - 12),
+            int(命中半宽 * 2 + 24),
+            int(命中半宽 * 2 + 24),
+        )
+        if 字体 is not None:
+            标签y错位 = {
+                "ll": -20,
+                "tt": -38,
+                "bb": -2,
+                "rr": -20,
+            }
+            try:
+                dx, dy = self._取手键方向偏移(方向, 锚点宽=int(w))
+                标签 = f"{str(方向 or '').upper()} ({int(dx)},{int(dy)})"
+                文面 = 字体.render(标签, True, (255, 255, 255)).convert_alpha()
+                标签x = self._钳制整数值(
+                    int(x - 文面.get_width() // 2),
+                    4,
+                    int(max(4, int(屏宽) - 4 - 文面.get_width())),
+                )
+                标签y = self._钳制整数值(
+                    int(y - 半径 + int(标签y错位.get(str(方向 or "").lower(), -20))),
+                    4,
+                    int(max(4, int(屏高) - 4 - 文面.get_height())),
+                )
+                命中矩形.union_ip(
+                    pygame.Rect(
+                        int(标签x - 6),
+                        int(标签y - 4),
+                        int(文面.get_width() + 12),
+                        int(文面.get_height() + 8),
+                    )
+                )
+            except Exception:
+                pass
+        return 命中矩形.clip(
+            pygame.Rect(0, 0, int(max(1, 屏宽)), int(max(1, 屏高)))
+        )
 
-    #             # ✅ 命中判定：先看“已命中表”，不靠单槽位覆盖
-    #             已命中表 = self._已命中tap过期表毫秒[轨道]
-    #             命中匹配 = False
-    #             try:
-    #                 过期 = int(已命中表.get(st毫秒, -1))
-    #                 if 过期 > 0 and 当前毫秒 <= 过期:
-    #                     命中匹配 = True
-    #             except Exception:
-    #                 命中匹配 = False
+    def _更新手键锚点拖拽状态(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入, 锚点数据: Dict[str, Any]
+    ):
+        # 历史遗留：F8 手键锚点拖拽已下线。
+        return
+        try:
+            按键状态 = pygame.key.get_pressed()
+        except Exception:
+            按键状态 = None
+        当前F8按下 = False
+        if 按键状态 is not None:
+            try:
+                当前F8按下 = bool(按键状态[pygame.K_F8])
+            except Exception:
+                当前F8按下 = False
+        if bool(当前F8按下) and (not bool(self._手键锚点拖拽上次F8按下)):
+            if bool(self._手键锚点拖拽模式) and bool(
+                getattr(self, "_手键锚点配置脏标记", False)
+            ):
+                self._保存手键装饰校准配置()
+            self._手键锚点拖拽模式 = not bool(self._手键锚点拖拽模式)
+            self._手键锚点拖拽目标方向 = ""
+            self._手键锚点拖拽上次左键按下 = False
+        self._手键锚点拖拽上次F8按下 = bool(当前F8按下)
 
-    #             # ✅ 没命中则尝试从“命中队列”消费一次
-    #             if not 命中匹配:
-    #                 队列 = self._待命中队列毫秒[轨道]
+        if not bool(self._手键锚点拖拽模式):
+            self._手键锚点拖拽目标方向 = ""
+            self._手键锚点拖拽上次左键按下 = False
+            return
 
-    #                 # 丢掉早于本 note 窗口左边界的输入（不可能匹配本 note 或后续 note）
-    #                 左界 = int(st毫秒 - 命中窗毫秒)
-    #                 while 队列 and int(队列[0]) < 左界:
-    #                     队列.pop(0)
+        try:
+            鼠标x, 鼠标y = pygame.mouse.get_pos()
+            鼠标左键按下 = bool(pygame.mouse.get_pressed(3)[0])
+        except Exception:
+            鼠标x, 鼠标y = 0, 0
+            鼠标左键按下 = False
 
-    #                 if 队列:
-    #                     hit_ms = int(队列[0])
-    #                     if abs(hit_ms - st毫秒) <= 命中窗毫秒:
-    #                         # ✅ 消费这次命中
-    #                         队列.pop(0)
-    #                         命中匹配 = True
+        屏宽 = int(max(1, int(屏幕.get_width())))
+        屏高 = int(max(1, int(屏幕.get_height())))
+        锚点表: Dict[str, Tuple[int, int, int]] = {}
+        可视锚点表: Dict[str, Tuple[int, int, int]] = {}
+        命中矩形表: Dict[str, pygame.Rect] = {}
+        try:
+            调试字体 = pygame.font.SysFont(["Microsoft YaHei", "SimHei", "Arial"], 16)
+        except Exception:
+            try:
+                调试字体 = pygame.font.Font(None, 16)
+            except Exception:
+                调试字体 = None
+        for 方向 in ("ll", "tt", "bb", "rr"):
+            原x, 原y, 可视x, 可视y, w = self._取手键方向调试可视锚点(
+                方向, 锚点数据, 输入, int(屏宽), int(屏高)
+            )
+            锚点表[方向] = (int(原x), int(原y), int(w))
+            可视锚点表[方向] = (int(可视x), int(可视y), int(w))
+            命中矩形表[方向] = self._取手键方向调试命中矩形(
+                方向,
+                锚点数据,
+                输入,
+                int(屏宽),
+                int(屏高),
+                字体=调试字体,
+            )
 
-    #                         # ✅ 记录这个 note 已命中：保证它穿过判定线后立刻消失
-    #                         # 过期给足 600ms~1000ms，防止穿越判定线前表就过期
-    #                         过期候选1 = int(st毫秒 + 1000)
-    #                         过期候选2 = int(当前毫秒 + 650)
-    #                         已命中表[int(st毫秒)] = int(max(过期候选1, 过期候选2))
+        if bool(鼠标左键按下) and (not bool(self._手键锚点拖拽上次左键按下)):
+            吸附阈值 = int(max(24, int(getattr(输入, "箭头目标宽", 64) or 64) * 1.3))
+            最近方向 = ""
+            最近距离平方 = float(吸附阈值 * 吸附阈值 + 1)
+            命中方向列表 = [
+                方向
+                for 方向, 命中矩形 in 命中矩形表.items()
+                if isinstance(命中矩形, pygame.Rect)
+                and 命中矩形.collidepoint(int(鼠标x), int(鼠标y))
+            ]
+            if 命中方向列表:
+                for 方向 in 命中方向列表:
+                    ax, ay, _aw = 可视锚点表.get(str(方向), (0, 0, 0))
+                    dx = float(int(鼠标x) - int(ax))
+                    dy = float(int(鼠标y) - int(ay))
+                    距离平方 = float(dx * dx + dy * dy)
+                    if 距离平方 < 最近距离平方:
+                        最近距离平方 = 距离平方
+                        最近方向 = str(方向)
+            for 方向, (ax, ay, aw) in 可视锚点表.items():
+                if 最近方向:
+                    break
+                额外半径 = int(max(12, int(aw * 0.55)))
+                阈值平方 = float((吸附阈值 + 额外半径) ** 2)
+                dx = float(int(鼠标x) - int(ax))
+                dy = float(int(鼠标y) - int(ay))
+                距离平方 = float(dx * dx + dy * dy)
+                if 距离平方 <= 阈值平方 and 距离平方 < 最近距离平方:
+                    最近距离平方 = 距离平方
+                    最近方向 = str(方向)
+            self._手键锚点拖拽目标方向 = str(最近方向 or "")
 
-    #             # ✅ 命中的 tap：穿过当前轨判定线就隐藏
-    #             if 命中匹配 and (y开始 < float(当前轨判定y)):
-    #                 continue
+        目标方向 = str(getattr(self, "_手键锚点拖拽目标方向", "") or "")
+        if bool(鼠标左键按下) and 目标方向 in ("ll", "tt", "bb", "rr"):
+            基准x, 基准y, 基准宽 = self._取手键方向基准锚点(
+                目标方向, 锚点数据, 输入, int(屏宽)
+            )
+            self._设置手键方向偏移(
+                目标方向,
+                int(鼠标x) - int(基准x),
+                int(鼠标y) - int(基准y),
+                参考宽=int(基准宽),
+            )
 
-    #             if 全隐模式:
-    #                 continue
-    #             if 半隐模式 and (y开始 > float(半隐y阈值)):
-    #                 continue
+        if (not bool(鼠标左键按下)) and bool(self._手键锚点拖拽上次左键按下):
+            self._手键锚点拖拽目标方向 = ""
+            if bool(getattr(self, "_手键锚点配置脏标记", False)):
+                self._保存手键装饰校准配置()
 
-    #             x绘制 = float(x中心)
-    #             旋转角度 = 0.0
-    #             if "摇摆" in 轨迹模式:
-    #                 # 节奏摆动：基于时间连续变化，避免“抖动感”；位移允许超出轨道宽度。
-    #                 主振幅 = max(16.0, float(箭头宽_tap) * 0.52)
-    #                 主相位 = (
-    #                     float(当前秒) * (math.pi * 2.0) * 2.05
-    #                     + float(st) * 0.55
-    #                     + float(轨道) * 0.72
-    #                 )
-    #                 次相位 = float(主相位) * 0.52 + float(轨道) * 0.35
-    #                 x绘制 = (
-    #                     float(x中心)
-    #                     + math.sin(主相位) * 主振幅
-    #                     + math.sin(次相位) * (主振幅 * 0.22)
-    #                 )
-    #             elif "旋转" in 轨迹模式:
-    #                 旋转角度 = float(
-    #                     (当前秒 * 360.0 * 1.25 + float(st) * 140.0 + float(轨道) * 35.0)
-    #                     % 360.0
-    #                 )
+        self._手键锚点拖拽上次左键按下 = bool(鼠标左键按下)
 
-    #             self._画tap(
-    #                 屏幕,
-    #                 图集,
-    #                 轨道,
-    #                 int(round(x绘制)),
-    #                 y开始,
-    #                 int(箭头宽_tap),
-    #                 旋转角度=旋转角度,
-    #             )
-    #             continue
+    def _绘制手键拖拽调试层(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入, 锚点数据: Dict[str, Any]
+    ):
+        # 历史遗留：F8 手键锚点拖拽已下线。
+        return
+        if not bool(getattr(self, "_手键锚点拖拽模式", False)):
+            return
+        try:
+            字体 = pygame.font.SysFont(["Microsoft YaHei", "SimHei", "Arial"], 16)
+        except Exception:
+            字体 = pygame.font.Font(None, 16)
+        颜色表 = {
+            "ll": (89, 195, 255),
+            "tt": (255, 224, 80),
+            "bb": (140, 255, 170),
+            "rr": (255, 156, 96),
+        }
+        标签y错位 = {
+            "ll": -20,
+            "tt": -38,
+            "bb": -2,
+            "rr": -20,
+        }
+        屏宽 = int(max(1, int(屏幕.get_width())))
+        屏高 = int(max(1, int(屏幕.get_height())))
+        拖拽目标 = str(getattr(self, "_手键锚点拖拽目标方向", "") or "")
+        偏移摘要行: List[Tuple[str, Tuple[int, int, int], int, int]] = []
+        for 方向 in ("ll", "tt", "bb", "rr"):
+            原x, 原y, x, y, w = self._取手键方向调试可视锚点(
+                方向, 锚点数据, 输入, int(屏宽), int(屏高)
+            )
+            基准x, 基准y, _基准宽 = self._取手键方向基准锚点(
+                方向, 锚点数据, 输入, int(屏宽)
+            )
+            基准可视x = self._钳制整数值(int(基准x), 0, int(max(0, 屏宽 - 1)))
+            基准可视y = self._钳制整数值(int(基准y), 0, int(max(0, 屏高 - 1)))
+            半径 = int(max(10, min(26, int(w * 0.30))))
+            锚点框半宽 = int(max(18, round(float(max(16, w)) * 0.48)))
+            颜色 = 颜色表.get(方向, (255, 255, 255))
+            外圈宽度 = 3 if 方向 == 拖拽目标 else 2
+            pygame.draw.rect(
+                屏幕,
+                颜色,
+                pygame.Rect(
+                    int(x - 锚点框半宽),
+                    int(y - 锚点框半宽),
+                    int(锚点框半宽 * 2),
+                    int(锚点框半宽 * 2),
+                ),
+                1 if 方向 != 拖拽目标 else 2,
+                border_radius=8,
+            )
+            pygame.draw.circle(屏幕, 颜色, (int(x), int(y)), int(半径), int(外圈宽度))
+            if 方向 == 拖拽目标:
+                pygame.draw.circle(屏幕, 颜色, (int(x), int(y)), int(max(2, 半径 // 4)), 0)
+            pygame.draw.line(
+                屏幕,
+                颜色,
+                (int(基准可视x - 8), int(基准可视y)),
+                (int(基准可视x + 8), int(基准可视y)),
+                1,
+            )
+            pygame.draw.line(
+                屏幕,
+                颜色,
+                (int(基准可视x), int(基准可视y - 8)),
+                (int(基准可视x), int(基准可视y + 8)),
+                1,
+            )
+            if int(基准x) != int(x) or int(基准y) != int(y):
+                pygame.draw.line(
+                    屏幕,
+                    颜色,
+                    (int(基准可视x), int(基准可视y)),
+                    (int(x), int(y)),
+                    1,
+                )
+            try:
+                dx, dy = self._取手键方向偏移(方向, 锚点宽=int(w))
+                标签 = f"{方向.upper()} ({int(dx)},{int(dy)})"
+                文面 = 字体.render(标签, True, 颜色).convert_alpha()
+                标签x = self._钳制整数值(
+                    int(x - 文面.get_width() // 2),
+                    4,
+                    int(max(4, 屏宽 - 4 - 文面.get_width())),
+                )
+                标签y = self._钳制整数值(
+                    int(y - 半径 + int(标签y错位.get(方向, -20))),
+                    4,
+                    int(max(4, 屏高 - 4 - 文面.get_height())),
+                )
+                屏幕.blit(文面, (int(标签x), int(标签y)))
+                偏移摘要行.append((方向, 颜色, int(dx), int(dy)))
+            except Exception:
+                pass
+        try:
+            说明 = "F8:手键锚点拖拽开关 | 鼠标左键拖动锚点区域 | 自动保存"
+            说明图 = 字体.render(说明, True, (255, 240, 160)).convert_alpha()
+            起始y = max(8, int(屏幕.get_height() * 0.08))
+            屏幕.blit(说明图, (16, 起始y))
+            行y = int(起始y + 说明图.get_height() + 2)
+            for 方向, 颜色, dx, dy in 偏移摘要行:
+                摘要 = f"{方向.upper()}: ({int(dx)},{int(dy)})"
+                摘要图 = 字体.render(摘要, True, 颜色).convert_alpha()
+                屏幕.blit(摘要图, (16, int(行y)))
+                行y += int(摘要图.get_height() + 1)
+        except Exception:
+            pass
 
-    #         # ---------- hold ----------
-    #         dy结束 = (ed - 当前秒) * float(有效速度)
-    #         y结束 = float(当前轨判定y) + float(dy结束)
+    def _绘制手键装饰音符(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+        # 历史遗留：手键音符已合并至 _绘制音符 的9轨播放链路。
+        return
+        原始手键事件 = getattr(输入, "手键装饰事件列表", []) or []
+        手键锚点数据 = self._取手键锚点数据(屏幕, 输入)
+        self._更新手键锚点拖拽状态(屏幕, 输入, dict(手键锚点数据 or {}))
+        if (not 原始手键事件) and (not bool(getattr(self, "_手键锚点拖拽模式", False))):
+            return
 
-    #         seg_top = float(min(y开始, y结束))
-    #         seg_bot = float(max(y开始, y结束))
-    #         if seg_bot < float(上边界) or seg_top > float(下边界):
-    #             continue
+        图集 = self._皮肤包.arrow
+        if 图集 is None and bool(原始手键事件):
+            return
 
-    #         是否命中hold = False
-    #         命中开始 = float(self._命中hold开始谱面秒[轨道])
-    #         命中结束 = float(self._命中hold结束谱面秒[轨道])
+        参数 = self._取游戏区参数()
+        游戏缩放 = float(参数.get("缩放", 1.0))
+        y偏移 = float(参数.get("y偏移", 0.0))
+        hold宽度系数 = float(参数.get("hold宽度系数", 0.96))
+        布局锚点 = self._取判定区实际锚点(屏幕, 输入)
 
-    #         if 命中结束 > -1.0 and (当前秒 <= 命中结束 + 1.2):
-    #             if abs(st - 命中开始) <= max(0.08, float(self._命中匹配窗秒) * 2.0):
-    #                 是否命中hold = True
+        当前秒 = float(输入.当前谱面秒)
+        渲染秒 = float(self._取渲染平滑谱面秒(当前秒))
+        视觉偏移秒 = float(getattr(输入, "谱面视觉偏移秒", 0.0) or 0.0)
+        视觉偏移绝对值 = abs(float(视觉偏移秒))
+        秒转beat函数 = getattr(输入, "BPM变速秒转beat函数", None)
+        BPM变速像素每拍 = float(getattr(输入, "BPM变速像素每拍", 0.0) or 0.0)
+        BPM变速开启 = bool(callable(秒转beat函数)) and float(BPM变速像素每拍) > 0.0
+        BPM变速合成脉冲开启 = bool(
+            getattr(输入, "BPM变速合成脉冲开启", False)
+        )
 
-    #         # ✅ hold 也用队列消费（解决 tap/hold 交错时被覆盖的问题）
-    #         if not 是否命中hold:
-    #             队列 = self._待命中队列毫秒[轨道]
-    #             左界 = int(st毫秒 - 命中窗毫秒)
-    #             while 队列 and int(队列[0]) < 左界:
-    #                 队列.pop(0)
+        def _变速显示beat(beat值: float) -> float:
+            结果 = float(beat值)
+            if not bool(BPM变速合成脉冲开启):
+                return 结果
+            整拍 = math.floor(float(结果))
+            相位 = float(结果) - float(整拍)
+            加速区间 = 0.12
+            加速倍率 = 4.0
+            减速倍率 = (1.0 - 加速区间 * 加速倍率) / max(
+                0.001, 1.0 - 加速区间
+            )
+            if float(相位) < float(加速区间):
+                return float(整拍) + float(相位) * float(加速倍率)
+            return float(整拍) + float(加速区间) * float(加速倍率) + (
+                float(相位) - float(加速区间)
+            ) * float(减速倍率)
 
-    #             if 队列:
-    #                 hit_ms = int(队列[0])
-    #                 if abs(hit_ms - st毫秒) <= 命中窗毫秒:
-    #                     # 只要结束秒明显晚于开始秒，就按 hold 消费。
-    #                     # 短 hold 也必须能命中，不能再被 0.15s 门槛吞掉。
-    #                     if float(ed - st) > 1e-6:
-    #                         队列.pop(0)
-    #                         self._命中hold开始谱面秒[轨道] = float(st)
-    #                         self._命中hold结束谱面秒[轨道] = float(ed)
-    #                         self._击中特效开始谱面秒[轨道] = float(st)
-    #                         self._击中特效循环到谱面秒[轨道] = float(ed)
-    #                         是否命中hold = True
+        隐藏模式 = str(getattr(输入, "隐藏模式", "关闭") or "关闭")
+        全隐模式 = bool("全隐" in 隐藏模式)
+        半隐模式 = (not 全隐模式) and bool("半隐" in 隐藏模式)
+        半隐y阈值 = int(屏幕.get_height() * 0.5)
 
-    #         是否绘制头 = True
-    #         if 是否命中hold and (float(st) <= 当前秒 <= float(ed)):
-    #             活跃hold轨道.add(int(轨道))
-    #             是否按下 = _轨道是否按下(int(轨道))
-    #             self._hold当前按下中[int(轨道)] = bool(是否按下)
-    #             self._hold松手系统秒[int(轨道)] = None
+        轨道中心列表 = list(getattr(输入, "轨道中心列表", []) or [])
+        判定线y列表: List[int] = []
+        if isinstance(布局锚点, dict):
+            try:
+                轨道中心列表 = list(
+                    布局锚点.get("轨道中心列表", 轨道中心列表) or 轨道中心列表
+                )
+            except Exception:
+                pass
+            try:
+                判定线y列表 = [
+                    int(v) for v in list(布局锚点.get("判定线y列表", []) or [])[:5]
+                ]
+            except Exception:
+                判定线y列表 = []
+            try:
+                y判定 = int(布局锚点.get("判定线y", 0) or 0)
+            except Exception:
+                y判定 = int(float(输入.判定线y) + y偏移)
+        else:
+            y判定 = int(float(输入.判定线y) + y偏移)
 
-    #         if 全隐模式:
-    #             continue
+        y底 = int(float(输入.底部y) + y偏移)
+        有效速度 = float(输入.滚动速度px每秒) * 游戏缩放
+        箭头宽_tap = int(max(18, int(float(输入.箭头目标宽) * 游戏缩放)))
+        箭头宽_hold = int(max(16, int(float(箭头宽_tap) * hold宽度系数)))
 
-    #         绘制下边界 = int(下边界)
-    #         if 半隐模式:
-    #             绘制下边界 = int(min(int(绘制下边界), int(半隐y阈值)))
-    #             if min(float(y开始), float(y结束)) > float(半隐y阈值):
-    #                 continue
+        while len(轨道中心列表) < 5:
+            轨道中心列表.append(0)
+        while len(判定线y列表) < 5:
+            判定线y列表.append(int(y判定))
 
-    #         self._画hold(
-    #             屏幕,
-    #             图集,
-    #             轨道,
-    #             x中心,
-    #             y开始,
-    #             y结束,
-    #             int(箭头宽_hold),
-    #             判定线y=int(当前轨判定y),
-    #             是否命中hold=bool(是否命中hold),
-    #             上边界=int(上边界),
-    #             下边界=int(绘制下边界),
-    #             是否绘制头=bool(是否绘制头),
-    #         )
+        上边界 = -int(max(40, 箭头宽_tap * 2))
+        下边界 = int(y底 + max(40, 箭头宽_tap * 2))
+        可视秒 = float(max(1, (y底 - y判定))) / float(max(60.0, float(有效速度)))
+        提前秒 = 可视秒 + 1.0 + float(视觉偏移绝对值)
+        当前可视beat = 0.0
+        渲染beat = 0.0
+        可视前beat = 0.0
+        可视后beat = 0.0
+        if BPM变速开启 and callable(秒转beat函数) and BPM变速像素每拍 > 0.0:
+            try:
+                当前可视beat = float(
+                    _变速显示beat(
+                        float(秒转beat函数(float(当前秒) - float(视觉偏移秒)))
+                    )
+                )
+                渲染beat = float(
+                    _变速显示beat(
+                        float(秒转beat函数(float(渲染秒) - float(视觉偏移秒)))
+                    )
+                )
+                可视前beat = float(max(1, (y底 - y判定))) / float(BPM变速像素每拍)
+                可视后beat = float(
+                    max(1, max(0, y判定 - 上边界))
+                ) / float(BPM变速像素每拍)
+            except Exception:
+                BPM变速开启 = False
 
-    #     for i in range(5):
-    #         if i not in 活跃hold轨道:
-    #             self._hold松手系统秒[i] = None
-    #             self._hold当前按下中[i] = False
+        if isinstance(原始手键事件, list):
+            手键事件列表 = 原始手键事件
+        else:
+            手键事件列表 = list(原始手键事件)
+        缓存 = self._取手键装饰事件渲染缓存(手键事件列表)
+        缓存事件列表 = 缓存.get("事件", []) or []
+        开始秒列表 = 缓存.get("开始秒列表", []) or []
+        开始beat列表 = 缓存.get("开始beat列表", []) or []
+        try:
+            最大持续秒 = float(缓存.get("最大持续秒", 0.0) or 0.0)
+        except Exception:
+            最大持续秒 = 0.0
+        try:
+            最大持续beat = float(缓存.get("最大持续beat", 0.0) or 0.0)
+        except Exception:
+            最大持续beat = 0.0
 
-    #     for i in range(5):
-    #         if (
-    #             float(self._命中hold结束谱面秒[i]) > -1.0
-    #             and 当前秒 > float(self._命中hold结束谱面秒[i]) + 2.0
-    #         ):
-    #             self._命中hold开始谱面秒[i] = -999.0
-    #             self._命中hold结束谱面秒[i] = -999.0
-    #             if float(self._击中特效循环到谱面秒[i]) > -1.0:
-    #                 self._击中特效循环到谱面秒[i] = -999.0
+        if BPM变速开启:
+            查找起点beat = float(
+                当前可视beat - 可视后beat - max(0.0, 最大持续beat) - 1.0
+            )
+            起始索引 = int(max(0, bisect.bisect_left(开始beat列表, 查找起点beat)))
+        else:
+            查找起点秒 = float(
+                当前秒 - 2.5 - max(0.0, 最大持续秒) - float(视觉偏移绝对值) - 0.05
+            )
+            起始索引 = int(max(0, bisect.bisect_left(开始秒列表, 查找起点秒)))
+
+        for st, ed, st_beat, ed_beat, 方向, 类型 in 缓存事件列表[起始索引:]:
+            显示开始秒 = float(st) + float(视觉偏移秒)
+            显示结束秒 = float(ed) + float(视觉偏移秒)
+            if BPM变速开启:
+                显示开始beat = float(_变速显示beat(float(st_beat)))
+                显示结束beat = float(_变速显示beat(float(ed_beat)))
+                if float(显示开始beat) > float(当前可视beat + 可视前beat + 1.0):
+                    break
+                if float(显示结束beat) < float(当前可视beat - 可视后beat - 1.0):
+                    continue
+            else:
+                if 显示开始秒 > 当前秒 + 提前秒:
+                    break
+                if (
+                    显示开始秒 < 当前秒 - 2.5 - float(视觉偏移绝对值)
+                    and 显示结束秒 < 当前秒 - 2.5 - float(视觉偏移绝对值)
+                ):
+                    continue
+
+            判定轨道 = int(self._手键方向到判定轨道索引(方向))
+            x中心, 当前轨判定y, 锚点宽 = self._取手键方向锚点(
+                str(方向),
+                dict(手键锚点数据 or {}),
+                输入,
+                int(屏幕.get_width()),
+            )
+            # 以当前判定区 key 图标为基准等比缩放，确保随 UI 缩放同步变化。
+            基准宽 = int(max(12, int(round(float(锚点宽)))))
+            手键箭头宽_tap = int(max(12, int(round(float(基准宽) * 0.88))))
+            手键箭头宽_hold = int(
+                max(12, int(round(float(手键箭头宽_tap) * float(hold宽度系数))))
+            )
+
+            if BPM变速开启:
+                y开始 = float(当前轨判定y) + (
+                    float(显示开始beat) - float(渲染beat)
+                ) * float(BPM变速像素每拍)
+            else:
+                dy开始 = (显示开始秒 - 渲染秒) * float(有效速度)
+                y开始 = float(当前轨判定y) + float(dy开始)
+
+            if abs(float(ed - st)) < 1e-6 or 类型 == "tap":
+                if y开始 < float(上边界) or y开始 > float(下边界):
+                    continue
+                # 手键是“自动命中”：过判定线后不再显示。
+                if float(当前秒) >= float(显示开始秒) - 0.001:
+                    continue
+                if 全隐模式:
+                    continue
+                if 半隐模式 and (y开始 > float(半隐y阈值)):
+                    continue
+                self._画tap(
+                    屏幕,
+                    图集,
+                    int(判定轨道),
+                    int(x中心),
+                    float(y开始),
+                    int(手键箭头宽_tap),
+                    旋转角度=0.0,
+                    方位码=str(方向),
+                    强制黑色透明=True,
+                )
+                continue
+
+            if BPM变速开启:
+                y结束 = float(当前轨判定y) + (
+                    float(显示结束beat) - float(渲染beat)
+                ) * float(BPM变速像素每拍)
+            else:
+                dy结束 = (显示结束秒 - 渲染秒) * float(有效速度)
+                y结束 = float(当前轨判定y) + float(dy结束)
+
+            seg_top = float(min(y开始, y结束))
+            seg_bot = float(max(y开始, y结束))
+            if seg_bot < float(上边界) or seg_top > float(下边界):
+                continue
+            if 全隐模式:
+                continue
+
+            绘制下边界 = int(下边界)
+            if 半隐模式:
+                绘制下边界 = int(min(int(绘制下边界), int(半隐y阈值)))
+                if min(float(y开始), float(y结束)) > float(半隐y阈值):
+                    continue
+
+            self._画hold(
+                屏幕,
+                图集,
+                int(判定轨道),
+                int(x中心),
+                float(y开始),
+                float(y结束),
+                当前谱面秒=float(当前秒),
+                结束谱面秒=float(显示结束秒),
+                箭头宽=int(手键箭头宽_hold),
+                判定线y=int(当前轨判定y),
+                是否命中hold=bool(float(当前秒) >= float(显示开始秒) - 0.001),
+                上边界=int(上边界),
+                下边界=int(绘制下边界),
+                是否绘制头=True,
+                方位码=str(方向),
+                强制黑色透明=True,
+            )
+        self._绘制手键拖拽调试层(屏幕, 输入, dict(手键锚点数据 or {}))
 
     def _绘制音符(self, 屏幕: pygame.Surface, 输入: 渲染输入):
         图集 = self._皮肤包.arrow
@@ -5687,6 +6931,179 @@ class 谱面渲染器:
                 是否绘制头=bool(是否绘制头),
             )
 
+        # 手键装饰并入 9 轨播放体系（仅播放，不参与判定链）
+        原始手键列表 = getattr(输入, "手键装饰事件列表", []) or []
+        if bool(原始手键列表):
+            手键锚点数据 = (
+                self._取手键锚点数据(屏幕, 输入)
+                if hasattr(self, "_取手键锚点数据")
+                else {}
+            )
+            if not isinstance(手键锚点数据, dict):
+                手键锚点数据 = {}
+
+            def _取手键播放信息(方向: Any) -> Dict[str, Any]:
+                try:
+                    return dict(
+                        self._取手键方向9轨信息(
+                            str(方向 or ""),
+                            屏幕,
+                            输入,
+                            轨道中心列表=list(轨道中心列表),
+                            判定线y列表=list(判定线y列表),
+                            锚点数据=dict(手键锚点数据 or {}),
+                        )
+                        or {}
+                    )
+                except Exception:
+                    return {
+                        "方向": str(方向 or ""),
+                        "播放轨道": int(self._手键方向到播放轨道索引(str(方向 or ""))),
+                        "判定轨道": int(self._手键方向到判定轨道索引(str(方向 or ""))),
+                        "x": int(轨道中心列表[2] if len(轨道中心列表) >= 3 else 0),
+                        "y": int(判定线y列表[2] if len(判定线y列表) >= 3 else y判定),
+                        "宽": int(max(16, int(getattr(输入, "箭头目标宽", 64) or 64))),
+                    }
+
+            if isinstance(原始手键列表, list):
+                手键列表引用 = 原始手键列表
+            else:
+                手键列表引用 = list(原始手键列表)
+            手键缓存 = self._取手键装饰事件渲染缓存(手键列表引用)
+            手键事件列表 = 手键缓存.get("事件", []) or []
+            手键开始秒列表 = 手键缓存.get("开始秒列表", []) or []
+            手键开始beat列表 = 手键缓存.get("开始beat列表", []) or []
+            try:
+                手键最大持续秒 = float(手键缓存.get("最大持续秒", 0.0) or 0.0)
+            except Exception:
+                手键最大持续秒 = 0.0
+            try:
+                手键最大持续beat = float(手键缓存.get("最大持续beat", 0.0) or 0.0)
+            except Exception:
+                手键最大持续beat = 0.0
+
+            if BPM变速开启:
+                手键查找起点beat = float(
+                    当前可视beat - 可视后beat - max(0.0, 手键最大持续beat) - 1.0
+                )
+                手键起始索引 = int(
+                    max(0, bisect.bisect_left(手键开始beat列表, 手键查找起点beat))
+                )
+            else:
+                手键查找起点秒 = float(
+                    当前秒 - 2.5 - max(0.0, 手键最大持续秒) - float(视觉偏移绝对值) - 0.05
+                )
+                手键起始索引 = int(
+                    max(0, bisect.bisect_left(手键开始秒列表, 手键查找起点秒))
+                )
+
+            for st, ed, st_beat, ed_beat, 方向, 类型 in 手键事件列表[手键起始索引:]:
+                显示开始秒 = float(st) + float(视觉偏移秒)
+                显示结束秒 = float(ed) + float(视觉偏移秒)
+
+                if BPM变速开启:
+                    显示开始beat = float(_变速显示beat(float(st_beat)))
+                    显示结束beat = float(_变速显示beat(float(ed_beat)))
+                    if float(显示开始beat) > float(当前可视beat + 可视前beat + 1.0):
+                        break
+                    if float(显示结束beat) < float(当前可视beat - 可视后beat - 1.0):
+                        continue
+                else:
+                    if 显示开始秒 > 当前秒 + 提前秒:
+                        break
+                    if (
+                        显示开始秒 < 当前秒 - 2.5 - float(视觉偏移绝对值)
+                        and 显示结束秒 < 当前秒 - 2.5 - float(视觉偏移绝对值)
+                    ):
+                        continue
+
+                播放信息 = _取手键播放信息(方向)
+                判定轨道 = int(播放信息.get("判定轨道", 2) or 2)
+                if not (0 <= int(判定轨道) < 5):
+                    continue
+                x中心 = int(播放信息.get("x", 轨道中心列表[2] if len(轨道中心列表) >= 3 else 0) or 0)
+                当前轨判定y = int(播放信息.get("y", 判定线y列表[2] if len(判定线y列表) >= 3 else y判定) or y判定)
+                绘制方位 = str(播放信息.get("方向", 方向) or 方向 or "")
+                手键基准宽 = int(max(12, int(播放信息.get("宽", 箭头宽_tap) or 箭头宽_tap)))
+                手键箭头宽_tap = int(max(12, int(round(float(手键基准宽) * 0.88))))
+                手键箭头宽_hold = int(
+                    max(12, int(round(float(手键箭头宽_tap) * float(hold宽度系数))))
+                )
+
+                if BPM变速开启:
+                    y开始 = float(当前轨判定y) + (
+                        float(显示开始beat) - float(渲染beat)
+                    ) * float(BPM变速像素每拍)
+                else:
+                    dy开始 = (显示开始秒 - 渲染秒) * float(有效速度)
+                    y开始 = float(当前轨判定y) + float(dy开始)
+
+                if abs(float(ed - st)) < 1e-6 or str(类型 or "").strip().lower() == "tap":
+                    if y开始 < float(上边界) or y开始 > float(下边界):
+                        continue
+                    # 手键装饰是自动播放，过判定线后不再显示。
+                    if float(当前秒) >= float(显示开始秒) - 0.001:
+                        continue
+                    if 全隐模式:
+                        continue
+                    if 半隐模式 and (y开始 > float(半隐y阈值)):
+                        continue
+                    self._画tap(
+                        屏幕,
+                        图集,
+                        int(判定轨道),
+                        int(x中心),
+                        float(y开始),
+                        int(手键箭头宽_tap),
+                        旋转角度=0.0,
+                        方位码=str(绘制方位),
+                        强制黑色透明=True,
+                    )
+                    continue
+
+                if BPM变速开启:
+                    y结束 = float(当前轨判定y) + (
+                        float(显示结束beat) - float(渲染beat)
+                    ) * float(BPM变速像素每拍)
+                else:
+                    dy结束 = (显示结束秒 - 渲染秒) * float(有效速度)
+                    y结束 = float(当前轨判定y) + float(dy结束)
+
+                seg_top = float(min(y开始, y结束))
+                seg_bot = float(max(y开始, y结束))
+                if seg_bot < float(上边界) or seg_top > float(下边界):
+                    continue
+                if 全隐模式:
+                    continue
+
+                if float(当前秒) >= float(显示结束秒) - 0.001:
+                    continue
+
+                绘制下边界 = int(下边界)
+                if 半隐模式:
+                    绘制下边界 = int(min(int(绘制下边界), int(半隐y阈值)))
+                    if min(float(y开始), float(y结束)) > float(半隐y阈值):
+                        continue
+
+                self._画hold(
+                    屏幕,
+                    图集,
+                    int(判定轨道),
+                    int(x中心),
+                    float(y开始),
+                    float(y结束),
+                    当前谱面秒=float(当前秒),
+                    结束谱面秒=float(显示结束秒),
+                    箭头宽=int(手键箭头宽_hold),
+                    判定线y=int(当前轨判定y),
+                    是否命中hold=bool(float(当前秒) >= float(显示开始秒) - 0.001),
+                    上边界=int(上边界),
+                    下边界=int(绘制下边界),
+                    是否绘制头=True,
+                    方位码=str(绘制方位),
+                    强制黑色透明=True,
+                )
+
         for i in range(5):
             if i not in 活跃hold轨道:
                 self._hold松手系统秒[i] = None
@@ -5711,16 +7128,31 @@ class 谱面渲染器:
         y: float,
         箭头宽: int,
         旋转角度: float = 0.0,
+        方位码: Optional[str] = None,
+        强制黑色透明: bool = False,
     ):
-        方位 = self._轨道到arrow方位码(轨道)
-        名 = f"arrow_body_{方位}.png"
-        图 = 图集.取(名)
+        方位 = self._方向到arrow方位码(
+            方位码 if str(方位码 or "").strip() else self._轨道到arrow方位码(轨道)
+        )
+        名 = ""
+        图 = None
+        for 候选方位 in self._方向到arrow候选方位列表(方位):
+            候选名 = f"arrow_body_{候选方位}.png"
+            候选图 = 图集.取(候选名)
+            if 候选图 is not None:
+                名 = str(候选名)
+                图 = 候选图
+                break
         if 图 is None:
             return
         图2 = self._取缩放图(f"arrow:{名}:{箭头宽}", 图, 箭头宽)
+        if bool(强制黑色透明):
+            图2 = self._取去黑底图(图2) or 图2
         if abs(float(旋转角度)) > 0.01:
             try:
                 图3 = pygame.transform.rotate(图2, -float(旋转角度)).convert_alpha()
+                if bool(强制黑色透明):
+                    图3 = self._取去黑底图(图3) or 图3
                 屏幕.blit(
                     图3,
                     (
@@ -5751,13 +7183,25 @@ class 谱面渲染器:
         上边界: int,
         下边界: int,
         是否绘制头: bool,
+        方位码: Optional[str] = None,
+        强制黑色透明: bool = False,
     ):
-        方位 = self._轨道到arrow方位码(轨道)
+        方位 = self._方向到arrow方位码(
+            方位码 if str(方位码 or "").strip() else self._轨道到arrow方位码(轨道)
+        )
+        候选方位列表 = self._方向到arrow候选方位列表(方位)
 
-        头名 = f"arrow_body_{方位}.png"
-        罩名 = f"arrow_mask_{方位}.png"
-        身名 = f"arrow_repeat_{方位}.png"
-        尾名 = f"arrow_tail_{方位}.png"
+        def _取首个可用文件名(前缀: str) -> str:
+            for 候选方位 in 候选方位列表:
+                候选名 = f"{前缀}_{候选方位}.png"
+                if 图集.取(候选名) is not None:
+                    return str(候选名)
+            return f"{前缀}_{方位}.png"
+
+        头名 = _取首个可用文件名("arrow_body")
+        罩名 = _取首个可用文件名("arrow_mask")
+        身名 = _取首个可用文件名("arrow_repeat")
+        尾名 = _取首个可用文件名("arrow_tail")
 
         头图 = 图集.取(头名)
         罩图 = 图集.取(罩名)
@@ -5768,6 +7212,11 @@ class 谱面渲染器:
         罩2 = self._取hold接缝优化图(图集, 罩名, 箭头宽) if 罩图 is not None else None
         身2 = self._取hold接缝优化图(图集, 身名, 箭头宽) if 身图 is not None else None
         尾2 = self._取hold接缝优化图(图集, 尾名, 箭头宽) if 尾图 is not None else None
+        if bool(强制黑色透明):
+            头2 = self._取去黑底图(头2) if 头2 is not None else None
+            罩2 = self._取去黑底图(罩2) if 罩2 is not None else None
+            身2 = self._取去黑底图(身2) if 身2 is not None else None
+            尾2 = self._取去黑底图(尾2) if 尾2 is not None else None
         头中心y = float(y开始)
         尾巴中心y = float(y结束)
         目标判定y = float(int(判定线y))
@@ -5889,16 +7338,16 @@ class 谱面渲染器:
             )
 
     def _绘制击中特效(self, 屏幕: pygame.Surface, 输入: 渲染输入):
-        if bool(getattr(输入, "GPU接管击中特效绘制", False)):
-            return
-
         图集 = self._皮肤包.key_effect
         if 图集 is None:
             return
+        GPU接管击中特效绘制 = bool(getattr(输入, "GPU接管击中特效绘制", False))
 
-        if bool(getattr(输入, "调试_循环击中特效", False)):
+        if (not bool(GPU接管击中特效绘制)) and bool(
+            getattr(输入, "调试_循环击中特效", False)
+        ):
             当前 = float(getattr(输入, "当前谱面秒", 0.0) or 0.0)
-            for i in range(5):
+            for i in range(int(max(5, self._击中特效轨道总数()))):
                 self._击中特效开始谱面秒[i] = 当前
                 self._击中特效循环到谱面秒[i] = 当前 + 99999.0
                 if self._击中特效进行秒[i] < 0.0:
@@ -5917,107 +7366,127 @@ class 谱面渲染器:
 
         帧数 = 18
         fps = float(self._击中特效帧率)
-        特效帧名列表: List[str] = [""] * 5
-        特效翻转列表: List[bool] = [False] * 5
+        if not bool(GPU接管击中特效绘制):
+            轨道总数 = int(max(5, self._击中特效轨道总数()))
+            特效帧名列表: List[str] = [""] * int(轨道总数)
+            特效翻转列表: List[bool] = [False] * int(轨道总数)
+            特效旋转角度列表: List[float] = [0.0] * int(轨道总数)
 
-        for i in range(5):
-            开始谱面秒 = float(self._击中特效开始谱面秒[i])
-            循环到 = float(self._击中特效循环到谱面秒[i])
+            for i in range(int(轨道总数)):
+                开始谱面秒 = float(self._击中特效开始谱面秒[i])
+                循环到 = float(self._击中特效循环到谱面秒[i])
 
-            # seek / 重开后如果当前谱面秒回到了特效起点之前，直接清掉旧状态。
-            if 开始谱面秒 > -900.0 and 当前谱面秒 + 0.08 < 开始谱面秒:
-                self._击中特效进行秒[i] = -1.0
-                self._击中特效开始谱面秒[i] = -999.0
-                self._击中特效循环到谱面秒[i] = -999.0
-                continue
-
-            if 循环到 > 0.0:
-                if 当前谱面秒 > 循环到 + 0.02:
-                    self._击中特效循环到谱面秒[i] = -999.0
+                # seek / 重开后如果当前谱面秒回到了特效起点之前，直接清掉旧状态。
+                if 开始谱面秒 > -900.0 and 当前谱面秒 + 0.08 < 开始谱面秒:
                     self._击中特效进行秒[i] = -1.0
                     self._击中特效开始谱面秒[i] = -999.0
+                    self._击中特效循环到谱面秒[i] = -999.0
                     continue
-                进行秒 = float(self._击中特效进行秒[i])
-                if 进行秒 < 0.0:
-                    进行秒 = 0.0
-                帧号 = int(max(0, min(帧数 - 1, int(进行秒 * fps))))
-            else:
-                进行秒 = float(self._击中特效进行秒[i])
-                if 进行秒 < 0.0:
+
+                if 循环到 > 0.0:
+                    if 当前谱面秒 > 循环到 + 0.02:
+                        self._击中特效循环到谱面秒[i] = -999.0
+                        self._击中特效进行秒[i] = -1.0
+                        self._击中特效开始谱面秒[i] = -999.0
+                        continue
+                    进行秒 = float(self._击中特效进行秒[i])
+                    if 进行秒 < 0.0:
+                        进行秒 = 0.0
+                    帧号 = int(max(0, min(帧数 - 1, int(进行秒 * fps))))
+                else:
+                    进行秒 = float(self._击中特效进行秒[i])
+                    if 进行秒 < 0.0:
+                        continue
+                    帧号 = int(max(0, min(帧数 - 1, int(进行秒 * fps))))
+
+                序列前缀, 需要水平翻转, 旋转角度 = self._轨道到击中序列(i)
+                特效帧名列表[i] = f"{序列前缀}_{帧号:04d}.png"
+                特效翻转列表[i] = bool(需要水平翻转)
+                特效旋转角度列表[i] = float(旋转角度)
+
+            特效布局矩形表 = self._取击中特效布局矩形表(屏幕, 输入)
+
+            for i in range(int(轨道总数)):
+                文件名 = str(特效帧名列表[i] or "")
+                if not 文件名:
                     continue
-                帧号 = int(max(0, min(帧数 - 1, int(进行秒 * fps))))
 
-            序列前缀, 需要水平翻转 = self._轨道到击中序列(i)
-            特效帧名列表[i] = f"{序列前缀}_{帧号:04d}.png"
-            特效翻转列表[i] = bool(需要水平翻转)
+                原图 = 图集.取(文件名)
+                if 原图 is None and str(文件名).startswith("image_083_"):
+                    原图 = 图集.取(str(文件名).replace("image_083_", "image_084_", 1))
+                if 原图 is None:
+                    continue
 
-        特效布局矩形表 = self._取击中特效布局矩形表(屏幕, 输入)
+                当前目标宽 = int(max(48, 目标宽))
+                布局矩形 = 特效布局矩形表.get(int(i))
+                if isinstance(布局矩形, pygame.Rect):
+                    当前目标宽 = int(max(48, 布局矩形.w))
 
-        for i in range(5):
-            文件名 = str(特效帧名列表[i] or "")
-            if not 文件名:
-                continue
+                需要翻转 = bool(特效翻转列表[i])
+                旋转角度 = float(特效旋转角度列表[i] if i < len(特效旋转角度列表) else 0.0)
+                变换标记 = f"fx{1 if 需要翻转 else 0}:r{int(round(旋转角度 * 10.0))}"
+                缓存键 = f"eff:{文件名}:{变换标记}:{当前目标宽}"
+                if 需要翻转:
+                    原图2 = pygame.transform.flip(原图, True, False)
+                else:
+                    原图2 = 原图
+                if abs(float(旋转角度)) > 0.01:
+                    try:
+                        原图2 = pygame.transform.rotate(原图2, float(旋转角度)).convert_alpha()
+                    except Exception:
+                        pass
+                原图2 = self._取去黑底图(原图2) or 原图2
 
-            原图 = 图集.取(文件名)
-            if 原图 is None:
-                continue
+                图2 = self._取缩放图(缓存键, 原图2, 当前目标宽)
 
-            当前目标宽 = int(max(48, 目标宽))
-            布局矩形 = 特效布局矩形表.get(int(i))
-            if isinstance(布局矩形, pygame.Rect):
-                当前目标宽 = int(max(48, 布局矩形.w))
+                if isinstance(布局矩形, pygame.Rect):
+                    x = int(布局矩形.centerx - 图2.get_width() // 2)
+                    y = int(布局矩形.centery - 图2.get_height() // 2)
+                else:
+                    try:
+                        轨道中心 = list(getattr(输入, "轨道中心列表", []) or [])
+                    except Exception:
+                        轨道中心 = []
+                    中心x默认 = int(
+                        轨道中心[i]
+                        if 0 <= int(i) < len(轨道中心)
+                        else (轨道中心[2] if len(轨道中心) >= 3 else 0)
+                    )
+                    x = int(float(中心x默认) - 图2.get_width() // 2 + 偏移x)
+                    y = int(y判定 - 图2.get_height() // 2)
 
-            if 特效翻转列表[i]:
-                缓存键 = f"eff:{文件名}:fx1:{当前目标宽}"
-                原图2 = pygame.transform.flip(原图, True, False)
-            else:
-                缓存键 = f"eff:{文件名}:fx0:{当前目标宽}"
-                原图2 = 原图
-
-            图2 = self._取缩放图(缓存键, 原图2, 当前目标宽)
-
-            if isinstance(布局矩形, pygame.Rect):
-                x = int(布局矩形.centerx - 图2.get_width() // 2)
-                y = int(布局矩形.centery - 图2.get_height() // 2)
-            else:
-                x = int(float(输入.轨道中心列表[i]) - 图2.get_width() // 2 + 偏移x)
-                y = int(y判定 - 图2.get_height() // 2)
-
-            if float(self._击中特效循环到谱面秒[i]) > 0.0:
-                屏幕.blit(图2, (x, y), special_flags=pygame.BLEND_RGBA_ADD)
-                屏幕.blit(图2, (x, y), special_flags=pygame.BLEND_RGBA_ADD)
-            else:
-                屏幕.blit(图2, (x, y), special_flags=pygame.BLEND_RGBA_ADD)
+                if float(self._击中特效循环到谱面秒[i]) > 0.0:
+                    屏幕.blit(图2, (x, y), special_flags=pygame.BLEND_RGBA_ADD)
+                    屏幕.blit(图2, (x, y), special_flags=pygame.BLEND_RGBA_ADD)
+                else:
+                    屏幕.blit(图2, (x, y), special_flags=pygame.BLEND_RGBA_ADD)
 
     @staticmethod
-    def _轨道到击中序列(轨道: int) -> Tuple[str, bool]:
-        """
-        你的最新定义：
-        - 083：左手装饰序列，忽略不用
-        - 084：左下
-        - 085：左上
-        - 086：中间
-        右上/右下：由 085/084 水平翻转得到（但你的素材本体偏“朝右”，所以这里让左侧翻转）
-        """
+    def _轨道到击中序列(轨道: int) -> Tuple[str, bool, float]:
+        # 统一9轨特效序列：
+        # 0~4 原5轨；5~8 手键 ll/tt/bb/rr。
         轨道 = int(轨道)
 
-        # 左侧（素材本体更朝右，因此左侧需要镜像）
         if 轨道 == 0:  # 左下
-            return ("image_084", False)
+            return ("image_084", False, 0.0)
         if 轨道 == 1:  # 左上
-            return ("image_085", False)
-
-        # 中间不翻
+            return ("image_085", False, 0.0)
         if 轨道 == 2:
-            return ("image_086", False)
-
-        # 右侧不翻
+            return ("image_086", False, 0.0)
         if 轨道 == 3:  # 右上
-            return ("image_085", True)
+            return ("image_085", True, 0.0)
         if 轨道 == 4:  # 右下
-            return ("image_084", True)
+            return ("image_084", True, 0.0)
+        if 轨道 == 5:  # 手左
+            return ("image_083", False, 0.0)
+        if 轨道 == 6:  # 手上（中轨）
+            return ("image_083", False, 90.0)
+        if 轨道 == 7:  # 手下（中轨）
+            return ("image_083", False, -90.0)
+        if 轨道 == 8:  # 手右
+            return ("image_083", True, 0.0)
 
-        return ("image_086", False)
+        return ("image_086", False, 0.0)
 
     # ---------------- judge ----------------
     def _绘制判定提示(self, 屏幕: pygame.Surface, 输入: 渲染输入):

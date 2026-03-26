@@ -9,40 +9,71 @@ UIImageGetter = Callable[[str, bool], Optional[pygame.Surface]]
 
 _THUMBNAIL_FRAME_DESIGN_HEIGHT = 256.0
 _THUMBNAIL_VISIBLE_BOTTOM_PX = 231.0
+_DEFAULT_SLOT_PARAMS = {
+    "small": {
+        "封面左占比": 0.10,
+        "封面上占比": 0.045,
+        "封面宽占比": 0.845,
+        "封面高占比": 0.940,
+        "信息条高占比": 0.315,
+        "信息条左右内边距占比": 0.035,
+        "星区上内边距占比": 0.0,
+        "星区高占比": 0.34,
+        "文本区左右内边距占比": 0.040,
+        "底栏高占比": 0.22,
+        "底栏底部留白占比": 0.18,
+    },
+    "large": {
+        "封面左占比": 0.05,
+        "封面上占比": 0.02,
+        "封面宽占比": 0.95,
+        "封面高占比": 1.0,
+        "信息条高占比": 0.35,
+        "信息条左右内边距占比": 0.040,
+        "星区上内边距占比": 0.050,
+        "星区高占比": 0.3,
+        "文本区左右内边距占比": 0.050,
+        "底栏高占比": 0.245,
+        "底栏底部留白占比": 0.06,
+    },
+}
 
 
-def compute_frame_slot_layout(frame_rect: pygame.Rect, is_large: bool) -> dict:
+def _safe_float(value: object, fallback: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(fallback)
+
+
+def _resolve_slot_params(is_large: bool, slot_params: Optional[dict]) -> dict:
+    profile_key = "large" if bool(is_large) else "small"
+    resolved = dict(_DEFAULT_SLOT_PARAMS[profile_key])
+    if not isinstance(slot_params, dict):
+        return resolved
+    for key in resolved.keys():
+        if key in slot_params:
+            resolved[key] = _safe_float(slot_params.get(key), resolved[key])
+    return resolved
+
+
+def _is_visible_anchor_mode(anchor_mode: object) -> bool:
+    text = str(anchor_mode or "").strip().lower()
+    return text in ("visible", "cover_visible", "封面可视", "封面可视底", "可视")
+
+
+def compute_frame_slot_layout(
+    frame_rect: pygame.Rect,
+    is_large: bool,
+    slot_params: Optional[dict] = None,
+    small_visible_bottom_px: Optional[float] = None,
+    small_frame_design_height: Optional[float] = None,
+    small_info_anchor: Optional[str] = "visible",
+) -> dict:
     frame_width = max(1, int(frame_rect.w))
     frame_height = max(1, int(frame_rect.h))
 
-    if is_large:
-        params = {
-            "封面左占比": 0.05,
-            "封面上占比": 0.02,
-            "封面宽占比": 0.95,
-            "封面高占比": 1.0,
-            "信息条高占比": 0.35,
-            "信息条左右内边距占比": 0.040,
-            "星区上内边距占比": 0.050,
-            "星区高占比": 0.3,
-            "文本区左右内边距占比": 0.050,
-            "底栏高占比": 0.245,
-            "底栏底部留白占比": 0.06,
-        }
-    else:
-        params = {
-            "封面左占比": 0.10,
-            "封面上占比": 0.045,
-            "封面宽占比": 0.845,
-            "封面高占比": 0.940,
-            "信息条高占比": 0.315,
-            "信息条左右内边距占比": 0.035,
-            "星区上内边距占比": 0,
-            "星区高占比": 0.6,
-            "文本区左右内边距占比": 0.040,
-            "底栏高占比": 0.345,
-            "底栏底部留白占比": 0.14,
-        }
+    params = _resolve_slot_params(bool(is_large), slot_params)
 
     def clamp_rect(rect: pygame.Rect, outer_rect: pygame.Rect) -> pygame.Rect:
         x = max(outer_rect.left, min(rect.x, outer_rect.right - 1))
@@ -61,22 +92,43 @@ def compute_frame_slot_layout(frame_rect: pygame.Rect, is_large: bool) -> dict:
 
     cover_visible_rect = cover_rect.copy()
     if not is_large:
-        # Small-card frame art has a visible lower border above the texture tail.
-        visible_bottom = int(
-            round(frame_rect.y + frame_height * (_THUMBNAIL_VISIBLE_BOTTOM_PX / _THUMBNAIL_FRAME_DESIGN_HEIGHT))
+        design_height = max(
+            1.0,
+            _safe_float(small_frame_design_height, _THUMBNAIL_FRAME_DESIGN_HEIGHT),
         )
+        visible_bottom_px = _safe_float(
+            small_visible_bottom_px, _THUMBNAIL_VISIBLE_BOTTOM_PX
+        )
+        # Small-card frame art has a visible lower border above the texture tail.
+        # Cover should be clipped here so overflow is hidden.
+        visible_bottom = int(
+            round(
+                frame_rect.y
+                + frame_height
+                * (visible_bottom_px / design_height)
+            )
+        )
+        visible_bottom = max(cover_visible_rect.top + 1, min(cover_rect.bottom, visible_bottom))
         visible_height = max(1, min(cover_visible_rect.h, visible_bottom - cover_visible_rect.y))
         cover_visible_rect.h = visible_height
         cover_visible_rect = clamp_rect(cover_visible_rect, cover_rect)
 
-    info_bar_height = max(14, int(round(cover_rect.h * params["信息条高占比"])))
+    # Single-anchor model:
+    # small cards default to visible-bottom anchor to avoid mixed-bottom gaps.
+    if (not is_large) and _is_visible_anchor_mode(small_info_anchor):
+        info_anchor_rect = cover_visible_rect
+    else:
+        info_anchor_rect = cover_rect
+    info_bar_height = max(
+        14, int(round(info_anchor_rect.h * params["信息条高占比"]))
+    )
     info_bar_rect = pygame.Rect(
-        cover_rect.x,
-        cover_rect.bottom - info_bar_height,
-        cover_rect.w,
+        info_anchor_rect.x,
+        info_anchor_rect.bottom - info_bar_height,
+        info_anchor_rect.w,
         info_bar_height,
     )
-    info_bar_rect = clamp_rect(info_bar_rect, cover_rect)
+    info_bar_rect = clamp_rect(info_bar_rect, info_anchor_rect)
 
     info_bar_padding_x = max(
         4, int(round(info_bar_rect.w * params["信息条左右内边距占比"]))
@@ -221,6 +273,10 @@ def compute_thumbnail_card_layout(
     frame_x_offset: int,
     frame_y_offset_ratio: float,
     target_ratio: Optional[float] = None,
+    slot_params: Optional[dict] = None,
+    small_visible_bottom_px: Optional[float] = None,
+    small_frame_design_height: Optional[float] = None,
+    small_info_anchor: Optional[str] = "visible",
 ) -> dict:
     frame_rect = compute_thumbnail_frame_rect(
         base_rect=base_rect,
@@ -233,7 +289,16 @@ def compute_thumbnail_card_layout(
         target_ratio=target_ratio,
     )
     local_frame_rect = pygame.Rect(0, 0, frame_rect.w, frame_rect.h)
-    layout = dict(compute_frame_slot_layout(local_frame_rect, is_large=False))
+    layout = dict(
+        compute_frame_slot_layout(
+            local_frame_rect,
+            is_large=False,
+            slot_params=slot_params,
+            small_visible_bottom_px=small_visible_bottom_px,
+            small_frame_design_height=small_frame_design_height,
+            small_info_anchor=small_info_anchor,
+        )
+    )
     layout["框矩形"] = frame_rect
     layout["局部框矩形"] = local_frame_rect
     return layout

@@ -46,6 +46,10 @@ def collect_preload_cover_keys(
     frame_x_offset: int,
     frame_y_offset_ratio: float,
     target_ratio: Optional[float] = None,
+    slot_params: Optional[dict] = None,
+    small_visible_bottom_px: Optional[float] = None,
+    small_frame_design_height: Optional[float] = None,
+    small_info_anchor: Optional[str] = "visible",
 ) -> list[tuple[str, int, int, int, str]]:
     keys: list[tuple[str, int, int, int, str]] = []
     seen = set()
@@ -74,6 +78,10 @@ def collect_preload_cover_keys(
                 frame_x_offset=frame_x_offset,
                 frame_y_offset_ratio=frame_y_offset_ratio,
                 target_ratio=target_ratio,
+                slot_params=slot_params,
+                small_visible_bottom_px=small_visible_bottom_px,
+                small_frame_design_height=small_frame_design_height,
+                small_info_anchor=small_info_anchor,
             )
             cover_rect = layout["封面矩形"]
             key = (

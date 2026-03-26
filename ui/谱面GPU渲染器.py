@@ -126,6 +126,12 @@ class 谱面GPU管线渲染器:
 
         原事件列表 = getattr(输入, "事件列表", []) or []
         事件列表 = 原事件列表 if isinstance(原事件列表, list) else list(原事件列表)
+        原手键事件列表 = getattr(输入, "手键装饰事件列表", []) or []
+        手键事件列表 = (
+            原手键事件列表
+            if isinstance(原手键事件列表, list)
+            else list(原手键事件列表)
+        )
 
         判定区列表: List[Dict[str, Any]] = []
         击中特效列表: List[Dict[str, Any]] = []
@@ -135,6 +141,8 @@ class 谱面GPU管线渲染器:
         HUD数据: Dict[str, Any] = {}
         游戏区参数: Dict[str, float] = {}
         布局锚点: Optional[Dict[str, Any]] = None
+        手键锚点: Dict[str, Any] = {}
+        手键播放锚点: Dict[str, Dict[str, int]] = {}
         if 屏幕 is not None and 软件渲染器 is not None:
             取判定区数据 = getattr(软件渲染器, "取GPU判定区数据", None)
             if callable(取判定区数据):
@@ -162,6 +170,14 @@ class 谱面GPU管线渲染器:
                         布局锚点 = dict(结果)
                 except Exception:
                     布局锚点 = None
+            取手键锚点数据 = getattr(软件渲染器, "_取手键锚点数据", None)
+            if callable(取手键锚点数据):
+                try:
+                    结果 = 取手键锚点数据(屏幕, 输入)
+                    if isinstance(结果, dict):
+                        手键锚点 = dict(结果)
+                except Exception:
+                    手键锚点 = {}
             if bool(getattr(输入, "GPU接管计数动画绘制", False)):
                 取计数动画图层 = getattr(软件渲染器, "取GPU计数动画图层", None)
                 if callable(取计数动画图层):
@@ -218,6 +234,59 @@ class 谱面GPU管线渲染器:
         while len(判定线y列表) < 5:
             判定线y列表.append(int(y判定))
 
+        if 屏幕 is not None and 软件渲染器 is not None:
+            取手键9轨信息 = getattr(软件渲染器, "_取手键方向9轨信息", None)
+            if callable(取手键9轨信息):
+                for 方向 in ("ll", "tt", "bb", "rr"):
+                    try:
+                        信息 = dict(
+                            取手键9轨信息(
+                                str(方向),
+                                屏幕,
+                                输入,
+                                轨道中心列表=list(轨道中心列表),
+                                判定线y列表=list(判定线y列表),
+                                锚点数据=dict(手键锚点 or {}),
+                            )
+                            or {}
+                        )
+                    except Exception:
+                        信息 = {}
+                    if not 信息:
+                        continue
+                    try:
+                        手键播放锚点[str(方向)] = {
+                            "x": int(信息.get("x", 0) or 0),
+                            "y": int(信息.get("y", 0) or 0),
+                            "w": int(max(1, int(信息.get("宽", 1) or 1))),
+                            "播放轨道": int(信息.get("播放轨道", self._手键方向到播放轨道索引(str(方向))) or 0),
+                            "判定轨道": int(信息.get("判定轨道", self._手键方向到判定轨道索引(str(方向))) or 2),
+                            "方向": str(信息.get("方向", str(方向)) or str(方向)),
+                        }
+                    except Exception:
+                        continue
+            elif not 手键播放锚点:
+                取手键方向锚点 = getattr(软件渲染器, "_取手键方向锚点", None)
+                if callable(取手键方向锚点):
+                    for 方向 in ("ll", "tt", "bb", "rr"):
+                        try:
+                            x, y, w = 取手键方向锚点(
+                                str(方向),
+                                dict(手键锚点 or {}),
+                                输入,
+                                int(屏幕.get_width()),
+                            )
+                            手键播放锚点[str(方向)] = {
+                                "x": int(x),
+                                "y": int(y),
+                                "w": int(max(1, int(w))),
+                                "播放轨道": int(self._手键方向到播放轨道索引(str(方向))),
+                                "判定轨道": int(self._手键方向到判定轨道索引(str(方向))),
+                                "方向": str(方向),
+                            }
+                        except Exception:
+                            continue
+
         y底 = int(float(getattr(输入, "底部y", 0) or 0) + y偏移)
         有效速度 = max(
             60.0, float(_取浮点(getattr(输入, "滚动速度px每秒", 0.0), 60.0)) * 游戏缩放
@@ -258,11 +327,14 @@ class 谱面GPU管线渲染器:
             "半隐y阈值": int(半隐y阈值),
             "提前秒": float(可视秒 + 1.0),
             "事件列表": 事件列表,
+            "手键装饰事件列表": 手键事件列表,
             "隐藏模式": str(getattr(输入, "隐藏模式", "关闭") or "关闭"),
             "轨迹模式": str(getattr(输入, "轨迹模式", "正常") or "正常"),
             "Note层灰度": bool(getattr(输入, "Note层灰度", False)),
             "判定区列表": 判定区列表,
             "击中特效列表": 击中特效列表,
+            "手键锚点": 手键锚点,
+            "手键播放锚点": 手键播放锚点,
             "计数动画图层": 计数动画图层,
             "计数动画矩形": 计数动画矩形,
             "Stage数据": Stage数据,
@@ -880,6 +952,89 @@ class 谱面GPU管线渲染器:
         判定线y列表 = list(帧输入.get("判定线y列表", []) or [])[:5]
         while len(判定线y列表) < len(轨道中心列表):
             判定线y列表.append(int(判定线y))
+        手键锚点数据: Dict[str, Any]
+        try:
+            候选手键锚点 = 帧输入.get("手键锚点", {}) or {}
+            手键锚点数据 = (
+                dict(候选手键锚点) if isinstance(候选手键锚点, dict) else {}
+            )
+        except Exception:
+            手键锚点数据 = {}
+        手键播放锚点数据: Dict[str, Any]
+        try:
+            候选播放锚点 = 帧输入.get("手键播放锚点", {}) or {}
+            手键播放锚点数据 = (
+                dict(候选播放锚点) if isinstance(候选播放锚点, dict) else {}
+            )
+        except Exception:
+            手键播放锚点数据 = {}
+
+        中键x = int(轨道中心列表[2] if len(轨道中心列表) >= 3 else 0)
+        中键y = int(判定线y列表[2] if len(判定线y列表) >= 3 else 判定线y)
+        中键宽 = int(max(16, _取整数(帧输入.get("箭头目标宽", 32), 32)))
+        try:
+            中键宽 = int(
+                max(
+                    16,
+                    int(
+                        手键锚点数据.get(
+                            "手中宽",
+                            手键播放锚点数据.get("tt", {}).get("w", 中键宽),
+                        )
+                        or 中键宽
+                    ),
+                )
+            )
+        except Exception:
+            pass
+
+        def _取手键播放信息(方向: Any) -> Dict[str, Any]:
+            方向文本 = str(方向 or "").strip().lower()
+            候选 = 手键播放锚点数据.get(方向文本)
+            if isinstance(候选, dict):
+                try:
+                    return {
+                        "方向": str(候选.get("方向", 方向文本) or 方向文本),
+                        "播放轨道": int(
+                            候选.get("播放轨道", self._手键方向到播放轨道索引(方向文本))
+                            or self._手键方向到播放轨道索引(方向文本)
+                        ),
+                        "判定轨道": int(
+                            候选.get("判定轨道", self._手键方向到判定轨道索引(方向文本))
+                            or self._手键方向到判定轨道索引(方向文本)
+                        ),
+                        "x": int(候选.get("x", 中键x) or 中键x),
+                        "y": int(候选.get("y", 中键y) or 中键y),
+                        "w": int(max(16, int(候选.get("w", 中键宽) or 中键宽))),
+                    }
+                except Exception:
+                    pass
+            if 方向文本 == "ll":
+                return {
+                    "方向": "ll",
+                    "播放轨道": int(self._手键方向到播放轨道索引("ll")),
+                    "判定轨道": int(self._手键方向到判定轨道索引("ll")),
+                    "x": int(手键锚点数据.get("手左x", 轨道中心列表[0]) or 轨道中心列表[0]),
+                    "y": int(中键y),
+                    "w": int(中键宽),
+                }
+            if 方向文本 == "rr":
+                return {
+                    "方向": "rr",
+                    "播放轨道": int(self._手键方向到播放轨道索引("rr")),
+                    "判定轨道": int(self._手键方向到判定轨道索引("rr")),
+                    "x": int(手键锚点数据.get("手右x", 轨道中心列表[4]) or 轨道中心列表[4]),
+                    "y": int(中键y),
+                    "w": int(中键宽),
+                }
+            return {
+                "方向": str(方向文本 if 方向文本 in ("tt", "bb") else "tt"),
+                "播放轨道": int(self._手键方向到播放轨道索引(方向文本)),
+                "判定轨道": int(self._手键方向到判定轨道索引(方向文本)),
+                "x": int(中键x),
+                "y": int(中键y),
+                "w": int(中键宽),
+            }
         底部y = _取整数(帧输入.get("底部y", 0), 0)
         速度 = max(60.0, _取浮点(帧输入.get("滚动速度px每秒", 60.0), 60.0))
         箭头宽_tap = max(18, _取整数(帧输入.get("箭头目标宽", 32), 32))
@@ -1064,6 +1219,185 @@ class 谱面GPU管线渲染器:
                 float(旋转角度),
             ):
                 绘制数 += 1
+
+        手键原始列表 = list(帧输入.get("手键装饰事件列表", []) or [])
+        if 手键原始列表:
+            手键条目列表: List[Tuple[float, float, float, float, str, str]] = []
+            手键开始秒列表: List[float] = []
+            手键开始beat列表: List[float] = []
+            手键最大持续秒 = 0.0
+            手键最大持续beat = 0.0
+
+            取手键缓存 = (
+                getattr(软件渲染器, "_取手键装饰事件渲染缓存", None)
+                if 软件渲染器 is not None
+                else None
+            )
+            if callable(取手键缓存):
+                try:
+                    缓存 = dict(取手键缓存(手键原始列表) or {})
+                except Exception:
+                    缓存 = {}
+                手键条目列表 = list(缓存.get("事件", []) or [])
+                手键开始秒列表 = list(缓存.get("开始秒列表", []) or [])
+                手键开始beat列表 = list(缓存.get("开始beat列表", []) or [])
+                try:
+                    手键最大持续秒 = float(缓存.get("最大持续秒", 0.0) or 0.0)
+                except Exception:
+                    手键最大持续秒 = 0.0
+                try:
+                    手键最大持续beat = float(缓存.get("最大持续beat", 0.0) or 0.0)
+                except Exception:
+                    手键最大持续beat = 0.0
+            else:
+                for 事件 in 手键原始列表:
+                    try:
+                        st = float(getattr(事件, "开始秒"))
+                        ed = float(getattr(事件, "结束秒"))
+                        st_beat = float(getattr(事件, "开始beat"))
+                        ed_beat = float(getattr(事件, "结束beat"))
+                        方向 = str(getattr(事件, "方向") or "").strip().lower()
+                        类型 = str(getattr(事件, "类型") or "tap").strip().lower()
+                    except Exception:
+                        continue
+                    if 方向 not in ("ll", "tt", "bb", "rr"):
+                        continue
+                    if ed < st:
+                        st, ed = ed, st
+                        st_beat, ed_beat = ed_beat, st_beat
+                    if abs(float(ed - st)) > 1e-6:
+                        类型 = "hold"
+                    else:
+                        类型 = "tap"
+                        ed = float(st)
+                        ed_beat = float(st_beat)
+                    手键条目列表.append((st, ed, st_beat, ed_beat, 方向, 类型))
+                    手键开始秒列表.append(float(st))
+                    手键开始beat列表.append(float(st_beat))
+                    手键最大持续秒 = max(float(手键最大持续秒), float(max(0.0, ed - st)))
+                    手键最大持续beat = max(
+                        float(手键最大持续beat), float(max(0.0, ed_beat - st_beat))
+                    )
+                手键条目列表.sort(key=lambda 项: (float(项[0]), str(项[4]), float(项[1])))
+                手键开始秒列表 = [float(项[0]) for 项 in 手键条目列表]
+                手键开始beat列表 = [float(项[2]) for 项 in 手键条目列表]
+
+            if BPM变速开启:
+                手键起始阈值beat = float(
+                    当前可视beat - 可视后beat - max(0.0, float(手键最大持续beat)) - 1.0
+                )
+                手键起始索引 = bisect.bisect_left(手键开始beat列表, 手键起始阈值beat)
+                if 手键起始索引 < 0:
+                    手键起始索引 = 0
+            else:
+                手键起始阈值秒 = float(
+                    当前秒
+                    - 2.5
+                    - max(0.0, float(手键最大持续秒))
+                    - float(视觉偏移绝对值)
+                    - 0.05
+                )
+                手键起始索引 = bisect.bisect_left(手键开始秒列表, 手键起始阈值秒)
+                if 手键起始索引 < 0:
+                    手键起始索引 = 0
+
+            for st, ed, st_beat, ed_beat, 方向, 类型 in 手键条目列表[int(手键起始索引):]:
+                显示开始秒 = float(st) + float(视觉偏移秒)
+                显示结束秒 = float(ed) + float(视觉偏移秒)
+                if BPM变速开启:
+                    显示开始beat = float(_变速显示beat(float(st_beat)))
+                    显示结束beat = float(_变速显示beat(float(ed_beat)))
+                    if float(显示开始beat) > float(当前可视beat + 可视前beat + 1.0):
+                        break
+                    if float(显示结束beat) < float(当前可视beat - 可视后beat - 1.0):
+                        continue
+                else:
+                    if 显示开始秒 > float(当前秒) + float(提前秒):
+                        break
+                    if (
+                        显示开始秒 < float(当前秒) - 2.5 - float(视觉偏移绝对值)
+                        and 显示结束秒 < float(当前秒) - 2.5 - float(视觉偏移绝对值)
+                    ):
+                        continue
+
+                播放信息 = _取手键播放信息(方向)
+                轨道 = int(播放信息.get("判定轨道", self._手键方向到判定轨道索引(str(方向))) or 2)
+                if 轨道 < 0 or 轨道 >= len(轨道中心列表):
+                    continue
+                x中心 = float(播放信息.get("x", 中键x) or 中键x)
+                当前轨判定y = float(播放信息.get("y", 中键y) or 中键y)
+                绘制方位 = str(播放信息.get("方向", 方向) or 方向 or "")
+                手键基准宽 = int(max(12, int(播放信息.get("w", 箭头宽_tap) or 箭头宽_tap)))
+                手键箭头宽_tap = int(max(12, int(round(float(手键基准宽) * 0.88))))
+                手键hold宽度系数 = float(箭头宽_hold) / float(max(1, 箭头宽_tap))
+                手键箭头宽_hold = int(
+                    max(12, int(round(float(手键箭头宽_tap) * float(手键hold宽度系数))))
+                )
+                if BPM变速开启:
+                    y开始 = float(当前轨判定y) + (
+                        float(显示开始beat) - float(渲染beat)
+                    ) * float(BPM变速像素每拍)
+                else:
+                    y开始 = float(当前轨判定y) + (
+                        float(显示开始秒) - float(渲染秒)
+                    ) * float(速度)
+
+                if abs(float(ed - st)) <= 1e-6 or str(类型) == "tap":
+                    if float(y开始) < float(上边界) or float(y开始) > float(下边界):
+                        continue
+                    if bool(半隐模式) and float(y开始) > float(半隐y阈值):
+                        continue
+                    if float(当前秒) >= float(显示开始秒) - 0.001:
+                        continue
+                    if self._绘制点按(
+                        渲染器,
+                        软件渲染器,
+                        int(轨道),
+                        float(x中心),
+                        float(y开始),
+                        int(手键箭头宽_tap),
+                        使用灰度,
+                        0.0,
+                        方位码=str(绘制方位),
+                    ):
+                        绘制数 += 1
+                    continue
+
+                if BPM变速开启:
+                    y结束 = float(当前轨判定y) + (
+                        float(显示结束beat) - float(渲染beat)
+                    ) * float(BPM变速像素每拍)
+                else:
+                    y结束 = float(当前轨判定y) + (
+                        float(显示结束秒) - float(渲染秒)
+                    ) * float(速度)
+                seg_top = float(min(y开始, y结束))
+                seg_bot = float(max(y开始, y结束))
+                if float(seg_bot) < float(上边界) or float(seg_top) > float(下边界):
+                    continue
+                if bool(半隐模式) and min(float(y开始), float(y结束)) > float(半隐y阈值):
+                    continue
+                if float(当前秒) >= float(显示结束秒) - 0.001:
+                    continue
+                绘制数 += self._绘制长按(
+                    渲染器,
+                    软件渲染器,
+                    int(轨道),
+                    float(x中心),
+                    float(y开始),
+                    float(y结束),
+                    int(手键箭头宽_hold),
+                    float(当前轨判定y),
+                    int(上边界),
+                    int(下边界),
+                    bool(半隐模式),
+                    int(半隐y阈值),
+                    使用灰度,
+                    bool(float(当前秒) >= float(显示开始秒) - 0.001),
+                    float(当前秒),
+                    float(显示结束秒),
+                    方位码=str(绘制方位),
+                )
         return 绘制数
 
     def _取渲染秒(self, 软件渲染器, 当前秒: float) -> float:
@@ -1507,10 +1841,23 @@ class 谱面GPU管线渲染器:
         箭头宽: int,
         使用灰度: bool,
         旋转角度: float = 0.0,
+        方位码: Optional[str] = None,
     ) -> bool:
-        方位 = self._轨道到arrow方位码(int(轨道))
-        文件名 = f"arrow_body_{方位}.png"
-        原图 = self._取皮肤帧(软件渲染器, "arrow", 文件名)
+        方位 = self._方向到arrow方位码(
+            方位码 if str(方位码 or "").strip() else self._轨道到arrow方位码(int(轨道))
+        )
+        文件名 = ""
+        原图 = None
+        for 候选方位 in self._方向到arrow候选方位列表(方位):
+            候选文件名 = f"arrow_body_{候选方位}.png"
+            候选原图 = self._取皮肤帧(软件渲染器, "arrow", 候选文件名)
+            if 候选原图 is not None:
+                文件名 = str(候选文件名)
+                原图 = 候选原图
+                break
+        if 原图 is None:
+            文件名 = f"arrow_body_{方位}.png"
+            原图 = self._取皮肤帧(软件渲染器, "arrow", 文件名)
         纹理, 图 = self._取贴图条目(
             渲染器,
             软件渲染器,
@@ -1558,8 +1905,11 @@ class 谱面GPU管线渲染器:
         是否命中hold: bool,
         当前谱面秒: float,
         结束谱面秒: float,
+        方位码: Optional[str] = None,
     ) -> int:
-        方位 = self._轨道到arrow方位码(int(轨道))
+        方位 = self._方向到arrow方位码(
+            方位码 if str(方位码 or "").strip() else self._轨道到arrow方位码(int(轨道))
+        )
         皮肤包 = getattr(软件渲染器, "_皮肤包", None) if 软件渲染器 is not None else None
         箭头图集 = getattr(皮肤包, "arrow", None) if 皮肤包 is not None else None
         取hold图 = getattr(软件渲染器, "_取hold接缝优化图", None)
@@ -1584,10 +1934,22 @@ class 谱面GPU管线渲染器:
                 bool(使用灰度),
             )
 
-        头纹理, 头图 = 取hold贴图(f"arrow_body_{方位}.png")
-        罩纹理, 罩图 = 取hold贴图(f"arrow_mask_{方位}.png")
-        身纹理, 身图 = 取hold贴图(f"arrow_repeat_{方位}.png")
-        尾纹理, 尾图 = 取hold贴图(f"arrow_tail_{方位}.png")
+        def _取首个可用文件名(前缀: str) -> str:
+            for 候选方位 in self._方向到arrow候选方位列表(方位):
+                候选文件名 = f"{前缀}_{候选方位}.png"
+                if self._取皮肤帧(软件渲染器, "arrow", 候选文件名) is not None:
+                    return str(候选文件名)
+            return f"{前缀}_{方位}.png"
+
+        头名 = _取首个可用文件名("arrow_body")
+        罩名 = _取首个可用文件名("arrow_mask")
+        身名 = _取首个可用文件名("arrow_repeat")
+        尾名 = _取首个可用文件名("arrow_tail")
+
+        头纹理, 头图 = 取hold贴图(头名)
+        罩纹理, 罩图 = 取hold贴图(罩名)
+        身纹理, 身图 = 取hold贴图(身名)
+        尾纹理, 尾图 = 取hold贴图(尾名)
         if all(x is None for x in (头纹理, 罩纹理, 身纹理, 尾纹理)):
             return int(
                 self._绘制几何长按(
@@ -2030,13 +2392,30 @@ class 谱面GPU管线渲染器:
         帧信息 = self._取击中特效帧信息(软件渲染器, int(轨道), float(当前谱面秒))
         if 帧信息 is None:
             return False
-        文件名, 需要翻转, 循环播放 = 帧信息
+        文件名, 需要翻转, 循环播放, 旋转角度 = 帧信息
         目标宽 = int(max(24, 矩形.w))
+        原图 = self._取皮肤帧(软件渲染器, "key_effect", 文件名)
+        if 原图 is None and str(文件名).startswith("image_083_"):
+            原图 = self._取皮肤帧(
+                软件渲染器,
+                "key_effect",
+                str(文件名).replace("image_083_", "image_084_", 1),
+            )
+        if 原图 is not None:
+            try:
+                取去黑底 = getattr(软件渲染器, "_取去黑底图", None)
+            except Exception:
+                取去黑底 = None
+            if callable(取去黑底):
+                try:
+                    原图 = 取去黑底(原图) or 原图
+                except Exception:
+                    pass
         纹理, 图 = self._取贴图条目(
             渲染器,
             软件渲染器,
-            f"fx:{文件名}:{int(目标宽)}",
-            self._取皮肤帧(软件渲染器, "key_effect", 文件名),
+            f"fx:{文件名}:fx{1 if bool(需要翻转) else 0}:r{int(round(float(旋转角度) * 10.0))}:{int(目标宽)}",
+            原图,
             int(目标宽),
             bool(使用灰度),
         )
@@ -2050,6 +2429,7 @@ class 谱面GPU管线渲染器:
                 int(矩形.centerx),
                 int(矩形.centery),
                 flip_x=bool(需要翻转),
+                angle=float(旋转角度),
                 alpha=alpha,
                 blend_mode=2,
             )
@@ -2062,6 +2442,7 @@ class 谱面GPU管线渲染器:
                     int(矩形.centerx),
                     int(矩形.centery),
                     flip_x=bool(需要翻转),
+                    angle=float(旋转角度),
                     alpha=alpha,
                     blend_mode=2,
                 )
@@ -2074,8 +2455,8 @@ class 谱面GPU管线渲染器:
         软件渲染器,
         轨道: int,
         当前谱面秒: float,
-    ) -> Optional[Tuple[str, bool, bool]]:
-        if 软件渲染器 is None or int(轨道) < 0 or int(轨道) >= 5:
+    ) -> Optional[Tuple[str, bool, bool, float]]:
+        if 软件渲染器 is None or int(轨道) < 0:
             return None
         try:
             轨 = int(轨道)
@@ -2084,6 +2465,8 @@ class 谱面GPU管线渲染器:
             循环到列表 = list(getattr(软件渲染器, "_击中特效循环到谱面秒", []) or [])
             开始列表 = list(getattr(软件渲染器, "_击中特效开始谱面秒", []) or [])
             进行列表 = list(getattr(软件渲染器, "_击中特效进行秒", []) or [])
+            if 轨 >= len(循环到列表) or 轨 >= len(开始列表) or 轨 >= len(进行列表):
+                return None
             循环到 = float(循环到列表[轨])
             进行秒 = float(进行列表[轨])
             if 循环到 <= 0.0 and 进行秒 < 0.0:
@@ -2098,8 +2481,13 @@ class 谱面GPU管线渲染器:
                 循环播放 = True
             else:
                 帧号 = int(max(0, min(帧数 - 1, int(进行秒 * fps))))
-            前缀, 需要翻转 = self._轨道到击中序列(int(轨))
-            return (f"{前缀}_{帧号:04d}.png", bool(需要翻转), bool(循环播放))
+            前缀, 需要翻转, 旋转角度 = self._轨道到击中序列(int(轨))
+            return (
+                f"{前缀}_{帧号:04d}.png",
+                bool(需要翻转),
+                bool(循环播放),
+                float(旋转角度),
+            )
         except Exception:
             return None
 
@@ -2230,21 +2618,92 @@ class 谱面GPU管线渲染器:
         return {0: "lb", 1: "lt", 2: "cc", 3: "rt", 4: "rb"}.get(int(轨道序号), "cc")
 
     @staticmethod
-    def _轨道到击中序列(轨道: int) -> Tuple[str, bool]:
+    def _手键方向到播放轨道索引(方向: str) -> int:
+        return {"ll": 5, "tt": 6, "bb": 7, "rr": 8}.get(
+            str(方向 or "").strip().lower(), 6
+        )
+
+    @staticmethod
+    def _手键方向到判定轨道索引(方向: str) -> int:
+        return {"ll": 2, "tt": 2, "bb": 2, "rr": 2}.get(
+            str(方向 or "").strip().lower(), 2
+        )
+
+    @staticmethod
+    def _方向到arrow方位码(方向: str) -> str:
+        映射 = {
+            "ll": "ll",
+            "tt": "tt",
+            "bb": "bb",
+            "rr": "rr",
+            "cc": "cc",
+            "lb": "lb",
+            "lt": "lt",
+            "rt": "rt",
+            "rb": "rb",
+            "bl": "bl",
+            "tl": "tl",
+            "tr": "tr",
+            "br": "br",
+        }
+        return str(映射.get(str(方向 or "").strip().lower(), "cc"))
+
+    @staticmethod
+    def _方向到arrow候选方位列表(方向: str) -> List[str]:
+        方向 = str(方向 or "").strip().lower()
+        if 方向 in ("ll",):
+            return ["ll", "cc"]
+        if 方向 in ("rr",):
+            return ["rr", "cc"]
+        if 方向 in ("tt",):
+            return ["tt", "cc"]
+        if 方向 in ("bb",):
+            return ["bb", "cc"]
+        if 方向 in ("lb", "bl"):
+            return ["lb", "bl", "ll", "cc"]
+        if 方向 in ("rb", "br"):
+            return ["rb", "br", "rr", "cc"]
+        if 方向 in ("lt", "tl"):
+            return ["lt", "tl", "cc"]
+        if 方向 in ("rt", "tr"):
+            return ["rt", "tr", "cc"]
+        if 方向 in ("cc", "c", "center", "middle"):
+            return ["cc"]
+        return [方向, "cc"]
+
+    @staticmethod
+    def _轨道到击中序列(轨道: int) -> Tuple[str, bool, float]:
         if int(轨道) == 0:
-            return ("image_084", False)
+            return ("image_084", False, 0.0)
         if int(轨道) == 1:
-            return ("image_085", False)
+            return ("image_085", False, 0.0)
         if int(轨道) == 2:
-            return ("image_086", False)
+            return ("image_086", False, 0.0)
         if int(轨道) == 3:
-            return ("image_085", True)
+            return ("image_085", True, 0.0)
         if int(轨道) == 4:
-            return ("image_084", True)
-        return ("image_086", False)
+            return ("image_084", True, 0.0)
+        if int(轨道) == 5:
+            return ("image_083", False, 0.0)
+        if int(轨道) == 6:
+            return ("image_083", False, 90.0)
+        if int(轨道) == 7:
+            return ("image_083", False, -90.0)
+        if int(轨道) == 8:
+            return ("image_083", True, 0.0)
+        return ("image_086", False, 0.0)
 
     def _取轨道颜色(self, 轨道: int, 使用灰度: bool) -> Tuple[int, int, int]:
-        轨 = int(max(0, min(4, int(轨道))))
+        轨 = int(轨道)
+        if 轨 < 0:
+            轨 = 0
+        elif 轨 > 4:
+            if 轨 == 5:
+                轨 = 0
+            elif 轨 in (6, 7):
+                轨 = 2
+            else:
+                轨 = 4
         颜色表 = self._灰度轨道颜色 if bool(使用灰度) else self._彩色轨道颜色
         try:
             return tuple(int(v) for v in 颜色表[轨])

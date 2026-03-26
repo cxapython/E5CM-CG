@@ -100,6 +100,9 @@ def 确保项目根目录在模块路径里():
 _项目根目录_缓存: str | None = None
 _运行根目录_缓存: str | None = None
 _songs根目录_缓存: str | None = None
+_歌曲扫描缓存: Dict[Tuple[object, ...], dict] = {}
+_歌曲扫描缓存顺序: List[Tuple[object, ...]] = []
+_歌曲扫描缓存上限 = 8
 
 
 def _取项目根目录() -> str:
@@ -133,6 +136,62 @@ def 获取字体(
 
 def _归一化目录名(名称: str) -> str:
     return re.sub(r"[\s_\-]+", "", str(名称 or "")).strip().lower()
+
+
+def _取目录修改时间秒(目录路径: str) -> int:
+    try:
+        return int(os.path.getmtime(str(目录路径 or "")))
+    except Exception:
+        return 0
+
+
+def _数子目录数量(目录路径: str) -> int:
+    if not os.path.isdir(目录路径):
+        return 0
+    try:
+        return int(
+            sum(
+                1
+                for 名称 in os.listdir(目录路径)
+                if os.path.isdir(os.path.join(目录路径, 名称))
+            )
+        )
+    except Exception:
+        return 0
+
+
+def _构建全量扫描缓存键(songs根目录: str) -> Tuple[object, ...]:
+    根目录 = os.path.abspath(str(songs根目录 or "").strip())
+    类型目录列表 = _列出一级子目录(根目录)
+    模式总数 = 0
+    for 类型名 in 类型目录列表:
+        模式总数 += _数子目录数量(os.path.join(根目录, str(类型名)))
+    return (
+        "all",
+        根目录,
+        _取目录修改时间秒(根目录),
+        int(len(类型目录列表)),
+        int(模式总数),
+    )
+
+
+def _构建指定扫描缓存键(
+    songs根目录: str,
+    类型目录: str,
+    模式目录: str,
+    类型名: str,
+    模式名: str,
+) -> Tuple[object, ...]:
+    根目录 = os.path.abspath(str(songs根目录 or "").strip())
+    return (
+        "specified",
+        根目录,
+        _归一化目录名(类型名),
+        _归一化目录名(模式名),
+        _取目录修改时间秒(str(类型目录 or "")),
+        _取目录修改时间秒(str(模式目录 or "")),
+        _数子目录数量(str(模式目录 or "")),
+    )
 
 
 def _列出一级子目录(目录路径: str) -> List[str]:
@@ -359,6 +418,17 @@ class 场景_选歌(场景基类):
                 状态[键名] = bool(值)
                 return
 
+            if 键名 in ("选歌收藏夹模式", "选歌恢复收藏夹模式", "选歌_恢复收藏夹模式"):
+                状态[键名] = bool(值)
+                return
+
+            if 键名 in ("选歌收藏夹页码", "选歌恢复收藏夹页码", "选歌_恢复收藏夹页码"):
+                try:
+                    状态[键名] = max(0, int(值))
+                except Exception:
+                    pass
+                return
+
             文本 = _转文本(值)
             if 文本:
                 状态[键名] = 文本
@@ -370,6 +440,20 @@ class 场景_选歌(场景基类):
             _写入状态("加载页_载荷", 进入载荷.get("加载页_载荷", {}))
             _写入状态("选歌_恢复原始索引", 进入载荷.get("选歌原始索引", None))
             _写入状态("选歌_恢复详情页", 进入载荷.get("选歌恢复详情页", False))
+            _写入状态(
+                "选歌_恢复收藏夹模式",
+                进入载荷.get(
+                    "选歌收藏夹模式",
+                    进入载荷.get("选歌恢复收藏夹模式", False),
+                ),
+            )
+            _写入状态(
+                "选歌_恢复收藏夹页码",
+                进入载荷.get(
+                    "选歌收藏夹页码",
+                    进入载荷.get("选歌恢复收藏夹页码", None),
+                ),
+            )
 
             载荷选歌类型 = _转文本(进入载荷.get("选歌类型", ""))
             载荷选歌模式 = _转文本(进入载荷.get("选歌模式", ""))
@@ -499,6 +583,27 @@ class 场景_选歌(场景基类):
             恢复详情页 = bool(状态.pop("选歌_恢复详情页", False))
         except Exception:
             恢复详情页 = False
+        try:
+            恢复收藏夹模式 = bool(状态.pop("选歌_恢复收藏夹模式", False))
+        except Exception:
+            恢复收藏夹模式 = False
+        try:
+            恢复收藏夹页码 = 状态.pop("选歌_恢复收藏夹页码", None)
+            if 恢复收藏夹页码 is not None:
+                恢复收藏夹页码 = max(0, int(恢复收藏夹页码))
+        except Exception:
+            恢复收藏夹页码 = None
+
+        if (
+            恢复收藏夹模式
+            and self._选歌实例 is not None
+            and hasattr(self._选歌实例, "_切换收藏夹模式")
+        ):
+            try:
+                if not bool(getattr(self._选歌实例, "是否收藏夹模式", False)):
+                    self._选歌实例._切换收藏夹模式()
+            except Exception:
+                pass
 
         if 恢复原始索引 is not None and self._选歌实例 is not None:
             try:
@@ -532,6 +637,27 @@ class 场景_选歌(场景基类):
                         self._选歌实例.安排预加载(基准页=int(self._选歌实例.当前页))
                 except Exception:
                     pass
+
+        if (
+            恢复收藏夹模式
+            and (not bool(恢复详情页))
+            and (恢复收藏夹页码 is not None)
+            and self._选歌实例 is not None
+        ):
+            try:
+                总页数 = int(max(1, int(self._选歌实例.总页数())))
+            except Exception:
+                总页数 = 1
+            目标页码 = max(0, min(int(恢复收藏夹页码), 总页数 - 1))
+            try:
+                self._选歌实例.当前页 = int(目标页码)
+                self._选歌实例.当前页卡片 = self._选歌实例.生成指定页卡片(
+                    int(self._选歌实例.当前页)
+                )
+                self._选歌实例.安排预加载(基准页=int(self._选歌实例.当前页))
+                self._选歌实例._同步踏板卡片高亮()
+            except Exception:
+                pass
 
     def 退出(self):
         # ✅ 停止选歌里的 pygame.mixer.music，避免回到其它场景仍在播
@@ -716,6 +842,97 @@ class 歌曲信息:
     是否带MV: bool = False
 
 
+def _克隆歌曲信息对象(歌: 歌曲信息) -> 歌曲信息:
+    return 歌曲信息(
+        序号=int(getattr(歌, "序号", 0) or 0),
+        类型=str(getattr(歌, "类型", "") or ""),
+        模式=str(getattr(歌, "模式", "") or ""),
+        歌曲文件夹=str(getattr(歌, "歌曲文件夹", "") or ""),
+        歌曲路径=str(getattr(歌, "歌曲路径", "") or ""),
+        sm路径=str(getattr(歌, "sm路径", "") or ""),
+        mp3路径=str(getattr(歌, "mp3路径", "") or "") or None,
+        封面路径=str(getattr(歌, "封面路径", "") or "") or None,
+        歌名=str(getattr(歌, "歌名", "") or ""),
+        星级=int(max(1, int(getattr(歌, "星级", 1) or 1))),
+        bpm=getattr(歌, "bpm", None),
+        是否VIP=bool(getattr(歌, "是否VIP", False)),
+        游玩次数=int(max(0, int(getattr(歌, "游玩次数", 0) or 0))),
+        是否NEW=bool(getattr(歌, "是否NEW", False)),
+        是否HOT=bool(getattr(歌, "是否HOT", False)),
+        是否收藏=bool(getattr(歌, "是否收藏", False)),
+        是否带MV=bool(getattr(歌, "是否带MV", False)),
+    )
+
+
+def _克隆数据树(数据树: Dict[str, Dict[str, List[歌曲信息]]]) -> Dict[str, Dict[str, List[歌曲信息]]]:
+    结果: Dict[str, Dict[str, List[歌曲信息]]] = {}
+    if not isinstance(数据树, dict):
+        return 结果
+    for 类型名, 模式表 in 数据树.items():
+        if not isinstance(模式表, dict):
+            continue
+        结果[str(类型名)] = {}
+        for 模式名, 列表 in 模式表.items():
+            if not isinstance(列表, list):
+                continue
+            结果[str(类型名)][str(模式名)] = [
+                _克隆歌曲信息对象(歌)
+                for 歌 in 列表
+                if isinstance(歌, 歌曲信息)
+            ]
+    return 结果
+
+
+def _读取歌曲扫描缓存(缓存键: Tuple[object, ...]) -> Optional[Dict[str, Dict[str, List[歌曲信息]]]]:
+    if not isinstance(缓存键, tuple):
+        return None
+    缓存值 = _歌曲扫描缓存.get(缓存键)
+    if not isinstance(缓存值, dict):
+        return None
+    try:
+        if 缓存键 in _歌曲扫描缓存顺序:
+            _歌曲扫描缓存顺序.remove(缓存键)
+    except Exception:
+        pass
+    _歌曲扫描缓存顺序.append(缓存键)
+    return _克隆数据树(缓存值)
+
+
+def _按前缀读取歌曲扫描缓存(
+    键前缀: Tuple[object, ...]
+) -> Optional[Dict[str, Dict[str, List[歌曲信息]]]]:
+    if not isinstance(键前缀, tuple) or (not 键前缀):
+        return None
+    for 候选键 in reversed(list(_歌曲扫描缓存顺序 or [])):
+        if not isinstance(候选键, tuple):
+            continue
+        if len(候选键) < len(键前缀):
+            continue
+        if tuple(候选键[: len(键前缀)]) != tuple(键前缀):
+            continue
+        命中 = _读取歌曲扫描缓存(tuple(候选键))
+        if 命中 is not None:
+            return 命中
+    return None
+
+
+def _写入歌曲扫描缓存(缓存键: Tuple[object, ...], 数据树: Dict[str, Dict[str, List[歌曲信息]]]) -> None:
+    if not isinstance(缓存键, tuple):
+        return
+    if not isinstance(数据树, dict):
+        return
+    _歌曲扫描缓存[缓存键] = _克隆数据树(数据树)
+    try:
+        if 缓存键 in _歌曲扫描缓存顺序:
+            _歌曲扫描缓存顺序.remove(缓存键)
+    except Exception:
+        pass
+    _歌曲扫描缓存顺序.append(缓存键)
+    while len(_歌曲扫描缓存顺序) > max(1, int(_歌曲扫描缓存上限)):
+        旧键 = _歌曲扫描缓存顺序.pop(0)
+        _歌曲扫描缓存.pop(旧键, None)
+
+
 def 安全加载图片(路径: str, 透明: bool = True) -> Optional[pygame.Surface]:
     try:
         if (not 路径) or (not os.path.isfile(路径)):
@@ -775,6 +992,51 @@ _详情大框贴图_x偏移 = 0
 _详情大框贴图_y偏移 = 0.01
 _序号显示格式_缩略图 = "{:02d}"  # 01 02 03...
 _序号显示格式_大图 = "{:02d}"  # 想大图显示不一样也行
+_缩略图槽位参数 = {
+    "封面左占比": 0.10,
+    "封面上占比": 0.045,
+    "封面宽占比": 0.845,
+    "封面高占比": 0.940,
+    "信息条高占比": 0.315,
+    "信息条左右内边距占比": 0.035,
+    "星区上内边距占比": 0.0,
+    "星区高占比": 0.34,
+    "文本区左右内边距占比": 0.040,
+    "底栏高占比": 0.22,
+    "底栏底部留白占比": 0.18,
+}
+_大图槽位参数 = {
+    "封面左占比": 0.05,
+    "封面上占比": 0.02,
+    "封面宽占比": 0.95,
+    "封面高占比": 1.0,
+    "信息条高占比": 0.35,
+    "信息条左右内边距占比": 0.040,
+    "星区上内边距占比": 0.050,
+    "星区高占比": 0.3,
+    "文本区左右内边距占比": 0.050,
+    "底栏高占比": 0.245,
+    "底栏底部留白占比": 0.06,
+}
+_缩略图可视底设计像素 = 231.0
+_缩略图框体设计高 = 256.0
+_缩略图信息条锚点 = "visible"
+_小图文字样式参数 = {
+    "歌名字号占框高比": 0.10,
+    "歌名最小字号": 8.0,
+    "歌名字号相对BPM增量": 2.0,
+    "游玩次数标签字号占信息条高比": 0.16,
+    "游玩次数数字字号占信息条高比": 0.18,
+    "BPM字号占信息条高比": 0.20,
+    "游玩次数最小字号": 7.0,
+    "BPM最小字号": 8.0,
+}
+_大图文字样式参数 = {
+    "歌名字号占信息条高比": 0.22,
+    "歌名最小字号": 16.0,
+    "底栏字号占信息条高比": 0.13,
+    "底栏最小字号": 12.0,
+}
 
 
 def _设置页_配置项定义() -> Dict[str, Dict[str, str]]:
@@ -2035,13 +2297,63 @@ def _选歌布局_默认值() -> dict:
             "_缩略图小框_高缩放": 1.0,
             "_缩略图小框_x偏移": 0.0,
             "_缩略图小框_y偏移": 0.2,
-            "_缩略图封面_y下移像素": 8,
         },
         "缩略图大框": {
             "_缩略图大框_宽缩放": 1.1,
             "_缩略图大框_高缩放": 1.15,
             "_缩略图大框_x偏移": 0.0,
             "_缩略图大框_y偏移": 0.0,
+        },
+        "卡片槽位": {
+            "小图": {
+                "封面左占比": 0.10,
+                "封面上占比": 0.045,
+                "封面宽占比": 0.845,
+                "封面高占比": 0.940,
+                "信息条高占比": 0.315,
+                "信息条左右内边距占比": 0.035,
+                "星区上内边距占比": 0.0,
+                "星区高占比": 0.34,
+                "文本区左右内边距占比": 0.040,
+                "底栏高占比": 0.22,
+                "底栏底部留白占比": 0.18,
+            },
+            "大图": {
+                "封面左占比": 0.05,
+                "封面上占比": 0.02,
+                "封面宽占比": 0.95,
+                "封面高占比": 1.0,
+                "信息条高占比": 0.35,
+                "信息条左右内边距占比": 0.040,
+                "星区上内边距占比": 0.050,
+                "星区高占比": 0.3,
+                "文本区左右内边距占比": 0.050,
+                "底栏高占比": 0.245,
+                "底栏底部留白占比": 0.06,
+            },
+            "小图可视裁切": {
+                "框体设计高": 256.0,
+                "可视底像素": 231.0,
+                "信息条锚点": "visible",
+            },
+        },
+        "文字样式": {
+            "小图": {
+                "歌名字号占框高比": 0.10,
+                "歌名最小字号": 8.0,
+                "歌名字号相对BPM增量": 2.0,
+                "游玩次数标签字号占信息条高比": 0.16,
+                "游玩次数数字字号占信息条高比": 0.18,
+                "BPM字号占信息条高比": 0.20,
+                "游玩次数最小字号": 7.0,
+                "BPM最小字号": 8.0,
+            },
+            "大图": {
+                "歌名字号占信息条高比": 0.22,
+                "歌名最小字号": 16.0,
+                "底栏字号占信息条高比": 0.13,
+                "底栏最小字号": 12.0,
+            },
         },
         "序号标签": {
             "_缩略图_序号背景_缩放": 1.5,
@@ -2067,6 +2379,15 @@ def _安全转整数(值, 默认值: int) -> int:
         return int(round(float(值)))
     except Exception:
         return int(默认值)
+
+
+def _读取槽位参数(来源: object, 默认值: dict) -> dict:
+    结果 = dict(默认值)
+    if not isinstance(来源, dict):
+        return 结果
+    for 键, 默认 in 默认值.items():
+        结果[键] = _安全转浮点(来源.get(键, 默认), float(默认))
+    return 结果
 
 def 读取选歌布局配置() -> dict:
     global _选歌布局_缓存, _选歌布局_修改时间, _选歌布局_最近检查时刻
@@ -2114,12 +2435,19 @@ def _应用选歌布局常量(配置: dict):
     global _缩略图小框_高缩放
     global _缩略图小框_x偏移
     global _缩略图小框_y偏移
-    global _缩略图封面_y下移像素
 
     global _缩略图大框_宽缩放
     global _缩略图大框_高缩放
     global _缩略图大框_x偏移
     global _缩略图大框_y偏移
+
+    global _缩略图槽位参数
+    global _大图槽位参数
+    global _缩略图可视底设计像素
+    global _缩略图框体设计高
+    global _缩略图信息条锚点
+    global _小图文字样式参数
+    global _大图文字样式参数
 
     global _缩略图_序号背景_缩放
     global _缩略图_序号背景_x偏移
@@ -2166,10 +2494,6 @@ def _应用选歌布局常量(配置: dict):
         小框.get("_缩略图小框_y偏移", 小框默认["_缩略图小框_y偏移"]),
         float(小框默认["_缩略图小框_y偏移"]),
     )
-    _缩略图封面_y下移像素 = _安全转整数(
-        小框.get("_缩略图封面_y下移像素", 小框默认["_缩略图封面_y下移像素"]),
-        int(小框默认["_缩略图封面_y下移像素"]),
-    )
 
     大框 = 配置.get("缩略图大框", {})
     if not isinstance(大框, dict):
@@ -2203,6 +2527,59 @@ def _应用选歌布局常量(配置: dict):
     _缩略图大框_y偏移 = _安全转整数(
         大框.get("_缩略图大框_y偏移", 大框默认["_缩略图大框_y偏移"]),
         int(大框默认["_缩略图大框_y偏移"]),
+    )
+
+    卡片槽位 = 配置.get("卡片槽位", {})
+    if not isinstance(卡片槽位, dict):
+        卡片槽位 = {}
+    卡片槽位默认 = 默认值["卡片槽位"]
+
+    _缩略图槽位参数 = _读取槽位参数(
+        卡片槽位.get("小图", {}), 卡片槽位默认["小图"]
+    )
+    _大图槽位参数 = _读取槽位参数(
+        卡片槽位.get("大图", {}), 卡片槽位默认["大图"]
+    )
+
+    小图可视裁切 = 卡片槽位.get("小图可视裁切", {})
+    if not isinstance(小图可视裁切, dict):
+        小图可视裁切 = {}
+    小图可视裁切默认 = 卡片槽位默认["小图可视裁切"]
+
+    _缩略图框体设计高 = max(
+        1.0,
+        min(
+            9999.0,
+            _安全转浮点(
+                小图可视裁切.get("框体设计高", 小图可视裁切默认["框体设计高"]),
+                float(小图可视裁切默认["框体设计高"]),
+            ),
+        ),
+    )
+    _缩略图可视底设计像素 = max(
+        1.0,
+        min(
+            9999.0,
+            _安全转浮点(
+                小图可视裁切.get("可视底像素", 小图可视裁切默认["可视底像素"]),
+                float(小图可视裁切默认["可视底像素"]),
+            ),
+        ),
+    )
+    _缩略图信息条锚点 = str(
+        小图可视裁切.get("信息条锚点", 小图可视裁切默认["信息条锚点"])
+        or 小图可视裁切默认["信息条锚点"]
+    )
+
+    文字样式 = 配置.get("文字样式", {})
+    if not isinstance(文字样式, dict):
+        文字样式 = {}
+    文字样式默认 = 默认值["文字样式"]
+    _小图文字样式参数 = _读取槽位参数(
+        文字样式.get("小图", {}), 文字样式默认["小图"]
+    )
+    _大图文字样式参数 = _读取槽位参数(
+        文字样式.get("大图", {}), 文字样式默认["大图"]
     )
 
     序号 = 配置.get("序号标签", {})
@@ -3315,13 +3692,22 @@ def _收集候选谱面文件(根目录: str) -> List[str]:
 
 def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信息]]]:
     结果: Dict[str, Dict[str, List[歌曲信息]]] = {}
-    if not os.path.isdir(songs根目录):
+    根目录 = os.path.abspath(str(songs根目录 or "").strip())
+    if not os.path.isdir(根目录):
         return 结果
+
+    缓存键 = _构建全量扫描缓存键(根目录)
+    缓存命中 = _读取歌曲扫描缓存(缓存键)
+    if 缓存命中 is not None:
+        return 缓存命中
+    缓存命中 = _按前缀读取歌曲扫描缓存(("all", 根目录))
+    if 缓存命中 is not None:
+        return 缓存命中
 
     临时收集: Dict[Tuple[str, str], List[歌曲信息]] = {}
 
-    for sm路径 in _收集候选谱面文件(songs根目录):
-        相对 = os.path.relpath(sm路径, songs根目录)
+    for sm路径 in _收集候选谱面文件(根目录):
+        相对 = os.path.relpath(sm路径, 根目录)
         parts = 相对.split(os.sep)
         if len(parts) < 4:
             continue
@@ -3362,14 +3748,15 @@ def 扫描songs目录(songs根目录: str) -> Dict[str, Dict[str, List[歌曲信
             结果[类型名] = {}
         结果[类型名][模式名] = 列表
 
+    _写入歌曲扫描缓存(缓存键, 结果)
     return 结果
 
 def 扫描songs_指定路径(
     songs根目录: str, 类型名: str, 模式名: str
 ) -> Dict[str, Dict[str, List[歌曲信息]]]:
     结果: Dict[str, Dict[str, List[歌曲信息]]] = {}
-
-    if not os.path.isdir(songs根目录):
+    根目录 = os.path.abspath(str(songs根目录 or "").strip())
+    if not os.path.isdir(根目录):
         return 结果
 
     def _归一(s: str) -> str:
@@ -3378,15 +3765,15 @@ def 扫描songs_指定路径(
     目标类型 = 类型名.strip()
     目标模式 = 模式名.strip()
 
-    类型目录 = os.path.join(songs根目录, 目标类型)
+    类型目录 = os.path.join(根目录, 目标类型)
     if not os.path.isdir(类型目录):
         try:
-            for 名 in os.listdir(songs根目录):
-                if os.path.isdir(os.path.join(songs根目录, 名)) and _归一(名) == _归一(
+            for 名 in os.listdir(根目录):
+                if os.path.isdir(os.path.join(根目录, 名)) and _归一(名) == _归一(
                     目标类型
                 ):
                     目标类型 = 名
-                    类型目录 = os.path.join(songs根目录, 目标类型)
+                    类型目录 = os.path.join(根目录, 目标类型)
                     break
         except Exception:
             return 结果
@@ -3410,11 +3797,27 @@ def 扫描songs_指定路径(
     if not os.path.isdir(模式目录):
         return 结果
 
+    缓存键 = _构建指定扫描缓存键(
+        songs根目录=根目录,
+        类型目录=类型目录,
+        模式目录=模式目录,
+        类型名=目标类型,
+        模式名=目标模式,
+    )
+    缓存命中 = _读取歌曲扫描缓存(缓存键)
+    if 缓存命中 is not None:
+        return 缓存命中
+    缓存命中 = _按前缀读取歌曲扫描缓存(
+        ("specified", 根目录, _归一化目录名(目标类型), _归一化目录名(目标模式))
+    )
+    if 缓存命中 is not None:
+        return 缓存命中
+
     收集: List[歌曲信息] = []
 
     for sm路径 in _收集候选谱面文件(模式目录):
         try:
-            相对 = os.path.relpath(sm路径, songs根目录)
+            相对 = os.path.relpath(sm路径, 根目录)
             parts = 相对.split(os.sep)
         except Exception:
             continue
@@ -3449,6 +3852,7 @@ def 扫描songs_指定路径(
     else:
         结果 = {}
 
+    _写入歌曲扫描缓存(缓存键, 结果)
     return 结果
 
 class 图像缓存(_本地图片缓存):
@@ -3545,7 +3949,20 @@ def 载入并缩放封面(
         return None
 
 def 计算框体槽位布局(框体矩形: pygame.Rect, 是否大图: bool) -> dict:
-    return _计算框体槽位布局模块(框体矩形, bool(是否大图))
+    if bool(是否大图):
+        return _计算框体槽位布局模块(
+            框体矩形,
+            True,
+            slot_params=dict(_大图槽位参数),
+        )
+    return _计算框体槽位布局模块(
+        框体矩形,
+        False,
+        slot_params=dict(_缩略图槽位参数),
+        small_visible_bottom_px=float(_缩略图可视底设计像素),
+        small_frame_design_height=float(_缩略图框体设计高),
+        small_info_anchor=str(_缩略图信息条锚点),
+    )
 
 def 计算缩略图小框矩形(
     基准矩形: pygame.Rect,
@@ -3576,6 +3993,10 @@ def 计算缩略图卡片布局(
         frame_x_offset=_缩略图小框_x偏移,
         frame_y_offset_ratio=_缩略图小框_y偏移,
         target_ratio=4.0 / 3.0,
+        slot_params=dict(_缩略图槽位参数),
+        small_visible_bottom_px=float(_缩略图可视底设计像素),
+        small_frame_design_height=float(_缩略图框体设计高),
+        small_info_anchor=str(_缩略图信息条锚点),
     )
 
 class 渐隐放大点击特效:
@@ -4288,6 +4709,7 @@ class 歌曲卡片:
                 draw_star_row=绘制星星行_图片,
                 draw_index_badge=绘制序号标签_图片,
                 draw_mv_badge=绘制MV角标_文本,
+                text_style=dict(_小图文字样式参数),
             )
             self._静态缓存键 = 缓存键
             self._静态缓存图 = 局部画布
@@ -4500,6 +4922,7 @@ class 选歌游戏:
         self._详情浮层遮罩缓存键: Tuple[int, int, int] = (0, 0, 0)
         self._动态背景管理器 = DynamicBackgroundManager()
         self._动态背景上次刷新秒 = float(time.perf_counter())
+        self._选歌场景强制CPU绘制 = True
         self._GPU背景纹理 = None
         self._GPU背景纹理键: Tuple[object, ...] = ()
         self._GPU背景遮罩纹理缓存: Dict[int, object] = {}
@@ -4701,6 +5124,7 @@ class 选歌游戏:
         self._当前歌曲列表缓存键 = None
         self._当前歌曲列表缓存值 = ([], [])
         self._清空页卡片缓存()
+        self._失效GPU界面层缓存()
 
     def _清空页卡片缓存(self):
         self._页卡片缓存 = {}
@@ -4714,6 +5138,22 @@ class 选歌游戏:
         self.详情大框矩形 = pygame.Rect(0, 0, 0, 0)
         self._详情浮层面板缓存图 = None
         self._详情浮层面板缓存尺寸 = (0, 0)
+
+    def _失效GPU界面层缓存(self):
+        self._GPU顶栏层缓存图 = None
+        self._GPU顶栏层缓存键 = None
+        self._GPU底栏层缓存图 = None
+        self._GPU底栏层缓存键 = None
+        self._GPU列表按钮层缓存图 = None
+        self._GPU列表按钮层缓存键 = None
+        self._GPU内容层缓存图 = None
+        self._GPU内容层缓存键 = None
+        self._GPU翻页旧页层图 = None
+        self._GPU翻页新页层图 = None
+        for 图层 in list(getattr(self, "_GPU列表页缓存", {}).values()):
+            self._清理GPU界面纹理(图层)
+        self._GPU列表页缓存 = {}
+        self._GPU列表页缓存顺序 = []
 
     def _取歌曲数据根目录(self) -> str:
         return os.path.abspath(
@@ -5046,6 +5486,7 @@ class 选歌游戏:
             draw_star_row=绘制星星行_图片,
             draw_sequence_label=绘制序号标签_图片,
             draw_mv_badge=绘制MV角标_文本,
+            text_style=dict(_大图文字样式参数),
         )
 
     def _绘制详情浮层星星光泽(
@@ -5454,6 +5895,12 @@ class 选歌游戏:
         当前关卡 = 取当前关卡(状态, 1)
         累计S数 = 取累计S数(状态)
         已赠送第四把 = 是否赠送第四把(状态)
+        当前页码 = 0
+        try:
+            当前页码 = max(0, int(getattr(self, "当前页", 0) or 0))
+        except Exception:
+            当前页码 = 0
+        收藏夹模式 = bool(getattr(self, "是否收藏夹模式", False))
 
         return {
             "sm路径": sm路径,
@@ -5480,6 +5927,8 @@ class 选歌游戏:
             "歌曲文件夹": 歌曲文件夹,
             "原始歌曲文件夹": 原始歌曲文件夹,
             "选歌原始索引": int(当前索引 if 歌 is not None else -1),
+            "选歌收藏夹模式": bool(收藏夹模式),
+            "选歌收藏夹页码": int(当前页码),
             "当前关卡": int(当前关卡),
             "局数": int(当前关卡),
             "累计S数": int(累计S数),
@@ -5860,22 +6309,22 @@ class 选歌游戏:
         重开矩形.center = 槽_重开_图标区.center
         self.按钮_重选模式.矩形 = 重开矩形
 
-        # ========= 模式选择面板（保留原逻辑） =========
-        最大宽 = self._取布局像素("模式选择面板.最大宽", 920, 最小=300, 最大=9999)
-        最大高 = self._取布局像素("模式选择面板.最大高", 460, 最小=200, 最大=9999)
+        # # ========= 模式选择面板（保留原逻辑） =========
+        # 最大宽 = self._取布局像素("模式选择面板.最大宽", 920, 最小=300, 最大=9999)
+        # 最大高 = self._取布局像素("模式选择面板.最大高", 460, 最小=200, 最大=9999)
 
-        宽占比 = self._取布局值("模式选择面板.宽占比", 0.75)
-        高占比 = self._取布局值("模式选择面板.高占比", 0.55)
-        try:
-            宽占比 = float(宽占比)
-        except Exception:
-            宽占比 = 0.75
-        try:
-            高占比 = float(高占比)
-        except Exception:
-            高占比 = 0.55
-        宽占比 = max(0.20, min(0.98, 宽占比))
-        高占比 = max(0.20, min(0.98, 高占比))
+        # 宽占比 = self._取布局值("模式选择面板.宽占比", 0.75)
+        # 高占比 = self._取布局值("模式选择面板.高占比", 0.55)
+        # try:
+        #     宽占比 = float(宽占比)
+        # except Exception:
+        #     宽占比 = 0.75
+        # try:
+        #     高占比 = float(高占比)
+        # except Exception:
+        #     高占比 = 0.55
+        # 宽占比 = max(0.20, min(0.98, 宽占比))
+        # 高占比 = max(0.20, min(0.98, 高占比))
 
         # ========= 卡片网格（保留原逻辑） =========
         try:
@@ -5984,6 +6433,7 @@ class 选歌游戏:
             列表翻页按钮宽,
             列表翻页按钮高,
         )
+        self._失效GPU界面层缓存()
 
     def _加载背景图(self):
         try:
@@ -6191,6 +6641,8 @@ class 选歌游戏:
             return False
 
     def _应使用GPU背景(self) -> bool:
+        if bool(getattr(self, "_选歌场景强制CPU绘制", False)):
+            return False
         if _sdl2_video is None:
             return False
         try:
@@ -6266,6 +6718,8 @@ class 选歌游戏:
             pass
 
     def _应使用GPU界面(self) -> bool:
+        if bool(getattr(self, "_选歌场景强制CPU绘制", False)):
+            return False
         return bool(self._应使用GPU背景())
 
     def _同步GPU界面纹理缓存(self, 渲染器):
@@ -7272,6 +7726,10 @@ class 选歌游戏:
             frame_x_offset=_缩略图小框_x偏移,
             frame_y_offset_ratio=_缩略图小框_y偏移,
             target_ratio=4.0 / 3.0,
+            slot_params=dict(_缩略图槽位参数),
+            small_visible_bottom_px=float(_缩略图可视底设计像素),
+            small_frame_design_height=float(_缩略图框体设计高),
+            small_info_anchor=str(_缩略图信息条锚点),
         )
         已收录键集合: Set[Tuple[str, int, int, int, str]] = set(需要保留键列表)
 

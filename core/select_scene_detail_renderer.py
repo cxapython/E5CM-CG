@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Callable, Optional
 
 import pygame
@@ -11,6 +12,23 @@ UIContainerImageGetter = Callable[..., Optional[pygame.Surface]]
 StarRowDrawer = Callable[..., None]
 SequenceLabelDrawer = Callable[..., None]
 MvBadgeDrawer = Callable[..., None]
+
+
+def _format_song_display_name(song_name: str) -> str:
+    text = str(song_name or "").strip().replace("_", " ")
+    if not text:
+        return ""
+    text = re.sub(r"\s*[#＃]\s*\d+\s*$", "", text).strip()
+    return text
+
+
+def _style_float(style: Optional[dict], key: str, fallback: float) -> float:
+    if not isinstance(style, dict):
+        return float(fallback)
+    try:
+        return float(style.get(key, fallback))
+    except Exception:
+        return float(fallback)
 
 
 def render_detail_panel_content(
@@ -37,6 +55,7 @@ def render_detail_panel_content(
     draw_star_row: StarRowDrawer,
     draw_sequence_label: SequenceLabelDrawer,
     draw_mv_badge: MvBadgeDrawer,
+    text_style: Optional[dict] = None,
 ) -> None:
     if not isinstance(panel_surface, pygame.Surface):
         return
@@ -79,17 +98,23 @@ def render_detail_panel_content(
         行间距占比=0.02,
     )
 
-    song_name = str(getattr(song, "歌名", "") or "").replace("_", " ")
-    song_font_size = max(16, int(local_info_rect.h * 0.22))
+    style = dict(text_style) if isinstance(text_style, dict) else {}
+    song_ratio = max(0.08, min(0.80, _style_float(style, "歌名字号占信息条高比", 0.22)))
+    song_min = max(10, int(round(_style_float(style, "歌名最小字号", 16))))
+    bottom_ratio = max(0.06, min(0.80, _style_float(style, "底栏字号占信息条高比", 0.13)))
+    bottom_min = max(8, int(round(_style_float(style, "底栏最小字号", 12))))
+
+    song_name = _format_song_display_name(str(getattr(song, "歌名", "") or ""))
+    song_font_size = max(song_min, int(local_info_rect.h * song_ratio))
     try:
         available_text_width = max(80, int(local_info_rect.w * 0.84))
         current_size = int(song_font_size)
-        while current_size > 12:
+        while current_size > song_min:
             test_font = get_font(current_size, 是否粗体=False)
             if test_font.size(song_name)[0] <= available_text_width:
                 break
             current_size -= 1
-        song_font = get_font(max(12, current_size), 是否粗体=False)
+        song_font = get_font(max(song_min, current_size), 是否粗体=False)
         song_surface = song_font.render(song_name, True, (255, 255, 255))
 
         song_y = int(local_star_rect.bottom + max(4, int(local_info_rect.h * 0.03)))
@@ -125,7 +150,7 @@ def render_detail_panel_content(
         if getattr(song, "bpm", None)
         else "BPM:?"
     )
-    bottom_font_size = max(12, int(local_info_rect.h * 0.13))
+    bottom_font_size = max(bottom_min, int(local_info_rect.h * bottom_ratio))
     bottom_font = get_font(bottom_font_size, 是否粗体=True)
     play_color = get_play_count_color(play_count)
 

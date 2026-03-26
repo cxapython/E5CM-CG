@@ -71,7 +71,4 @@ json/加载页.json
 json/歌曲记录索引.json
 json/全局设置.json
 json/选歌设置.json
-json/个人资料/
-json/个人资料.json
-JSON/个人资料/
-JSON/个人资料.json
+userdata/profile/个人资料.json

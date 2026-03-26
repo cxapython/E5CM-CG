@@ -1093,6 +1093,18 @@ class 音符事件:
     类型: str  # "tap" / "hold"
 
 
+@dataclass
+class 手键装饰事件:
+    方向: str  # "ll" / "tt" / "bb" / "rr"
+    开始秒: float
+    结束秒: float
+    开始beat: float
+    结束beat: float
+    类型: str  # "tap" / "hold"
+    玩家: int = 1
+    是否已触发自动特效: bool = False
+
+
 def _提取ssc谱面块列表(sm文本: str) -> List[str]:
     文本 = str(sm文本 or "").replace("\r\n", "\n").replace("\r", "\n")
     if not 文本:
@@ -1348,11 +1360,85 @@ def _构建_sm事件列表(
     )
 
 
+def _读取手键aType映射配置() -> Dict[int, str]:
+    默认映射: Dict[int, str] = {0: "ll", 3: "tt", 5: "bb", 8: "rr"}
+    if not isinstance(getattr(_读取手键aType映射配置, "_缓存结果", None), dict):
+        _读取手键aType映射配置._缓存结果 = dict(默认映射)
+    if not isinstance(getattr(_读取手键aType映射配置, "_缓存路径", None), str):
+        _读取手键aType映射配置._缓存路径 = ""
+    if not isinstance(getattr(_读取手键aType映射配置, "_缓存mtime", None), float):
+        _读取手键aType映射配置._缓存mtime = -2.0
+    try:
+        根目录 = os.path.abspath(_公共取运行根目录())
+    except Exception:
+        根目录 = os.path.abspath(os.getcwd())
+    配置路径 = os.path.join(根目录, "config", "layout", "手键装饰校准.json")
+    try:
+        当前mtime = (
+            float(os.path.getmtime(配置路径))
+            if os.path.isfile(配置路径)
+            else -1.0
+        )
+    except Exception:
+        当前mtime = -1.0
+    if (
+        str(getattr(_读取手键aType映射配置, "_缓存路径", "") or "") == str(配置路径)
+        and float(getattr(_读取手键aType映射配置, "_缓存mtime", -2.0)) == float(当前mtime)
+    ):
+        return dict(getattr(_读取手键aType映射配置, "_缓存结果", 默认映射) or 默认映射)
+    if not os.path.isfile(配置路径):
+        _读取手键aType映射配置._缓存路径 = str(配置路径)
+        _读取手键aType映射配置._缓存mtime = float(当前mtime)
+        _读取手键aType映射配置._缓存结果 = dict(默认映射)
+        return dict(默认映射)
+    try:
+        with open(配置路径, "r", encoding="utf-8") as f:
+            数据 = json.load(f)
+    except Exception:
+        _读取手键aType映射配置._缓存路径 = str(配置路径)
+        _读取手键aType映射配置._缓存mtime = float(当前mtime)
+        _读取手键aType映射配置._缓存结果 = dict(默认映射)
+        return dict(默认映射)
+    if not isinstance(数据, dict):
+        _读取手键aType映射配置._缓存路径 = str(配置路径)
+        _读取手键aType映射配置._缓存mtime = float(当前mtime)
+        _读取手键aType映射配置._缓存结果 = dict(默认映射)
+        return dict(默认映射)
+    覆写 = 数据.get("hand_aType_to_dir", None)
+    if not isinstance(覆写, dict):
+        _读取手键aType映射配置._缓存路径 = str(配置路径)
+        _读取手键aType映射配置._缓存mtime = float(当前mtime)
+        _读取手键aType映射配置._缓存结果 = dict(默认映射)
+        return dict(默认映射)
+    结果 = dict(默认映射)
+    for 键, 值 in 覆写.items():
+        try:
+            aType = int(键)
+        except Exception:
+            continue
+        方向 = str(值 or "").strip().lower()
+        if aType in (0, 3, 5, 8) and 方向 in ("ll", "tt", "bb", "rr"):
+            结果[int(aType)] = str(方向)
+    _读取手键aType映射配置._缓存路径 = str(配置路径)
+    _读取手键aType映射配置._缓存mtime = float(当前mtime)
+    _读取手键aType映射配置._缓存结果 = dict(结果)
+    return 结果
+
+
 def _构建_json事件列表(
     json路径: str, 优先double: bool = False
-) -> Tuple[List[音符事件], float, float, int, str, List[Tuple[int, float]], int]:
+) -> Tuple[
+    List[音符事件],
+    List[手键装饰事件],
+    float,
+    float,
+    int,
+    str,
+    List[Tuple[int, float]],
+    int,
+]:
     """
-    返回：(事件列表, offset, 总时长秒, 列数, charttype, bpms_line, tick每拍)
+    返回：(主事件列表, 手键装饰事件列表, offset, 总时长秒, 列数, charttype, bpms_line, tick每拍)
 
     JSON 结构参考：
     - scoreInfo.offset
@@ -1361,7 +1447,7 @@ def _构建_json事件列表(
     """
     数据 = _安全读json(json路径)
     if not isinstance(数据, dict):
-        return [], 0.0, 0.0, 5, "", [(0, 120.0)], 96
+        return [], [], 0.0, 0.0, 5, "", [(0, 120.0)], 96
 
     offset, bpm点, 音符 = _解析_json基础信息(数据)
 
@@ -1370,32 +1456,34 @@ def _构建_json事件列表(
     bpms_beat = _json_bpms转beat(bpm点, tick每拍)
     bpm段 = _生成时间轴段(bpms_beat)
 
-    # aType -> 轨道（默认映射：1,2,4,6,7）
+    # aType -> 主可玩轨道（默认映射：1,2,4,6,7）
     aType映射 = {1: 0, 2: 1, 4: 2, 6: 3, 7: 4}
+    # aType -> 手键装饰方向（仅 JSON 手键装饰，不参与判定计分）
+    手键aType映射 = _读取手键aType映射配置()
     总时长bpms_beat = _json_bpms转beat(
         _清洗_json总时长用bpm点(
             bpm点,
             音符,
             tick每拍,
-            可播放aTypes=tuple(aType映射.keys()),
+            可播放aTypes=tuple(
+                sorted(set(aType映射.keys()) | set(手键aType映射.keys()))
+            ),
         ),
         tick每拍,
     )
     总时长bpm段 = _生成时间轴段(总时长bpms_beat)
     事件: List[音符事件] = []
+    手键事件: List[手键装饰事件] = []
     最大秒 = 0.0
     总时长最大秒 = 0.0
     见过玩家2 = False
 
     for lineNo, aType, length, player in 音符:
-        if aType not in aType映射:
-            continue
-        lane_base = 0
-        if int(player) == 2:
-            见过玩家2 = True
-            lane_base = 5
+        try:
+            玩家序号 = int(player)
+        except Exception:
+            玩家序号 = 1
 
-        轨道 = int(lane_base + aType映射[int(aType)])
         st_beat = float(lineNo) / float(tick每拍)
         ed_line = int(lineNo) + max(0, int(length))
         ed_beat = float(ed_line) / float(tick每拍)
@@ -1409,6 +1497,47 @@ def _构建_json事件列表(
             st_beat, ed_beat = ed_beat, st_beat
         if ed_sec_总时长 < st_sec_总时长:
             st_sec_总时长, ed_sec_总时长 = ed_sec_总时长, st_sec_总时长
+
+        # 手键装饰：独立分流，不进入主事件判定链。
+        if int(aType) in 手键aType映射:
+            方向 = str(手键aType映射.get(int(aType), "") or "")
+            if 方向:
+                if int(length) > 0:
+                    手键事件.append(
+                        手键装饰事件(
+                            方向=方向,
+                            开始秒=float(st_sec),
+                            结束秒=float(ed_sec),
+                            开始beat=float(st_beat),
+                            结束beat=float(ed_beat),
+                            类型="hold",
+                            玩家=int(玩家序号),
+                            是否已触发自动特效=False,
+                        )
+                    )
+                else:
+                    手键事件.append(
+                        手键装饰事件(
+                            方向=方向,
+                            开始秒=float(st_sec),
+                            结束秒=float(st_sec),
+                            开始beat=float(st_beat),
+                            结束beat=float(st_beat),
+                            类型="tap",
+                            玩家=int(玩家序号),
+                            是否已触发自动特效=False,
+                        )
+                    )
+            continue
+
+        if aType not in aType映射:
+            continue
+        lane_base = 0
+        if int(玩家序号) == 2:
+            见过玩家2 = True
+            lane_base = 5
+
+        轨道 = int(lane_base + aType映射[int(aType)])
 
         if int(length) > 0:
             事件.append(
@@ -1438,10 +1567,20 @@ def _构建_json事件列表(
             总时长最大秒 = max(总时长最大秒, float(st_sec_总时长))
 
     事件.sort(key=lambda e: e.开始秒)
+    手键事件.sort(key=lambda e: e.开始秒)
     列数 = 10 if (见过玩家2 or bool(优先double)) else 5
     charttype = "pump-double" if 列数 >= 10 else "pump-single"
     总时长 = max(0.0, 总时长最大秒 + 2.0)
-    return 事件, float(offset), float(总时长), int(列数), str(charttype), bpm点, int(tick每拍)
+    return (
+        事件,
+        手键事件,
+        float(offset),
+        float(总时长),
+        int(列数),
+        str(charttype),
+        bpm点,
+        int(tick每拍),
+    )
 
 
 class 皮肤资源:
@@ -1672,6 +1811,10 @@ class 场景_谱面播放器(场景基类):
         self._谱面含明显BPM变速: bool = False
 
         self._事件: List[音符事件] = []
+        self._手键装饰事件列表: List[手键装饰事件] = []
+        self._手键装饰事件左渲染: List[手键装饰事件] = []
+        self._手键装饰事件右渲染: List[手键装饰事件] = []
+        self._手键装饰触发游标: int = 0
 
         self._谱面总时长秒: float = 0.0
         self._offset: float = 0.0
@@ -2639,6 +2782,8 @@ class 场景_谱面播放器(场景基类):
     def _拆分双踏板渲染事件(self):
         self._事件左渲染 = []
         self._事件右渲染 = []
+        self._手键装饰事件左渲染 = []
+        self._手键装饰事件右渲染 = []
         for e in list(getattr(self, "_事件", []) or []):
             try:
                 轨道 = int(getattr(e, "轨道序号", -1))
@@ -2657,6 +2802,16 @@ class 场景_谱面播放器(场景基类):
                         类型=str(getattr(e, "类型", "tap") or "tap"),
                     )
                 )
+
+        for e in list(getattr(self, "_手键装饰事件列表", []) or []):
+            try:
+                玩家 = int(getattr(e, "玩家", 1) or 1)
+            except Exception:
+                玩家 = 1
+            if bool(getattr(self, "_是否双踏板模式", False)) and int(玩家) == 2:
+                self._手键装饰事件右渲染.append(e)
+            else:
+                self._手键装饰事件左渲染.append(e)
 
     def _同步双踏板渲染器(self):
         if not bool(getattr(self, "_是否双踏板模式", False)):
@@ -2730,6 +2885,128 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
 
+    def _重置手键装饰自动触发状态(self, 当前谱面秒: Optional[float] = None):
+        事件列表 = list(getattr(self, "_手键装饰事件列表", []) or [])
+        if 当前谱面秒 is None:
+            try:
+                当前谱面秒 = float(getattr(self, "_当前谱面秒", 0.0) or 0.0)
+            except Exception:
+                当前谱面秒 = 0.0
+        当前谱面秒 = float(max(0.0, float(当前谱面秒)))
+        已过阈值 = float(当前谱面秒) - 0.02
+        游标 = len(事件列表)
+        for idx, 事件 in enumerate(事件列表):
+            try:
+                开始秒 = float(getattr(事件, "开始秒", 0.0) or 0.0)
+            except Exception:
+                开始秒 = 0.0
+            已触发 = bool(开始秒 < 已过阈值)
+            try:
+                事件.是否已触发自动特效 = bool(已触发)
+            except Exception:
+                pass
+            if (not 已触发) and 游标 >= len(事件列表):
+                游标 = int(idx)
+        if not 事件列表:
+            游标 = 0
+        self._手键装饰触发游标 = int(max(0, min(int(游标), len(事件列表))))
+
+    def _触发手键装饰击中特效(
+        self,
+        方向: str,
+        玩家: int = 1,
+        发生谱面秒: Optional[float] = None,
+        结束谱面秒: Optional[float] = None,
+    ):
+        方向 = str(方向 or "").strip().lower()
+        if 方向 not in ("ll", "tt", "bb", "rr"):
+            return
+        try:
+            玩家 = int(玩家)
+        except Exception:
+            玩家 = 1
+        if 发生谱面秒 is None:
+            try:
+                发生谱面秒 = float(getattr(self, "_当前谱面秒", 0.0) or 0.0)
+            except Exception:
+                发生谱面秒 = 0.0
+        if 结束谱面秒 is None:
+            结束谱面秒 = float(发生谱面秒)
+        try:
+            起点秒 = float(发生谱面秒)
+        except Exception:
+            起点秒 = 0.0
+        try:
+            终点秒 = float(结束谱面秒)
+        except Exception:
+            终点秒 = 起点秒
+        if float(终点秒) < float(起点秒):
+            起点秒, 终点秒 = float(终点秒), float(起点秒)
+        目标渲染器 = self._谱面渲染器
+        if bool(getattr(self, "_是否双踏板模式", False)) and int(玩家) == 2:
+            目标渲染器 = getattr(self, "_谱面渲染器_右", None)
+        try:
+            if 目标渲染器 is not None and hasattr(目标渲染器, "触发手键装饰击中特效"):
+                目标渲染器.触发手键装饰击中特效(
+                    str(方向),
+                    发生谱面秒=float(起点秒),
+                    结束谱面秒=float(终点秒),
+                )
+        except Exception:
+            pass
+
+    def _更新手键装饰事件自动触发(self):
+        事件列表 = list(getattr(self, "_手键装饰事件列表", []) or [])
+        if not 事件列表:
+            self._手键装饰触发游标 = 0
+            return
+        try:
+            当前谱面秒 = float(getattr(self, "_当前谱面秒", 0.0) or 0.0)
+        except Exception:
+            当前谱面秒 = 0.0
+        当前谱面秒 = float(max(0.0, 当前谱面秒))
+        游标 = int(getattr(self, "_手键装饰触发游标", 0) or 0)
+        游标 = int(max(0, min(int(游标), len(事件列表))))
+
+        # 允许 seek/回放时自动回拨游标，避免重复触发旧事件。
+        if 游标 > 0:
+            try:
+                前一事件秒 = float(
+                    getattr(事件列表[int(max(0, 游标 - 1))], "开始秒", 0.0) or 0.0
+                )
+            except Exception:
+                前一事件秒 = -99999.0
+            if float(当前谱面秒) + 0.05 < float(前一事件秒):
+                self._重置手键装饰自动触发状态(float(当前谱面秒))
+                游标 = int(getattr(self, "_手键装饰触发游标", 0) or 0)
+
+        触发容差 = 0.001
+        while 游标 < len(事件列表):
+            事件 = 事件列表[游标]
+            try:
+                开始秒 = float(getattr(事件, "开始秒", 0.0) or 0.0)
+            except Exception:
+                开始秒 = 0.0
+            if float(开始秒) > float(当前谱面秒) + float(触发容差):
+                break
+            if not bool(getattr(事件, "是否已触发自动特效", False)):
+                try:
+                    玩家序号 = int(getattr(事件, "玩家", 1) or 1)
+                except Exception:
+                    玩家序号 = 1
+                self._触发手键装饰击中特效(
+                    方向=str(getattr(事件, "方向", "") or ""),
+                    玩家=int(玩家序号),
+                    发生谱面秒=float(开始秒),
+                    结束谱面秒=float(getattr(事件, "结束秒", 开始秒) or 开始秒),
+                )
+                try:
+                    事件.是否已触发自动特效 = True
+                except Exception:
+                    pass
+            游标 += 1
+        self._手键装饰触发游标 = int(max(0, min(int(游标), len(事件列表))))
+
     def _按回报播放计数动画_到渲染器(self, 回报列表, 起始连击: int, 目标渲染器):
         if (not 回报列表) or (目标渲染器 is None):
             return
@@ -2795,6 +3072,8 @@ class 场景_谱面播放器(场景基类):
         return (左中心, 右中心)
 
     def _刷新布局调试设置(self, 强制: bool = False):
+        # 历史遗留布局调试器已停用，避免运行时反复读取调试配置文件。
+        return
         路径 = str(getattr(self, "_布局调试设置路径", "") or "").strip()
         try:
             当前系统秒 = float(time.perf_counter())
@@ -3097,6 +3376,18 @@ class 场景_谱面播放器(场景基类):
                     )
         except Exception:
             pass
+
+    def _绑定圆环频谱音频(self):
+        对象 = getattr(self, "_圆环频谱舞台装饰", None)
+        if 对象 is None:
+            return
+        self._初始化音频设备()
+        if not bool(getattr(self, "_音频可用", False)):
+            return
+        音频路径 = str(getattr(self, "_音频路径", "") or "").strip()
+        if (not 音频路径) or (not os.path.isfile(音频路径)):
+            return
+        对象.绑定音频(str(音频路径))
 
     def _背景亮度档位alpha(self) -> List[int]:
         # 按“20%一档”，并满足你要求的 0% 后回到 70%
@@ -3848,8 +4139,7 @@ class 场景_谱面播放器(场景基类):
 
             self._圆环频谱舞台装饰 = 圆环频谱舞台装饰()
             self._应用圆环频谱调试设置()
-            if self._音频路径 and os.path.isfile(self._音频路径):
-                self._圆环频谱舞台装饰.绑定音频(str(self._音频路径))
+            self._绑定圆环频谱音频()
         except Exception:
             self._圆环频谱舞台装饰 = None
 
@@ -4397,11 +4687,6 @@ class 场景_谱面播放器(场景基类):
             return
 
         try:
-            self._刷新布局调试设置(强制=True)
-        except Exception:
-            pass
-
-        try:
             self._刷新双踏板强制判定线y()
             self._双踏板入场锁定判定线y = int(
                 getattr(self, "_双踏板强制判定线y", getattr(self, "_判定线y", 0) or 0)
@@ -4445,7 +4730,6 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
         self.目标帧率 = self._取推荐目标帧率()
-        self._刷新布局调试设置(强制=True)
         self._错误提示 = ""
         默认背景遮罩alpha = int(round(255.0 * 0.70))
         try:
@@ -4853,6 +5137,10 @@ class 场景_谱面播放器(场景基类):
         self._事件 = []
         self._事件左渲染 = []
         self._事件右渲染 = []
+        self._手键装饰事件列表 = []
+        self._手键装饰事件左渲染 = []
+        self._手键装饰事件右渲染 = []
+        self._手键装饰触发游标 = 0
         self._谱面列数 = 5
         self._谱面chart类型 = ""
         self._是否双踏板模式 = bool(优先双踏板)
@@ -4888,6 +5176,7 @@ class 场景_谱面播放器(场景基类):
                 try:
                     (
                         事件,
+                        手键装饰事件,
                         偏移,
                         总时长,
                         列数,
@@ -4912,12 +5201,17 @@ class 场景_谱面播放器(场景基类):
                         for 事件项 in 事件
                         if 0 <= int(getattr(事件项, "轨道序号", -1)) < int(self._轨道数)
                     ]
+                    self._手键装饰事件列表 = list(手键装饰事件 or [])
                     self._offset = float(偏移)
                     self._谱面总时长秒 = float(总时长)
                 except Exception as 异常:
                     self._事件 = []
                     self._事件左渲染 = []
                     self._事件右渲染 = []
+                    self._手键装饰事件列表 = []
+                    self._手键装饰事件左渲染 = []
+                    self._手键装饰事件右渲染 = []
+                    self._手键装饰触发游标 = 0
                     self._谱面列数 = 5
                     self._谱面chart类型 = ""
                     self._是否双踏板模式 = False
@@ -4938,6 +5232,7 @@ class 场景_谱面播放器(场景基类):
                     事件, 偏移, 总时长, 列数, charttype, bpms_beat = _构建_sm事件列表(
                         self._sm路径, 优先double=bool(优先双踏板)
                     )
+                    self._手键装饰事件列表 = []
                     self._sm_bpms = list(bpms_beat or [])
                     self._谱面列数 = int(max(1, int(列数 or 5)))
                     self._谱面chart类型 = str(charttype or "")
@@ -4960,6 +5255,10 @@ class 场景_谱面播放器(场景基类):
                     self._事件 = []
                     self._事件左渲染 = []
                     self._事件右渲染 = []
+                    self._手键装饰事件列表 = []
+                    self._手键装饰事件左渲染 = []
+                    self._手键装饰事件右渲染 = []
+                    self._手键装饰触发游标 = 0
                     self._谱面列数 = 5
                     self._谱面chart类型 = ""
                     self._是否双踏板模式 = False
@@ -4994,6 +5293,7 @@ class 场景_谱面播放器(场景基类):
         self._事件.sort(key=lambda 事件项: float(事件项.开始秒))
         self._刷新谱面时间轴()
         self._拆分双踏板渲染事件()
+        self._重置手键装饰自动触发状态(0.0)
 
         self._入场系统秒 = time.perf_counter()
         self._总血量HP = int(self._初始血量HP)
@@ -5019,8 +5319,7 @@ class 场景_谱面播放器(场景基类):
 
                 self._圆环频谱舞台装饰 = 圆环频谱舞台装饰()
                 self._应用圆环频谱调试设置()
-                if self._音频路径 and os.path.isfile(self._音频路径):
-                    self._圆环频谱舞台装饰.绑定音频(str(self._音频路径))
+                self._绑定圆环频谱音频()
             except Exception as 异常:
                 self._圆环频谱舞台装饰 = None
                 self._错误提示 = (
@@ -5028,6 +5327,11 @@ class 场景_谱面播放器(场景基类):
                 ) + f"圆环频谱初始化失败（mp3解码/加载问题）：{type(异常).__name__} {异常}"
 
         self._初始化字体()
+        try:
+            # 个人资料资源仅在入场时强制刷新一次，避免游戏中每帧触发文件系统检查。
+            self._刷新个人资料资源缓存(强制=True)
+        except Exception:
+            pass
 
         self._上次系统秒 = time.perf_counter()
         self._重算布局(强制=True)
@@ -5220,6 +5524,12 @@ class 场景_谱面播放器(场景基类):
         if self._播放中:
             self._当前谱面秒 = float(time.perf_counter() - float(self._起始系统秒))
 
+        # JSON 手键装饰：独立自动触发（不进入判定/计分链）
+        try:
+            self._更新手键装饰事件自动触发()
+        except Exception:
+            pass
+
         # 玩法更新（miss + hold tick）
         if self._判定系统 is not None and self._计分系统 is not None:
             try:
@@ -5407,7 +5717,6 @@ class 场景_谱面播放器(场景基类):
     def 绘制(self):
         绘制开始秒 = time.perf_counter()
         屏幕: pygame.Surface = self.上下文["屏幕"]
-        self._刷新布局调试设置()
         屏幕宽, 屏幕高 = 屏幕.get_size()
 
         if (屏幕宽, 屏幕高) != tuple(self._屏幕尺寸):
@@ -5579,10 +5888,6 @@ class 场景_谱面播放器(场景基类):
                 self._GPU谱面诊断行列表 = []
             if bool(双踏板模式) and bool(getattr(self, "_双踏板入场待首帧校正", False)):
                 try:
-                    self._刷新布局调试设置(强制=True)
-                except Exception:
-                    pass
-                try:
                     self._刷新双踏板强制判定线y()
                     self._双踏板入场锁定判定线y = int(self._取当前判定线y("左"))
                 except Exception:
@@ -5606,12 +5911,19 @@ class 场景_谱面播放器(场景基类):
 
             if bool(双踏板模式):
                 原事件列表_左 = getattr(self, "_事件左渲染", []) or []
+                原手键列表_左 = getattr(self, "_手键装饰事件左渲染", []) or []
             else:
                 原事件列表_左 = getattr(self, "_事件", []) or []
+                原手键列表_左 = getattr(self, "_手键装饰事件列表", []) or []
             事件列表_左 = (
                 原事件列表_左
                 if isinstance(原事件列表_左, list)
                 else list(原事件列表_左)
+            )
+            手键列表_左 = (
+                原手键列表_左
+                if isinstance(原手键列表_左, list)
+                else list(原手键列表_左)
             )
             输入 = 渲染输入(
                 当前谱面秒=float(self._当前谱面秒),
@@ -5627,6 +5939,7 @@ class 场景_谱面播放器(场景基类):
                 滚动速度px每秒=float(self._滚动速度px每秒),
                 箭头目标宽=int(箭头目标宽),
                 事件列表=事件列表_左,
+                手键装饰事件列表=手键列表_左,
                 显示_判定=str(判定),
                 显示_连击=int(连击),
                 显示_分数=int(分数),
@@ -5724,6 +6037,12 @@ class 场景_谱面播放器(场景基类):
                     if isinstance(原事件列表_右, list)
                     else list(原事件列表_右)
                 )
+                原手键列表_右 = getattr(self, "_手键装饰事件右渲染", []) or []
+                手键列表_右 = (
+                    原手键列表_右
+                    if isinstance(原手键列表_右, list)
+                    else list(原手键列表_右)
+                )
                 输入右 = 渲染输入(
                     当前谱面秒=float(self._当前谱面秒),
                     总时长秒=float(self._谱面总时长秒),
@@ -5740,6 +6059,7 @@ class 场景_谱面播放器(场景基类):
                     滚动速度px每秒=float(self._滚动速度px每秒),
                     箭头目标宽=int(箭头目标宽),
                     事件列表=事件列表_右,
+                    手键装饰事件列表=手键列表_右,
                     显示_判定=str(判定),
                     显示_连击=int(连击),
                     显示_分数=int(分数),
@@ -6523,6 +6843,7 @@ class 场景_谱面播放器(场景基类):
             pass
 
         self._重置渲染器瞬态表现()
+        self._重置手键装饰自动触发状态(float(新秒))
         self._判定光 = [0.0] * 5
 
     # ---------------- 判定光 ----------------
@@ -7302,7 +7623,6 @@ class 场景_谱面播放器(场景基类):
 
     def _取头像图_懒加载(self) -> Optional[pygame.Surface]:
         try:
-            self._刷新个人资料资源缓存()
             return getattr(self, "_头像图缓存", None)
         except Exception:
             return None
@@ -7359,7 +7679,6 @@ class 场景_谱面播放器(场景基类):
 
     def _取昵称_懒加载(self) -> str:
         try:
-            self._刷新个人资料资源缓存()
             昵称 = str(getattr(self, "_昵称缓存", "") or "").strip()
             if 昵称:
                 return 昵称
@@ -7524,7 +7843,6 @@ class 场景_谱面播放器(场景基类):
 
     def _取段位图_懒加载(self) -> Optional[pygame.Surface]:
         try:
-            self._刷新个人资料资源缓存()
             return getattr(self, "_段位图缓存", None)
         except Exception:
             return None
@@ -8020,4 +8338,20 @@ class 场景_谱面播放器(场景基类):
             "背景视频重置进度": True,
             "结算背景截图": 结算背景截图,
             "选歌原始索引": int(self._载荷.get("选歌原始索引", -1) or -1),
+            "选歌收藏夹模式": bool(
+                self._载荷.get(
+                    "选歌收藏夹模式",
+                    self._载荷.get("选歌恢复收藏夹模式", False),
+                )
+            ),
+            "选歌收藏夹页码": max(
+                0,
+                int(
+                    self._载荷.get(
+                        "选歌收藏夹页码",
+                        self._载荷.get("选歌恢复收藏夹页码", 0),
+                    )
+                    or 0
+                ),
+            ),
         }

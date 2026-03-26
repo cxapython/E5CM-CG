@@ -1,8 +1,26 @@
 from __future__ import annotations
 
+import re
 from typing import Callable, Optional
 
 import pygame
+
+
+def _format_song_display_name(song_name: str) -> str:
+    text = str(song_name or "").strip().replace("_", " ")
+    if not text:
+        return ""
+    text = re.sub(r"\s*[#＃]\s*\d+\s*$", "", text).strip()
+    return text
+
+
+def _style_float(style: Optional[dict], key: str, fallback: float) -> float:
+    if not isinstance(style, dict):
+        return float(fallback)
+    try:
+        return float(style.get(key, fallback))
+    except Exception:
+        return float(fallback)
 
 
 def build_song_card_cache_key(
@@ -21,6 +39,7 @@ def build_song_card_cache_key(
         bool(cover_ready),
         int(getattr(song, "星级", 0) or 0),
         int(getattr(song, "序号", 0) or 0),
+        _format_song_display_name(str(getattr(song, "歌名", "") or "")),
         str(getattr(song, "bpm", "") or ""),
         int(play_count),
         bool(getattr(song, "是否VIP", False)),
@@ -56,6 +75,7 @@ def render_song_card_static_surface(
     draw_star_row: Callable[..., None],
     draw_index_badge: Callable[..., None],
     draw_mv_badge: Callable[..., None],
+    text_style: Optional[dict] = None,
 ) -> pygame.Surface:
     surface = pygame.Surface((frame_rect.w, frame_rect.h), pygame.SRCALPHA)
     surface.fill((0, 0, 0, 0))
@@ -71,7 +91,7 @@ def render_song_card_static_surface(
         pygame.draw.rect(surface, (30, 30, 40), local_cover_visible_rect)
 
     info_bar = pygame.Surface((local_info_rect.w, local_info_rect.h), pygame.SRCALPHA)
-    info_bar.fill((0, 0, 0, 145))
+    info_bar.fill((0, 0, 0, 118))
     surface.blit(info_bar, local_info_rect.topleft)
 
     draw_star_row(
@@ -83,10 +103,81 @@ def render_song_card_static_surface(
         每行最大=10,
     )
 
+    style = dict(text_style) if isinstance(text_style, dict) else {}
+    play_label_ratio = max(0.05, min(0.80, _style_float(style, "游玩次数标签字号占信息条高比", 0.16)))
+    play_number_ratio = max(0.05, min(0.80, _style_float(style, "游玩次数数字字号占信息条高比", 0.18)))
+    bpm_ratio = max(0.05, min(0.80, _style_float(style, "BPM字号占信息条高比", 0.20)))
+    play_min = max(6, int(round(_style_float(style, "游玩次数最小字号", 7))))
+    bpm_min = max(6, int(round(_style_float(style, "BPM最小字号", 8))))
+
+    play_label_size = max(play_min, int(local_info_rect.h * play_label_ratio))
+    play_number_size = max(play_min, int(local_info_rect.h * play_number_ratio))
+    bpm_size = max(bpm_min, int(local_info_rect.h * bpm_ratio))
+
+    song_name = _format_song_display_name(str(getattr(song, "歌名", "") or ""))
+    if song_name:
+        title_padding_x = max(6, int(local_info_rect.w * 0.06))
+        min_top = int(local_star_rect.bottom + max(1, int(local_info_rect.h * 0.01)))
+        title_bottom = int(local_play_rect.y - max(1, int(local_info_rect.h * 0.015)))
+        title_height = max(12, int(local_info_rect.h * 0.26))
+        title_top = int(title_bottom - title_height)
+        if title_top < min_top:
+            title_top = min_top
+
+        title_rect = pygame.Rect(
+            int(local_info_rect.x + title_padding_x),
+            int(title_top),
+            int(max(12, local_info_rect.w - title_padding_x * 2)),
+            int(max(8, title_bottom - title_top)),
+        )
+        if title_rect.bottom > local_play_rect.y - 1:
+            title_rect.bottom = local_play_rect.y - 1
+
+        if title_rect.w >= 20 and title_rect.h >= 8:
+            try:
+                title_frame_ratio = max(
+                    0.04,
+                    min(0.50, _style_float(style, "歌名字号占框高比", 0.10)),
+                )
+                title_min_size = max(
+                    8, int(round(_style_float(style, "歌名最小字号", 8)))
+                )
+                title_vs_bpm_delta = int(
+                    round(_style_float(style, "歌名字号相对BPM增量", 2))
+                )
+                title_font_size = max(
+                    int(bpm_size + title_vs_bpm_delta),
+                    min(
+                        int(title_rect.h * 0.95),
+                        int(frame_rect.h * title_frame_ratio),
+                    ),
+                )
+                title_font = get_font(int(title_font_size), 是否粗体=False)
+                while (
+                    title_font.get_height() > title_rect.h
+                    and title_font_size > title_min_size
+                ):
+                    title_font_size -= 1
+                    title_font = get_font(int(title_font_size), 是否粗体=False)
+
+                title_surface = title_font.render(song_name, True, (248, 250, 255))
+                shadow_surface = title_font.render(song_name, True, (0, 0, 0))
+                title_x = int(title_rect.centerx - title_surface.get_width() // 2)
+                title_y = int(title_rect.centery - title_surface.get_height() // 2)
+                shadow_offset = max(1, int(title_rect.h * 0.10))
+
+                previous_clip = surface.get_clip()
+                try:
+                    surface.set_clip(title_rect)
+                    surface.blit(shadow_surface, (title_x, title_y + shadow_offset))
+                    surface.blit(title_surface, (title_x, title_y))
+                finally:
+                    surface.set_clip(previous_clip)
+
+            except Exception:
+                pass
+
     bpm_text = f"BPM:{getattr(song, 'bpm', '')}" if getattr(song, "bpm", None) else "BPM:?"
-    play_label_size = max(8, int(local_info_rect.h * 0.26))
-    play_number_size = max(8, int(local_info_rect.h * 0.28))
-    bpm_size = max(9, int(local_info_rect.h * 0.31))
     play_color = get_play_count_color(int(play_count))
 
     try:

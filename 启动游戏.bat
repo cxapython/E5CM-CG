@@ -1,1 +1,1 @@
-python main.py
+C:\Users\admin\Desktop\E5CM-CG\.venv\Scripts\python.exe main.py
