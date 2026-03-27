@@ -218,12 +218,12 @@ def bind_select_scene_host_adapter(select_game_cls, refresh_layout_constants):
             pass
 
         try:
-            if self.按钮_收藏夹.处理事件(event):
-                self._启动过渡(
-                    self._特效_按钮,
-                    self.按钮_收藏夹.矩形,
-                    self._切换收藏夹模式,
-                )
+            if self.按钮_收藏夹.处理事件:
+                try:
+                    self._播放按钮音效()
+                except Exception:
+                    pass
+                self._切换收藏夹模式()
         except Exception:
             pass
 

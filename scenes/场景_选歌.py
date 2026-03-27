@@ -19,6 +19,9 @@ from core.常量与路径 import (
     取调试配置路径 as _公共取调试配置路径,
 )
 from core.动态背景 import DynamicBackgroundContext, DynamicBackgroundManager
+from core.game_esc_menu_settings import (
+    GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW as _游戏esc图片幻灯片模式键,
+)
 from core.工具 import 获取字体 as _公共获取字体
 from core.图片缓存 import 本地图片缓存 as _本地图片缓存
 from core.sqlite_store import (

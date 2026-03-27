@@ -12,6 +12,7 @@ from core.game_esc_menu_settings import (
     GAME_ESC_SETTINGS_KEY_BINDINGS,
     GAME_ESC_SETTINGS_KEY_BPM_SCROLL_EFFECT,
     GAME_ESC_SETTINGS_KEY_CHART_VISUAL_OFFSET_MS,
+    GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW,
     PROFILE_DOUBLE,
     PROFILE_SINGLE,
     ArrowSkinOption,
@@ -41,6 +42,9 @@ from core.select_speed_settings import (
     get_select_scroll_speed_index,
     get_select_scroll_speed_options,
     parse_select_scroll_speed,
+)
+from core.select_scene_settings_layout import (
+    build_select_settings_param_text,
 )
 from core.sqlite_store import (
     SCOPE_GAME_ESC_MENU_SETTINGS,
@@ -82,9 +86,11 @@ class SelectSceneEscMenuHost:
         self._尺寸倍率 = 0.8
         self._背景模式 = "图片"
         self._动态背景模式 = "唱片"
+        self._背景文件名按关卡: Dict[str, str] = {}
         self._视频背景关闭 = True
         self._性能模式 = False
         self._是否自动模式 = False
+        self._图片幻灯片模式开启 = True
         self._是否双踏板模式 = False
         self._谱面视觉偏移毫秒 = 0
         self._BPM变速效果开启 = False
@@ -136,6 +142,48 @@ class SelectSceneEscMenuHost:
     def _取谱面偏移菜单文本(self) -> str:
         return format_chart_visual_offset_ms(getattr(self, "_谱面视觉偏移毫秒", 0))
 
+    def _取当前关卡(self) -> int:
+        状态 = self._context.get("状态", {}) if isinstance(self._context, dict) else {}
+        if not isinstance(状态, dict):
+            return 1
+        try:
+            数值 = int(状态.get("对局_当前把数", 1) or 1)
+        except Exception:
+            数值 = 1
+        return max(1, int(数值))
+
+    def _规范化关卡背景映射(self, 原始映射: object) -> Dict[str, str]:
+        if not isinstance(原始映射, dict):
+            return {}
+        可用集合 = {
+            str(getattr(选项, "file_name", "") or "").strip()
+            for 选项 in list(self._菜单背景选项 or [])
+            if str(getattr(选项, "file_name", "") or "").strip()
+        }
+        输出: Dict[str, str] = {}
+        for 原键, 原值 in 原始映射.items():
+            try:
+                关卡 = max(1, int(原键))
+            except Exception:
+                continue
+            文件名 = str(原值 or "").strip()
+            if not 文件名:
+                continue
+            if 可用集合 and 文件名 not in 可用集合:
+                continue
+            输出[str(int(关卡))] = 文件名
+        return 输出
+
+    def _同步关卡背景状态(self):
+        if not isinstance(self._context, dict):
+            return
+        状态 = self._context.get("状态", {})
+        if not isinstance(状态, dict):
+            return
+        状态["对局_关卡背景图"] = dict(
+            self._规范化关卡背景映射(getattr(self, "_背景文件名按关卡", {}))
+        )
+
     def _refresh_from_storage(self):
         select_data = read_scope(SCOPE_SELECT_SETTINGS)
         esc_data = read_scope(SCOPE_GAME_ESC_MENU_SETTINGS)
@@ -163,14 +211,27 @@ class SelectSceneEscMenuHost:
         self._动态背景模式 = str(params.get("动态背景", "唱片") or "唱片")
         self._性能模式 = bool(esc_data.get("性能模式", False))
         self._是否自动模式 = bool(esc_data.get(GAME_ESC_SETTINGS_KEY_AUTOPLAY, False))
+        self._图片幻灯片模式开启 = bool(
+            esc_data.get(GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW, True)
+        )
         self._谱面视觉偏移毫秒 = int(read_saved_chart_visual_offset_ms(esc_data))
         self._BPM变速效果开启 = bool(
             read_saved_bpm_scroll_effect(esc_data) or False
         )
         self._背景暗层alpha = int(max(0, min(255, int(esc_data.get("背景遮罩alpha", 179) or 179))))
 
+        当前关卡键 = str(int(self._取当前关卡()))
+        self._背景文件名按关卡 = self._规范化关卡背景映射(
+            select_data.get("背景文件名_按关卡", {})
+        )
+        当前背景文件名 = str(
+            self._背景文件名按关卡.get(
+                当前关卡键, select_data.get("背景文件名", "")
+            )
+            or ""
+        ).strip()
         self._当前背景选项 = resolve_background_option(
-            self._菜单背景选项, select_data.get("背景文件名", "")
+            self._菜单背景选项, 当前背景文件名
         )
         self._当前视频背景选项 = resolve_video_background_option(
             self._菜单视频背景选项, select_data.get("视频背景文件名", "")
@@ -178,8 +239,16 @@ class SelectSceneEscMenuHost:
         self._当前箭头选项 = resolve_arrow_skin_option(
             self._菜单箭头选项, select_data.get("箭头文件名", "")
         )
+        if self._当前背景选项 is not None:
+            当前背景文件名 = str(
+                getattr(self._当前背景选项, "file_name", "") or 当前背景文件名
+            ).strip()
+        if 当前背景文件名:
+            self._背景文件名按关卡[当前关卡键] = str(当前背景文件名)
+        self._同步关卡背景状态()
         self._载荷 = {
-            "背景文件名": str(getattr(self._当前背景选项, "file_name", "") or ""),
+            "背景文件名": str(当前背景文件名 or getattr(self._当前背景选项, "file_name", "") or ""),
+            "背景文件名_按关卡": dict(self._背景文件名按关卡),
             "视频背景文件名": str(getattr(self._当前视频背景选项, "file_name", "") or ""),
             "箭头文件名": str(getattr(self._当前箭头选项, "file_name", "") or ""),
             "关闭视频背景": bool(self._背景模式 != "视频"),
@@ -204,15 +273,34 @@ class SelectSceneEscMenuHost:
             "方向": str(self._方向模式 or "关闭"),
             "大小": self._取当前大小选项文本(),
         }
+        背景文件名 = str(getattr(self._当前背景选项, "file_name", "") or "")
+        视频背景文件名 = str(getattr(self._当前视频背景选项, "file_name", "") or "")
+        箭头文件名 = str(getattr(self._当前箭头选项, "file_name", "") or "")
+        当前关卡键 = str(int(self._取当前关卡()))
+        背景文件名按关卡 = self._规范化关卡背景映射(
+            getattr(self, "_背景文件名按关卡", {})
+        )
+        if 背景文件名:
+            背景文件名按关卡[当前关卡键] = str(背景文件名)
+        self._背景文件名按关卡 = dict(背景文件名按关卡)
+        self._同步关卡背景状态()
+        参数文本 = build_select_settings_param_text(
+            settings_params=params,
+            background_filename=背景文件名,
+            arrow_filename=箭头文件名,
+        )
         patch = {
             "设置参数": dict(params),
+            "设置参数文本": str(参数文本 or ""),
             "动态背景": str(动态背景模式 or "关闭"),
-            "背景文件名": str(getattr(self._当前背景选项, "file_name", "") or ""),
-            "视频背景文件名": str(getattr(self._当前视频背景选项, "file_name", "") or ""),
-            "箭头文件名": str(getattr(self._当前箭头选项, "file_name", "") or ""),
+            "背景文件名": str(背景文件名),
+            "背景文件名_按关卡": dict(背景文件名按关卡),
+            "视频背景文件名": str(视频背景文件名),
+            "箭头文件名": str(箭头文件名),
         }
         write_scope_patch(SCOPE_SELECT_SETTINGS, patch)
         self._载荷.update(patch)
+        self._载荷["设置参数"] = dict(params)
         self._载荷["关闭视频背景"] = bool(self._背景模式 != "视频")
 
     def _save_esc_scope_patch(self, patch: Dict[str, object]):
@@ -268,6 +356,19 @@ class SelectSceneEscMenuHost:
             if self._背景模式 == "动态背景" and self._动态背景模式 == "关闭":
                 self._动态背景模式 = str((self._菜单动态背景选项 or ["唱片"])[0])
             self._save_select_visual_settings()
+            return None
+
+        if key == "image_slideshow_mode":
+            self._图片幻灯片模式开启 = not bool(
+                getattr(self, "_图片幻灯片模式开启", True)
+            )
+            self._save_esc_scope_patch(
+                {
+                    GAME_ESC_SETTINGS_KEY_IMAGE_SLIDESHOW: bool(
+                        self._图片幻灯片模式开启
+                    )
+                }
+            )
             return None
 
         if key == "dynamic_background":
