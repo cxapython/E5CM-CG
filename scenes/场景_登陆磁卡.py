@@ -1,7 +1,7 @@
 import math
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pygame
 
@@ -44,16 +44,16 @@ class 缓存资源组:
 
 @dataclass
 class 布局框组:
-    top栏框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    个人中心框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    场景1游客框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    场景1vip框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    场景2游客框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    刷卡背景框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    刷卡内容框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    贵宾装饰框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    磁卡目标框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
-    磁卡当前框: pygame.Rect = pygame.Rect(0, 0, 1, 1)
+    top栏框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    个人中心框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    场景1游客框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    场景1vip框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    场景2游客框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    刷卡背景框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    刷卡内容框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    贵宾装饰框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    磁卡目标框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
+    磁卡当前框: pygame.Rect = field(default_factory=lambda: pygame.Rect(0, 0, 1, 1))
 
 
 @dataclass

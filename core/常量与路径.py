@@ -152,6 +152,13 @@ def _尝试迁移目录(目标目录: str, *旧目录列表: str) -> str:
 
 def 取运行根目录() -> str:
     try:
+        _meipass = getattr(sys, "_MEIPASS", None)
+        if _meipass and os.path.isdir(_meipass):
+            return os.path.abspath(_meipass)
+    except Exception:
+        pass
+
+    try:
         if getattr(sys, "frozen", False):
             return os.path.dirname(os.path.abspath(sys.executable))
     except Exception:
