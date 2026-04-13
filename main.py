@@ -5,6 +5,15 @@ import time
 import inspect
 import gc
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+if sys.platform == "darwin":
+    os.environ.setdefault("E5CM_SAFE_GC", "1")
+    os.environ.setdefault("E5CM_RENDER_BACKEND", "software")
+    os.environ.setdefault("E5CM_GPU_PIPELINE", "0")
+    os.environ.setdefault("E5CM_HIGHDPI_SAFE_LAUNCH", "off")
+    os.environ.setdefault("E5CM_VIDEO_DISABLE_GRAB", "1")
+    os.environ.setdefault("E5CM_VIDEO_DISABLE_DECODER", "1")
+    os.environ.setdefault("SDL_RENDER_DRIVER", "software")
+    os.environ.setdefault("SDL_VIDEODRIVER", "cocoa")
 import pygame
 from typing import Optional
 
