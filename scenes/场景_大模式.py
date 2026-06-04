@@ -31,9 +31,11 @@ class 场景_大模式(场景基类):
         资源 = self.上下文["资源"]
         根 = _公共取项目根目录(资源)
 
+        self._资源 = 资源 if isinstance(资源, dict) else {}
         self._背景视频 = self.上下文.get("背景视频")
         self._联网原图 = 安全加载图片(资源.get("投币_联网图标", ""), 透明=True)
         self._按钮音效 = 公用按钮音效(资源.get("按钮音效", ""))
+        self._背景图表面 = 安全加载图片(资源.get("背景_模式", ""), 透明=False)
 
         self._top栏原图 = 安全加载图片(
             os.path.join(根, "UI-img", "top栏", "top栏背景.png"), 透明=True
@@ -520,6 +522,8 @@ class 场景_大模式(场景基类):
             背景图 = self.上下文.get("缓存", {}).get("背景图_模式")
             if 背景图:
                 屏幕.blit(cover缩放(背景图, 宽, 高), (0, 0))
+            elif self._背景图表面:
+                屏幕.blit(cover缩放(self._背景图表面, 宽, 高), (0, 0))
 
         alpha = max(0, min(255, int(getattr(self, "_背景压暗_alpha", 120))))
         if alpha > 0:
