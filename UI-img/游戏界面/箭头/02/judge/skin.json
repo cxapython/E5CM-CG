@@ -1,140 +1,120 @@
 {
-  "frames": [
-    {
-      "filename": "text_pf1_combo.png",
-      "frame": {
-        "x": 2,
-        "y": 2,
-        "w": 512,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 512,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 512,
-        "h": 128
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    {
-      "filename": "text_pf1_cool.png",
-      "frame": {
-        "x": 516,
-        "y": 2,
-        "w": 512,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 512,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 512,
-        "h": 128
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    {
-      "filename": "text_pf1_good.png",
-      "frame": {
-        "x": 1030,
-        "y": 2,
-        "w": 512,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 512,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 512,
-        "h": 128
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    {
-      "filename": "text_pf1_miss.png",
-      "frame": {
-        "x": 2,
-        "y": 132,
-        "w": 512,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 512,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 512,
-        "h": 128
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    {
-      "filename": "text_pf1_perfect.png",
-      "frame": {
-        "x": 516,
-        "y": 132,
-        "w": 375,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 375,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 375,
-        "h": 128
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
+    "frames": [
+        {
+            "filename": "judge_combo.png",
+            "frame": {
+                "h": 110,
+                "w": 490,
+                "x": 372,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 110,
+                "w": 490
+            },
+            "spriteSourceSize": {
+                "h": 110,
+                "w": 490,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "judge_cool.png",
+            "frame": {
+                "h": 110,
+                "w": 322,
+                "x": 322,
+                "y": 220
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 110,
+                "w": 322
+            },
+            "spriteSourceSize": {
+                "h": 110,
+                "w": 322,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "judge_good.png",
+            "frame": {
+                "h": 110,
+                "w": 354,
+                "x": 372,
+                "y": 110
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 110,
+                "w": 354
+            },
+            "spriteSourceSize": {
+                "h": 110,
+                "w": 354,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "judge_miss.png",
+            "frame": {
+                "h": 110,
+                "w": 322,
+                "x": 0,
+                "y": 134
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 110,
+                "w": 322
+            },
+            "spriteSourceSize": {
+                "h": 110,
+                "w": 322,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "judge_perfect.png",
+            "frame": {
+                "h": 134,
+                "w": 372,
+                "x": 0,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 134,
+                "w": 372
+            },
+            "spriteSourceSize": {
+                "h": 134,
+                "w": 372,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        }
+    ],
+    "meta": {
+        "app": "askin",
+        "format": "RGBA8888",
+        "image": "skin.png",
+        "scale": 1,
+        "size": {
+            "h": 330,
+            "w": 862
+        },
+        "version": "1.0"
     }
-  ],
-  "meta": {
-    "app": "多页签皮肤打包器",
-    "version": "2.0",
-    "image": "skin.png",
-    "format": "RGBA8888",
-    "size": {
-      "w": 1544,
-      "h": 262
-    },
-    "scale": "1"
-  }
 }

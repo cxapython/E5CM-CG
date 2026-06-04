@@ -241,14 +241,6 @@ def render_song_card_static_surface(
         是否大图=False,
     )
 
-    if bool(getattr(song, "是否带MV", False)):
-        draw_mv_badge(
-            surface,
-            local_cover_rect,
-            local_frame_rect,
-            是否大图=False,
-        )
-
     if bool(getattr(song, "是否VIP", False)):
         vip_original = get_ui_image(vip_path, 透明=True)
         if vip_original is not None:

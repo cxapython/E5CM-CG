@@ -1,300 +1,771 @@
-{"frames": [
-
 {
-	"filename": "arrow_body_bb.png",
-	"frame": {"x":0,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_cc.png",
-	"frame": {"x":216,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_lb.png",
-	"frame": {"x":432,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_ll.png",
-	"frame": {"x":648,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_lt.png",
-	"frame": {"x":864,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_rb.png",
-	"frame": {"x":1080,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_rr.png",
-	"frame": {"x":1296,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_rt.png",
-	"frame": {"x":1512,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_body_tt.png",
-	"frame": {"x":1728,"y":0,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_mask_bb.png",
-	"frame": {"x":0,"y":279,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_mask_cc.png",
-	"frame": {"x":216,"y":279,"w":216,"h":84},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":84},
-	"sourceSize": {"w":216,"h":84}
-},
-{
-	"filename": "arrow_mask_lb.png",
-	"frame": {"x":432,"y":279,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_mask_ll.png",
-	"frame": {"x":648,"y":279,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_mask_lt.png",
-	"frame": {"x":864,"y":279,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_mask_rb.png",
-	"frame": {"x":1080,"y":279,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_mask_rr.png",
-	"frame": {"x":1296,"y":279,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_mask_rt.png",
-	"frame": {"x":1512,"y":279,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_mask_tt.png",
-	"frame": {"x":1728,"y":279,"w":216,"h":216},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":216},
-	"sourceSize": {"w":216,"h":216}
-},
-{
-	"filename": "arrow_repeat_bb.png",
-	"frame": {"x":0,"y":558,"w":216,"h":74},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":74},
-	"sourceSize": {"w":216,"h":74}
-},
-{
-	"filename": "arrow_repeat_cc.png",
-	"frame": {"x":216,"y":558,"w":216,"h":84},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":84},
-	"sourceSize": {"w":216,"h":84}
-},
-{
-	"filename": "arrow_repeat_lb.png",
-	"frame": {"x":432,"y":558,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_repeat_ll.png",
-	"frame": {"x":648,"y":558,"w":216,"h":72},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":72},
-	"sourceSize": {"w":216,"h":72}
-},
-{
-	"filename": "arrow_repeat_lt.png",
-	"frame": {"x":864,"y":558,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_repeat_rb.png",
-	"frame": {"x":1080,"y":558,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_repeat_rr.png",
-	"frame": {"x":1296,"y":558,"w":216,"h":72},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":72},
-	"sourceSize": {"w":216,"h":72}
-},
-{
-	"filename": "arrow_repeat_rt.png",
-	"frame": {"x":1512,"y":558,"w":216,"h":90},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":90},
-	"sourceSize": {"w":216,"h":90}
-},
-{
-	"filename": "arrow_repeat_tt.png",
-	"frame": {"x":1728,"y":558,"w":216,"h":74},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":74},
-	"sourceSize": {"w":216,"h":74}
-},
-{
-	"filename": "arrow_tail_bb.png",
-	"frame": {"x":0,"y":837,"w":216,"h":279},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":279},
-	"sourceSize": {"w":216,"h":279}
-},
-{
-	"filename": "arrow_tail_cc.png",
-	"frame": {"x":216,"y":837,"w":216,"h":157},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":157},
-	"sourceSize": {"w":216,"h":157}
-},
-{
-	"filename": "arrow_tail_lb.png",
-	"frame": {"x":432,"y":837,"w":216,"h":170},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":170},
-	"sourceSize": {"w":216,"h":170}
-},
-{
-	"filename": "arrow_tail_ll.png",
-	"frame": {"x":648,"y":837,"w":216,"h":279},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":279},
-	"sourceSize": {"w":216,"h":279}
-},
-{
-	"filename": "arrow_tail_lt.png",
-	"frame": {"x":864,"y":837,"w":216,"h":174},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":174},
-	"sourceSize": {"w":216,"h":174}
-},
-{
-	"filename": "arrow_tail_rb.png",
-	"frame": {"x":1080,"y":837,"w":216,"h":170},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":170},
-	"sourceSize": {"w":216,"h":170}
-},
-{
-	"filename": "arrow_tail_rr.png",
-	"frame": {"x":1296,"y":837,"w":216,"h":279},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":279},
-	"sourceSize": {"w":216,"h":279}
-},
-{
-	"filename": "arrow_tail_rt.png",
-	"frame": {"x":1512,"y":837,"w":216,"h":174},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":174},
-	"sourceSize": {"w":216,"h":174}
-},
-{
-	"filename": "arrow_tail_tt.png",
-	"frame": {"x":1728,"y":837,"w":216,"h":279},
-	"rotated": false,
-	"trimmed": false,
-	"spriteSourceSize": {"x":0,"y":0,"w":216,"h":279},
-	"sourceSize": {"w":216,"h":279}
-}],
-"meta": {
-	"app": "https://www.codeandweb.com/texturepacker",
-	"version": "1.0",
-	"image": "skin.png",
-	"format": "RGBA8888",
-	"size": {"w":1944,"h":1116},
-	"scale": "1",
-	"smartupdate": "$TexturePacker:SmartUpdate:5d303048abd8ddf9683e60fd174aa5ac:8df0c9ab0b93355c5cd345af1562478f:7a403c0f1de4950c4b2f4e76483f7a97$"
-}
+    "frames": [
+        {
+            "filename": "arrow_body_bb.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1342,
+                "y": 122
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_cc.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 244,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_lb.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 122,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_ll.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_lt.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1830,
+                "y": 122
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_rb.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1708,
+                "y": 122
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_rr.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1586,
+                "y": 122
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_rt.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1464,
+                "y": 122
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_body_tt.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1586,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_bb.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1098,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_cc.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1220,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_lb.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1342,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_ll.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1464,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_lt.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 366,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_rb.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1708,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_rr.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1830,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_rt.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1098,
+                "y": 122
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_mask_tt.png",
+            "frame": {
+                "h": 122,
+                "w": 122,
+                "x": 1220,
+                "y": 122
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 122,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 122,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_bb.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 854,
+                "y": 186
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_cc.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 732,
+                "y": 186
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_lb.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 610,
+                "y": 186
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_ll.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 488,
+                "y": 186
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_lt.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 976,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_rb.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 854,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_rr.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 732,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_rt.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 610,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_repeat_tt.png",
+            "frame": {
+                "h": 36,
+                "w": 122,
+                "x": 488,
+                "y": 150
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 36,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 36,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_bb.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 976,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_cc.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 122,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_lb.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 244,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_ll.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 366,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_lt.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 488,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_rb.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 610,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_rr.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 732,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_rt.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 854,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "arrow_tail_tt.png",
+            "frame": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 150,
+                "w": 122
+            },
+            "spriteSourceSize": {
+                "h": 150,
+                "w": 122,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        }
+    ],
+    "meta": {
+        "app": "askin",
+        "format": "RGBA8888",
+        "image": "skin.png",
+        "scale": 1,
+        "size": {
+            "h": 272,
+            "w": 1952
+        },
+        "version": "1.0"
+    }
 }

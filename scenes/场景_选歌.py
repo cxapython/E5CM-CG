@@ -4910,7 +4910,7 @@ def 找封面(歌曲路径: str) -> Optional[str]:
 
 def _谱面文件优先级(文件路径: str) -> int:
     扩展名 = os.path.splitext(str(文件路径 or ""))[1].lower()
-    return {".json": 3, ".ssc": 2, ".sm": 1, ".sma": 1}.get(扩展名, 0)
+    return {".ssc": 3, ".sm": 2, ".sma": 2, ".json": 1}.get(扩展名, 0)
 
 def _收集候选谱面文件(根目录: str) -> List[str]:
     if not os.path.isdir(根目录):
@@ -6175,17 +6175,6 @@ class 歌曲卡片:
                 框矩形,
                 pedal_highlight=bool(self.踏板高亮),
             )
-        try:
-            _绘制歌曲模式标记(
-                屏幕,
-                self.封面矩形,
-                self.歌曲,
-                是否大图=False,
-                透明度=255,
-            )
-        except Exception:
-            pass
-
 class 选歌游戏:
 
     def __init__(
@@ -7219,19 +7208,6 @@ class 选歌游戏:
             get_layout_pixel=self._取布局像素,
             needs_hot=_需要HOT标记,
         )
-        try:
-            锚点矩形 = getattr(self, "详情封面矩形", None)
-            if not isinstance(锚点矩形, pygame.Rect) or 锚点矩形.w <= 8:
-                锚点矩形 = 大框
-            _绘制歌曲模式标记(
-                self.屏幕,
-                锚点矩形,
-                歌,
-                是否大图=True,
-                透明度=int(alpha),
-            )
-        except Exception:
-            pass
 
     def 当前歌曲列表与映射(self) -> Tuple[List[歌曲信息], List[int]]:
         """

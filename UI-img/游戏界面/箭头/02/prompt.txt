@@ -1,0 +1,5 @@
+Necesito un script python que sea capaz de recibir el path a un directorio, parsear el infolist.json, y para cada pareja <skin.json, skin.png> por directorio definido en el campo file_md5_list, extraiga cada sprite por separado y los vuelque en un directorio definido como argumento. Considera el e5-310.zip adjunto apra entender como es el directorio de entrada y que elementos contiene.
+
+Finalmente, necesito otro script que tome ese directorio de salida del script anterior, y automaticamente haga su noteskin para Stepmania5/OutFox en modo ds3ddx-single (para E5: https://outfox.wiki/en/user-guide/games/ds3ddx) considerando unicamente los grupos "arrow" (para tap), "key" (para receptor), y "key_effect" (para explosion). Considera el boxy.zip adjunto como base y solo tendras que reemplazar los assets.
+
+Utiliza la funcion unzip de linux para descomprimir los zips
